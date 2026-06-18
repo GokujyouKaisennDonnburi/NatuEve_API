@@ -9,11 +9,14 @@ import (
 	_ "github.com/GokujyouKaisennDonnburi/NatuIve_API/docs"
 	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/config"
 	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/handler"
+	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/middleware"
 )
 
 // NewRouter は設定をもとに Gin のルーターを構築して返す。
 func NewRouter(cfg config.Config) (*gin.Engine, error) {
-	r := gin.Default()
+	// gin.Default() の代わりに slog 連携のロガー/リカバリを使う。
+	r := gin.New()
+	r.Use(middleware.SlogLogger(), middleware.SlogRecovery())
 
 	// 信頼するプロキシを設定（nil = どのプロキシも信頼しない）。
 	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
