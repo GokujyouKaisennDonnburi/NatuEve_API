@@ -38,6 +38,44 @@ docs/                  swag 生成物（docs.go / swagger.json|yaml）
 > `service` / `repository` / `model` は枠（doc.go）のみ。最初のデータ機能を追加するときに実装する。
 > 空のまま増やさず、必要になった層から埋めること。
 
+## 命名規則
+
+Go の標準スタイル（[Effective Go](https://go.dev/doc/effective_go) / [Go Code Review Comments](https://go.dev/wiki/CodeReviewComments)）に従う。`make fmt`（gofmt）と `make vet` を必ず通す。
+
+- **パッケージ名**: 小文字 1 語、アンダースコア・複数形にしない（`handler`, `config`。`handlers` や `user_service` は避ける）。ディレクトリ名 = パッケージ名にする。
+- **公開/非公開**: 外部公開する識別子は大文字始まり（`NewRouter`）、パッケージ内部のみは小文字始まり（`registerRoutes`）。**公開は必要なものだけ**にする。
+- **イニシャリズム**: 頭字語は大小をそろえる（`ID` / `URL` / `HTTP` / `API`。`Id` `Url` は不可。例: `userID`, `JWKSURL`）。
+- **コンストラクタ**: `NewXxx`（例: `NewHealthHandler`）。
+- **interface 名**: 単一メソッドは「メソッド名 + er」（`Reader`）。リポジトリは役割で命名（`UserRepository`）。
+- **変数名**: スコープが狭いほど短く（ループの `i`、レシーバは 1〜2 文字）。スコープが広いほど説明的に。
+- **エラー**: センチネルは `ErrXxx`、型は `XxxError`。`err` の使い回しでよい。
+- **ファイル名**: 小文字スネーク不可、ロワーキャメルも使わない。機能単位で小文字（`health.go`, `logger.go`）。テストは `xxx_test.go`。
+- **環境変数**: 大文字スネーク（`TRUSTED_PROXIES`, `SUPABASE_JWKS_URL`）。
+
+## godoc / ドキュメントコメント
+
+公開要素には godoc コメントを書く。`go doc ./internal/...` や pkg.go.dev と同じ形式で読める。
+
+- **対象**: 公開（大文字始まり）の型・関数・メソッド・パッケージには原則コメントを付ける。非公開でも意図が非自明なら書く。
+- **書き出しは名前から**: `// NewRouter は ...` のように **要素名で始める**（godoc がそのまま見出しにする）。
+- **パッケージコメント**: 各パッケージに 1 つ。`doc.go` か主要ファイルの `package` 直前に `// Package xxx は ...` を書く（本リポジトリは `doc.go` 方式）。
+- **Swagger アノテーション**: ハンドラの godoc コメント内に `@Summary` 等を併記する（[Swagger](#api-ドキュメントswagger) 参照）。コメントとアノテーションは同じブロックにまとめる。
+- **整形**: コメントは平文＋空行で段落、コードは 1 タブインデント。`gofmt` がコメントも整える。
+
+例:
+```go
+// HealthHandler はヘルスチェック系のエンドポイントを担当する。
+type HealthHandler struct{}
+
+// Check はサーバーの稼働状態を返す。
+//
+//	@Summary	ヘルスチェック
+//	@Tags		system
+//	@Success	200	{object}	map[string]string
+//	@Router		/health [get]
+func (h *HealthHandler) Check(c *gin.Context) { ... }
+```
+
 ## コミット規約
 
 種別プレフィックス + 末尾に対象 Issue 番号 `#番号`。
