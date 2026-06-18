@@ -1,0 +1,23 @@
+basePath: /
+info:
+  contact: {}
+  description: NatuIve のバックエンド API
+  title: NatuIve API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: サーバーが正常に稼働しているか確認する
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: ヘルスチェック
+      tags:
+      - system
+swagger: "2.0"
