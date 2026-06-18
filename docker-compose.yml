@@ -1,10 +1,10 @@
-# 開発用: コンテナ内で `go run .` を実行する。
+# 開発用: コンテナ内で `go run ./cmd/api` を実行する。
 # ソースをマウントしているので、再起動すれば変更が反映される。
 services:
   api:
     image: golang:1.26.4-alpine
     working_dir: /app
-    command: go run .
+    command: go run ./cmd/api
     ports:
       - "8080:8080"
     volumes:

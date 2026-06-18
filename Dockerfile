@@ -10,7 +10,7 @@ RUN go mod download
 COPY . .
 
 # 静的バイナリをビルド（distroless で動かすため CGO 無効）
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /server .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /server ./cmd/api
 
 # ---- runtime stage ----
 FROM gcr.io/distroless/static-debian12:nonroot
