@@ -102,11 +102,52 @@ func (h *HealthHandler) Check(c *gin.Context) { ... }
 
 ## API ドキュメント（Swagger）
 
-- ハンドラのアノテーション（コメント）や `cmd/api/main.go` の `@title` 等から生成する。
-- **アノテーションを変更したら必ず `make swag` で `docs/` を再生成してコミットする。**
-- `docs/` はリポジトリにコミットする運用。CI の `make swag-check` が再生成漏れを検知して落とす。
-- swag のバージョンは `Makefile` の `SWAG_VERSION` で固定（go.mod の `swaggo/swag` と一致させる）。
-- UI: サーバ起動後に `http://localhost:8080/swagger/index.html`。
+ハンドラのコメントに書いた `@Summary` 等のアノテーションから OpenAPI を生成し、Swagger UI で見られる。
+UI: サーバ起動後に `http://localhost:8080/swagger/index.html`。
+
+### 生成の仕組み（2 フェーズ）
+
+```
+[1. 生成] make swag (swag init)
+   Go のコメント ──静的解析(AST)──> docs/docs.go・swagger.json・swagger.yaml
+
+[2. 配信] サーバ起動時
+   docs を blank import ──init() で登録──> gin-swagger が /swagger で配信
+```
+
+1. **生成**: `make swag`（= `swag init`）が**サーバを起動せず、ソースのコメントを解析**して `docs/` を作る。
+   - `cmd/api/main.go` の `@title` `@version` `@BasePath` … 全体情報
+   - 各ハンドラの `@Summary` `@Tags` `@Success` `@Router` … 各エンドポイント
+   - `--parseInternal` / `--parseDependency` で `internal/` と依存先の型も解析する。
+2. **配信**: `internal/server/router.go` が `_ "…/docs"` を **blank import** → `docs.go` の `init()` が spec を登録 → `gin-swagger` が `/swagger/*` で UI と `doc.json` を返す。
+
+> **重要: swag は Gin のルート（`r.GET(...)`）を見ない。** `@Router /health [get]` という**コメントの文字列だけ**で spec を作る。
+> そのため実ルートと `@Router` がズレるとドキュメントと実装が食い違うので、両方を一致させること。
+
+### 自動生成ではない（手動 → コミット）
+
+コメントを変えただけでは反映されない。**自分で `make swag` を実行して `docs/` を作り直し、コミットする。**
+
+```bash
+# ハンドラの @Summary 等を編集したら
+make swag
+git add docs/ && git commit -m "docs: swagger 再生成 #1"
+```
+
+- `docs/` はリポジトリにコミットする運用（ビルドや起動時には生成せず、コミット済みの `docs/` を読む）。
+- swag のバージョンは `Makefile` の `SWAG_VERSION` で固定（go.mod の `swaggo/swag` と一致させ、版違いの差分を防ぐ）。
+
+### 最新かは CI でチェックされる
+
+`make swag-check` が **再生成して差分が出たら失敗**する。再生成漏れを自動で検知する仕組み。
+
+```make
+swag-check: swag                  # ① docs/ を再生成
+	git diff --exit-code ./docs   # ② 差分があれば exit 1（＝失敗）
+```
+
+- 一致していれば差分ゼロで成功。再生成し忘れていれば差分が出て失敗する。
+- CI（[後述](#ci-github-actions)）の PR ごとに走る。**検知するだけで自動修正はしない**ので、落ちたら上記の手順で `make swag` → コミットする。
 
 ## CI（GitHub Actions）
 
