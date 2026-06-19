@@ -33,11 +33,15 @@ cp .env.example .env
 ## 動作確認
 
 ### 開発（Docker Compose）
-ソースをマウントしてコンテナ内で `go run .` を実行する。
+ソースをマウントしてコンテナ内で [Air](https://github.com/air-verse/air) を実行する。
+**ソースを編集すると自動で再ビルド・再起動される（ホットリロード）。** 設定は `.air.toml`。
 
 ```bash
 docker compose up        # 起動（停止は Ctrl+C → docker compose down）
 ```
+
+> 初回起動時は Air の導入（バージョン固定）とビルドで少し時間がかかる。
+> モジュール／ビルドキャッシュは named volume に永続化されるため、2 回目以降は速い。
 
 別ターミナルでヘルスチェック:
 ```bash

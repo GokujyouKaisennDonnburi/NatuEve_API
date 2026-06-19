@@ -1,17 +1,21 @@
-# 開発用: コンテナ内で `go run ./cmd/api` を実行する。
-# ソースをマウントしているので、再起動すれば変更が反映される。
+# 開発用: コンテナ内で Air を実行し、ソース変更を検知して自動で再ビルド・再起動する。
+# ソースをマウントしているので、ホスト側の編集がそのままホットリロードされる。
 services:
   api:
     image: golang:1.26.4-alpine
     working_dir: /app
-    command: go run ./cmd/api
+    # Air をバージョン固定で導入してから起動する。設定は .air.toml。
+    command: sh -c "go install github.com/air-verse/air@v1.63.6 && air"
     ports:
       - "8080:8080"
     volumes:
       - .:/app
       # モジュールキャッシュを永続化して毎回のダウンロードを避ける
       - go-mod-cache:/go/pkg/mod
+      # ビルドキャッシュも永続化して air の再ビルドを高速化する
+      - go-build-cache:/root/.cache/go-build
     # PORT / TRUSTED_PROXIES などはマウントした .env を godotenv が読み込む
 
 volumes:
   go-mod-cache:
+  go-build-cache:

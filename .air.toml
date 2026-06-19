@@ -1,0 +1,21 @@
+# Air 設定。`docker compose up`（または `air`）でソース変更を検知し自動再ビルド・再起動する。
+# 公式: https://github.com/air-verse/air
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # cmd/api をビルドして tmp/main を生成する。
+  cmd = "go build -o ./tmp/main ./cmd/api"
+  bin = "./tmp/main"
+  # 監視対象の拡張子。
+  include_ext = ["go", "env"]
+  # 監視から除外するディレクトリ（生成物・ドキュメント・一時物）。
+  exclude_dir = ["tmp", "api", "docs", ".git", ".github"]
+  # ファイル変更からビルドまでの遅延(ms)。保存連打時の多重ビルドを抑える。
+  delay = 1000
+  # ビルド失敗時は古いバイナリを再起動せず、エラーを表示したまま待機する。
+  stop_on_error = true
+
+[misc]
+  # 終了時に tmp_dir を削除する。
+  clean_on_exit = true
