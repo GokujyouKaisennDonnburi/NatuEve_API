@@ -7,6 +7,10 @@ SWAG ?= $(shell go env GOPATH)/bin/swag
 SWAG_ENTRY := cmd/api/main.go
 SWAG_OUT := ./api
 
+# golangci-lint も CI と揃えるためバージョンを固定する。
+GOLANGCI_VERSION := v2.12.2
+GOLANGCI ?= $(shell go env GOPATH)/bin/golangci-lint
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -36,6 +40,14 @@ fmt: ## フォーマット
 .PHONY: vet
 vet: ## go vet
 	go vet ./...
+
+.PHONY: lint-install
+lint-install: ## golangci-lint をインストール (バージョン固定)
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(shell go env GOPATH)/bin $(GOLANGCI_VERSION)
+
+.PHONY: lint
+lint: ## golangci-lint を実行
+	$(GOLANGCI) run ./...
 
 .PHONY: swag-install
 swag-install: ## swag CLI をインストール (バージョン固定)

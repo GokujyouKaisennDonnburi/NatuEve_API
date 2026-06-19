@@ -12,6 +12,8 @@
 | `make build` | ビルド確認 |
 | `make test` | テスト実行 |
 | `make tidy` / `make fmt` / `make vet` | 依存整理 / 整形 / 静的解析 |
+| `make lint-install` | golangci-lint を導入（バージョン固定） |
+| `make lint` | golangci-lint を実行（`.golangci.yml`） |
 | `make swag-install` | swag CLI を導入（バージョン固定） |
 | `make swag` | OpenAPI ドキュメント（`api/`）を再生成 |
 | `make swag-check` | `api/` が最新か検証（CI用。差分があれば失敗） |
@@ -156,9 +158,12 @@ swag-check: swag                 # ① api/ を再生成
 
 `main` への push と全 PR で `.github/workflows/ci.yml` が動く。実行内容:
 
-`make swag-check`（docs 更新漏れ） → `make vet` → `make build` → `make test`
+`make swag-check`（docs 更新漏れ） → `make vet` → `make lint` → `make build` → `make test`
 
-ローカルでも同じ `make` ターゲットで再現できる。push 前に `make swag-check vet build test` を回すと CI を落としにくい。
+ローカルでも同じ `make` ターゲットで再現できる。push 前に `make swag-check vet lint build test` を回すと CI を落としにくい。
+
+> `make lint` には golangci-lint が必要。初回のみ `make lint-install`（バージョン固定）で導入する。
+> 設定は `.golangci.yml`（標準セット + bodyclose/errorlint/gocritic/gosec/misspell/revive、生成物の `api/` は対象外）。
 
 ## 実装時の注意点
 

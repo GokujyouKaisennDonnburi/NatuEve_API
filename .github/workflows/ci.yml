@@ -25,6 +25,12 @@ jobs:
       - name: Vet
         run: make vet
 
+      - name: Install golangci-lint (pinned)
+        run: make lint-install
+
+      - name: Lint
+        run: make lint
+
       - name: Build
         run: make build
 
