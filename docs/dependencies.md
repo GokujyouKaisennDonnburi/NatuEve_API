@@ -9,6 +9,8 @@
 |---|---|
 | [gin-gonic/gin](https://github.com/gin-gonic/gin) | HTTP ルーティング / ミドルウェア（Web フレームワーク） |
 | [joho/godotenv](https://github.com/joho/godotenv) | 開発時の `.env` 読み込み |
+| [jackc/pgx/v5](https://github.com/jackc/pgx) | PostgreSQL ドライバ（`pgx/stdlib` 経由で `database/sql` に接続） |
+| [pressly/goose/v3](https://github.com/pressly/goose) | DB マイグレーション（SQL を embed し起動時/CLI で適用。[Database.md](./Database.md)） |
 
 ## 導入予定（コード未使用のため go mod tidy で go.mod から外れている）
 

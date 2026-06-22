@@ -26,6 +26,10 @@ cp .env.example .env
 |---|---|---|
 | `PORT` | サーバの待ち受けポート | `8080` |
 | `TRUSTED_PROXIES` | 信頼するプロキシ（カンマ区切り CIDR/IP）。未設定なら全プロキシを信頼しない。本番でプロキシ越しに置く場合に設定 | （未設定） |
+| `DATABASE_URL` | Postgres 接続文字列。未設定なら DB に接続せず起動する | （未設定） |
+| `DB_AUTO_MIGRATE` | `true` で起動時にマイグレーションを自動適用（開発用）。本番は `false` | `false` |
+
+> DB・マイグレーションの詳細（接続文字列の例・`make migrate-*`・本番での適用手順）は [Database.md](./Database.md) を参照。
 
 依存ライブラリの一覧と用途は [dependencies.md](./dependencies.md) を参照。
 

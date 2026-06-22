@@ -10,6 +10,7 @@ docker コマンドは基本使わない。make経由で使用する。
 
 | コマンド | 用途 |
 |---|---|
+| `make setup` | 初期セットアップ（`.env` 作成・依存取得・CLI 一括導入） |
 | `make up` | docker compose up 開発用コンテナの起動 |
 | `make down` | docker compose down 開発用コンテナの停止 |
 | `make build` | ビルド確認 |
@@ -20,7 +21,12 @@ docker コマンドは基本使わない。make経由で使用する。
 | `make swag-install` | swag CLI を導入（バージョン固定） |
 | `make swag` | OpenAPI ドキュメント（`api/`）を再生成 |
 | `make swag-check` | `api/` が最新か検証（CI用。差分があれば失敗） |
+| `make migrate-install` | goose CLI を導入（バージョン固定） |
+| `make migrate-create name=…` / `migrate-up` / `migrate-down` / `migrate-status` | マイグレーション操作（[Database.md](./Database.md)） |
 | `make run` | 基本使わない。ローカルでサーバ起動（`go run ./cmd/api`） |
+
+> **初回は `make setup`** で `.env` 作成・依存取得・各 CLI（swag / golangci-lint / goose）の導入をまとめて行える。
+> DB・マイグレーションの詳細は [Database.md](./Database.md) を参照。
 
 ## ディレクトリ構成と責務
 

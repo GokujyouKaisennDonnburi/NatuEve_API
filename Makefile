@@ -27,7 +27,14 @@ endif
 
 .PHONY: help
 help: ## このヘルプを表示
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "} {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
+
+.PHONY: setup
+setup: ## 初期セットアップ (.env 作成・依存取得・CLI 一括導入)
+	@test -f .env || (cp .env.example .env && echo ".env を .env.example から作成しました")
+	go mod download
+	$(MAKE) swag-install lint-install migrate-install
+	@echo "セットアップ完了。'make up' で開発用コンテナを起動できます"
 
 .PHONY: run
 run: ## ローカルでサーバを起動 (go run)
