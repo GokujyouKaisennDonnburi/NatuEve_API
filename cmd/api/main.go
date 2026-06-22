@@ -14,6 +14,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/GokujyouKaisennDonnburi/NatuIve_API/db"
 	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/config"
 	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/server"
 )
@@ -41,6 +42,24 @@ func run() error {
 	}
 
 	cfg := config.Load()
+
+	// DATABASE_URL があれば DB へ接続する(未設定なら DB なしで起動)。
+	if cfg.DatabaseURL != "" {
+		sqlDB, err := db.Open(context.Background(), cfg.DatabaseURL)
+		if err != nil {
+			return fmt.Errorf("connect database: %w", err)
+		}
+		defer func() { _ = sqlDB.Close() }()
+		slog.Info("database connected")
+
+		// 開発用: AutoMigrate が有効なら起動時にマイグレーションを適用する。
+		if cfg.AutoMigrate {
+			if err := db.Migrate(context.Background(), sqlDB); err != nil {
+				return fmt.Errorf("apply migrations: %w", err)
+			}
+			slog.Info("migrations applied")
+		}
+	}
 
 	r, err := server.NewRouter(cfg)
 	if err != nil {

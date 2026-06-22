@@ -36,3 +36,38 @@ jobs:
 
       - name: Test
         run: make test
+
+  migrate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: natuive
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U app -d natuive"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://app:app@localhost:5432/natuive?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install goose (pinned)
+        run: make migrate-install
+
+      - name: Apply migrations
+        run: make migrate-up
+
+      - name: Verify down/up roundtrip
+        run: make migrate-down && make migrate-up
