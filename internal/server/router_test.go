@@ -18,7 +18,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestHealthEndpoint(t *testing.T) {
-	r, err := NewRouter(config.Config{})
+	r, err := NewRouter(config.Config{}, nil)
 	if err != nil {
 		t.Fatalf("NewRouter() returned error: %v", err)
 	}
