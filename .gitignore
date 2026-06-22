@@ -10,3 +10,7 @@
 
 # Air のビルド出力（ホットリロード用の一時バイナリ）
 /tmp/
+
+# Claude Code (個人設定 — コミットしない)
+CLAUDE.local.md
+.claude/settings.local.json
