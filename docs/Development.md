@@ -121,7 +121,25 @@ func (h *HealthHandler) Check(c *gin.Context) { ... }
 ハンドラのコメントに書いた `@Summary` 等のアノテーションから OpenAPI を生成し、Swagger UI で見られる。
 UI: サーバ起動後に `http://localhost:8080/swagger/index.html`。
 
-### 生成の仕組み（2 フェーズ）
+### swaggerUIでの検証方法
+
+#### googleにリダイレクトするURL
+
+https://[.env参照].supabase.co/auth/v1/authorize?provider=google&redirect_to=http://localhost:3003
+
+#### swaggerのAuthorizeに入れる値
+
+Bearer + access_token= ~ &expires_atまでの値
+
+入れるとログイン状態になる
+
+#### 実行
+
+ParametersのTry it out　を実行する
+
+すると試せる
+
+#### 生成の仕組み（2 フェーズ）
 
 ```
 [1. 生成] make swag (swag init)
