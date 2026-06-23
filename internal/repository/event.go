@@ -10,9 +10,12 @@ import (
 
 // EventRepository は events テーブルへのアクセスを抽象化する。
 type EventRepository interface {
-	// ListSummaries は作成日時の降順でイベントサマリーを取得する。
-	// 同一作成日時のレコードは uuid 昇順で安定ソートする。
-	ListSummaries(ctx context.Context, limit, offset int) ([]model.EventSummary, error)
+	// ListSummaries は指定されたソート順でイベントサマリーを取得する。
+	// sort は "created_at" または "event_date"、order は "asc" または "desc"。
+	// 同一ソートキーのレコードは id 昇順で安定ソートする。
+	ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error)
+	// CountSummaries は events テーブルの全件数を返す。
+	CountSummaries(ctx context.Context) (int, error)
 }
 
 // eventPostgres は EventRepository の PostgreSQL 実装。
@@ -25,14 +28,41 @@ func NewEventRepository(db *sql.DB) EventRepository {
 	return &eventPostgres{db: db}
 }
 
-// ListSummaries は一覧表示に必要なカラムのみ SELECT する。
-// description / external_url / capacity / updated_at は取得しない。
-func (r *eventPostgres) ListSummaries(ctx context.Context, limit, offset int) ([]model.EventSummary, error) {
-	const query = `
+// listSummariesQueries は (sort, order) の組み合わせから安全なクエリ文字列へのマップ。
+// ユーザー入力を直接 SQL に埋め込まず、ホワイトリストから固定文字列を選ぶ。
+var listSummariesQueries = map[string]string{
+	"event_date:asc": `
+		SELECT id, title, event_date, location, profile_id, created_at
+		FROM events
+		ORDER BY event_date ASC, id
+		LIMIT $1 OFFSET $2`,
+	"event_date:desc": `
+		SELECT id, title, event_date, location, profile_id, created_at
+		FROM events
+		ORDER BY event_date DESC, id
+		LIMIT $1 OFFSET $2`,
+	"created_at:asc": `
+		SELECT id, title, event_date, location, profile_id, created_at
+		FROM events
+		ORDER BY created_at ASC, id
+		LIMIT $1 OFFSET $2`,
+	"created_at:desc": `
 		SELECT id, title, event_date, location, profile_id, created_at
 		FROM events
 		ORDER BY created_at DESC, id
-		LIMIT $1 OFFSET $2`
+		LIMIT $1 OFFSET $2`,
+}
+
+// ListSummaries は一覧表示に必要なカラムのみ SELECT する。
+// description / external_url / capacity / updated_at は取得しない。
+// sort・order は呼び出し元（service 層）でホワイトリスト検証済みであることを前提とする。
+func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
+	key := sort + ":" + order
+	query, ok := listSummariesQueries[key]
+	if !ok {
+		// フォールバック: created_at DESC（service 層で正規化済みのため通常到達しない）。
+		query = listSummariesQueries["created_at:desc"]
+	}
 
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
@@ -70,4 +100,15 @@ func (r *eventPostgres) ListSummaries(ctx context.Context, limit, offset int) ([
 		summaries = []model.EventSummary{}
 	}
 	return summaries, nil
+}
+
+// CountSummaries は events テーブルの全件数を返す。
+func (r *eventPostgres) CountSummaries(ctx context.Context) (int, error) {
+	const query = `SELECT COUNT(*) FROM events`
+
+	var count int
+	if err := r.db.QueryRowContext(ctx, query).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count event summaries: %w", err)
+	}
+	return count, nil
 }

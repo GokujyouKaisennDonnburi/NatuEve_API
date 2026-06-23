@@ -22,5 +22,12 @@ type EventSummary struct {
 //
 // swag 用注釈のためにラッパー型を定義する。
 type EventListResponse struct {
+	// Events はイベントサマリーの一覧。
 	Events []EventSummary `json:"events"`
+	// TotalCount はフィルタなし全件数。クライアントが最終ページ offset を算出するために使う。
+	TotalCount int `json:"totalCount" example:"153"`
+	// Limit は正規化後の実際に使われた取得件数。
+	Limit int `json:"limit" example:"20"`
+	// Offset は正規化後の実際に使われた取得開始位置。
+	Offset int `json:"offset" example:"0"`
 }
