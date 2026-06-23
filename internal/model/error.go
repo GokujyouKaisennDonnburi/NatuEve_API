@@ -8,11 +8,14 @@ type ErrorResponse struct {
 }
 
 // ErrorBody は ErrorResponse のエラー本体。
+//
+// example は全エンドポイント共有の図示用。実際の code/message はエラーごとに
+// 異なる（認証エラーなら unauthorized 等）ため、特定の状況を連想させない中立な値にしている。
 type ErrorBody struct {
 	// Code は機械可読なエラーコード。
-	Code string `json:"code" example:"unauthorized"`
+	Code string `json:"code" example:"internal_error"`
 	// Message は人間向けのエラーメッセージ。
-	Message string `json:"message" example:"認証が必要です"`
+	Message string `json:"message" example:"サーバー内部でエラーが発生しました"`
 }
 
 // NewErrorResponse は code と message から ErrorResponse を組み立てる。

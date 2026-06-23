@@ -123,12 +123,12 @@ const docTemplate = `{
                 "code": {
                     "description": "Code は機械可読なエラーコード。",
                     "type": "string",
-                    "example": "unauthorized"
+                    "example": "internal_error"
                 },
                 "message": {
                     "description": "Message は人間向けのエラーメッセージ。",
                     "type": "string",
-                    "example": "認証が必要です"
+                    "example": "サーバー内部でエラーが発生しました"
                 }
             }
         },

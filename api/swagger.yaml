@@ -4,11 +4,11 @@ definitions:
     properties:
       code:
         description: Code は機械可読なエラーコード。
-        example: unauthorized
+        example: internal_error
         type: string
       message:
         description: Message は人間向けのエラーメッセージ。
-        example: 認証が必要です
+        example: サーバー内部でエラーが発生しました
         type: string
     type: object
   github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorResponse:
