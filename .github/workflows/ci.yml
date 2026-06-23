@@ -63,11 +63,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install goose (pinned)
-        run: make migrate-install
-
       - name: Apply migrations
-        run: make migrate-up
+        run: make migrate-up GOOSE_EXEC='sh -c'
 
       - name: Verify down/up roundtrip
-        run: make migrate-down && make migrate-up
+        run: make migrate-down GOOSE_EXEC='sh -c' && make migrate-up GOOSE_EXEC='sh -c'

@@ -33,21 +33,20 @@ postgres://app:app@localhost:5432/natuive?sslmode=disable
 ```
 
 - **docker compose 利用時**は `docker-compose.yml` の `api` サービスで `DATABASE_URL`（`@db:5432`）と `DB_AUTO_MIGRATE=true` を自動設定するため、`.env` 側は未設定でよい。
-- **ローカルで直接 Postgres に繋ぐ / `make migrate-*` を使う**場合は `.env` の `DATABASE_URL` を有効化する。
+- **`make migrate-*` は `make up` で起動中の api コンテナ内で実行**し、接続先はコンテナの `DATABASE_URL`（`db:5432`）を使う。コンテナを使わずホストから実行する場合は `GOOSE_EXEC='sh -c'` を付け、`.env` 等で `DATABASE_URL` を設定する。
 - 本番は `.env` を使わず実行環境の環境変数で注入する（機密は `.env` にコミットしない）。
 
 ## make コマンド
 
 | コマンド | 用途 |
 |---|---|
-| `make setup` | 初期セットアップ（`.env` 作成・依存取得・CLI 一括導入。goose 含む） |
-| `make migrate-install` | goose CLI を導入（バージョン固定 `GOOSE_VERSION`） |
+| `make setup` | 初期セットアップ（`.env` 作成・依存取得・CLI 一括導入） |
 | `make migrate-create name=create_xxx` | マイグレーション雛形を作成 |
 | `make migrate-up` | マイグレーションを最新まで適用 |
 | `make migrate-down` | マイグレーションを 1 つ戻す |
 | `make migrate-status` | 適用状況を表示 |
 
-> `migrate-*` は `DATABASE_URL` を使う。Makefile は `.env` を自動読み込みするので、`.env` に `DATABASE_URL` があればそのまま動く。CI など `.env` が無い環境ではシェルの環境変数が使われる。
+> `migrate-*` はデフォルトで api コンテナ内（`docker compose exec api`）で goose を実行し、コンテナの環境変数 `DATABASE_URL`（`db:5432`）を使う。CI や本番のように compose を使わない環境では `make migrate-up GOOSE_EXEC='sh -c'` のようにホスト実行へ切り替え、`DATABASE_URL` はシェルの環境変数から取得する。
 
 ## 開発の流れ
 
@@ -62,11 +61,12 @@ make up   # db 起動 → api 起動時に migrate up が走る
 
 ### ローカルで直接動かす
 
-別途 Postgres を用意し、`.env` の `DATABASE_URL` を設定したうえで:
+別途 Postgres を用意し、`DATABASE_URL` を設定したうえで（compose を使わないのでホスト実行に切り替える）:
 
 ```bash
-make migrate-up   # 手動で適用
-make run          # サーバ起動
+DATABASE_URL=postgres://app:app@localhost:5432/natuive?sslmode=disable \
+  make migrate-up GOOSE_EXEC='sh -c'   # 手動で適用
+make run                               # サーバ起動
 ```
 
 ## マイグレーションの書き方
@@ -100,7 +100,7 @@ DROP TABLE example;
 デプロイ手順の中で明示的に適用する。
 
 ```bash
-DATABASE_URL=... make migrate-up
+DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
 ```
 
 ## CI での検証
