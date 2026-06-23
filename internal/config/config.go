@@ -18,6 +18,12 @@ type Config struct {
 	// AutoMigrate が true なら起動時にマイグレーションを自動適用する(開発用)。
 	// 本番では false にし、デプロイ手順で `make migrate-up` を実行する。
 	AutoMigrate bool
+	// SupabaseJWKSURL は Supabase Auth の JWKS エンドポイント。
+	// 空なら認証付きルート(user API)を登録しない。
+	SupabaseJWKSURL string
+	// SupabaseJWTAudience は検証時に要求する JWT の aud クレーム。
+	// 未設定なら Supabase の既定値 "authenticated"。
+	SupabaseJWTAudience string
 }
 
 // Load は環境変数から Config を構築する。
@@ -37,6 +43,11 @@ func Load() Config {
 	if v := os.Getenv("DB_AUTO_MIGRATE"); v != "" {
 		// パースできない値は false 扱い(明示的に true/1 のときだけ有効)。
 		cfg.AutoMigrate, _ = strconv.ParseBool(v)
+	}
+	cfg.SupabaseJWKSURL = os.Getenv("SUPABASE_JWKS_URL")
+	cfg.SupabaseJWTAudience = os.Getenv("SUPABASE_JWT_AUD")
+	if cfg.SupabaseJWTAudience == "" {
+		cfg.SupabaseJWTAudience = "authenticated"
 	}
 	return cfg
 }

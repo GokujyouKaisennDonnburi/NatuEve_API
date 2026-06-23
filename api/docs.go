@@ -15,6 +15,43 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/api/v1/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "認証済みユーザー自身のプロフィールを返す(初回アクセス時に自動作成)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "本人プロフィール取得",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ProfileResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "サーバーが正常に稼働しているか確認する",
@@ -37,6 +74,29 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は機械可読なエラーコード。",
+                    "type": "string",
+                    "example": "unauthorized"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "認証が必要です"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorBody"
+                }
+            }
+        },
         "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.HealthResponse": {
             "type": "object",
             "properties": {
@@ -46,6 +106,49 @@ const docTemplate = `{
                     "example": "ok"
                 }
             }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ProfileResponse": {
+            "type": "object",
+            "properties": {
+                "avatarUrl": {
+                    "description": "AvatarURL はアバター画像 URL(未設定なら空)。",
+                    "type": "string",
+                    "example": "https://example.com/avatar.png"
+                },
+                "createdAt": {
+                    "description": "CreatedAt はプロフィール作成日時(RFC3339)。",
+                    "type": "string",
+                    "example": "2026-06-22T12:00:00Z"
+                },
+                "displayName": {
+                    "description": "DisplayName は表示名(未設定なら空)。",
+                    "type": "string",
+                    "example": "なちゅいべ太郎"
+                },
+                "email": {
+                    "description": "Email はユーザーのメールアドレス。",
+                    "type": "string",
+                    "example": "user@example.com"
+                },
+                "id": {
+                    "description": "ID は Supabase Auth のユーザー ID(UUID)。",
+                    "type": "string",
+                    "example": "d290f1ee-6c54-4b01-90e6-d701748f0851"
+                },
+                "updatedAt": {
+                    "description": "UpdatedAt はプロフィール更新日時(RFC3339)。",
+                    "type": "string",
+                    "example": "2026-06-22T12:00:00Z"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "description": "Supabase Auth が発行した JWT を \"Bearer \u003ctoken\u003e\" 形式で指定する",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
         }
     }
 }`

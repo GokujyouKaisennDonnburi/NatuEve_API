@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,10 +20,14 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/server"
 )
 
-// @title			NatuIve API
-// @version		1.0
-// @description	NatuIve のバックエンド API
-// @BasePath		/
+// @title						NatuIve API
+// @version					1.0
+// @description				NatuIve のバックエンド API
+// @BasePath					/
+// @securityDefinitions.apikey	BearerAuth
+// @in							header
+// @name						Authorization
+// @description				Supabase Auth が発行した JWT を "Bearer <token>" 形式で指定する
 func main() {
 	// 構造化ログ(JSON)を既定ロガーに設定する。
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -44,12 +49,15 @@ func run() error {
 	cfg := config.Load()
 
 	// DATABASE_URL があれば DB へ接続する(未設定なら DB なしで起動)。
+	// ルーター構築まで接続を生かすため、スコープを run() 全体に広げる。
+	var sqlDB *sql.DB
 	if cfg.DatabaseURL != "" {
-		sqlDB, err := db.Open(context.Background(), cfg.DatabaseURL)
+		conn, err := db.Open(context.Background(), cfg.DatabaseURL)
 		if err != nil {
 			return fmt.Errorf("connect database: %w", err)
 		}
-		defer func() { _ = sqlDB.Close() }()
+		defer func() { _ = conn.Close() }()
+		sqlDB = conn
 		slog.Info("database connected")
 
 		// 開発用: AutoMigrate が有効なら起動時にマイグレーションを適用する。
@@ -61,7 +69,7 @@ func run() error {
 		}
 	}
 
-	r, err := server.NewRouter(cfg)
+	r, err := server.NewRouter(cfg, sqlDB)
 	if err != nil {
 		return fmt.Errorf("build router: %w", err)
 	}
