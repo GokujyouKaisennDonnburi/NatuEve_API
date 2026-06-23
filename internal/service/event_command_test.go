@@ -9,11 +9,6 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
 )
 
-// ptr はテスト用の int ポインタ生成ヘルパー。
-func ptr(v int) *int {
-	return &v
-}
-
 // assertNoErr はテストヘルパー: エラーが nil でなければ fatal する。
 func assertNoErr(t *testing.T, err error) {
 	t.Helper()
@@ -87,7 +82,7 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 			name: "正常: 任意フィールドあり（Capacity・ExternalURL・Items・画像・PDF）",
 			req: func() model.CreateEventRequest {
 				r := validRequest()
-				r.Capacity = ptr(30)
+				r.Capacity = 30
 				r.ExternalURL = "https://example.com/event"
 				r.Items = []model.EventItemInput{
 					{Item: "双眼鏡", IsRequired: true},
@@ -98,8 +93,8 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 			}(),
 			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
 				t.Helper()
-				if e.Capacity == nil || *e.Capacity != 30 {
-					t.Errorf("Capacity: got %v", e.Capacity)
+				if e.Capacity != 30 {
+					t.Errorf("Capacity: got %v, want 30", e.Capacity)
 				}
 				if e.ExternalURL != "https://example.com/event" {
 					t.Errorf("ExternalURL: got %q", e.ExternalURL)
@@ -250,19 +245,38 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 			}(),
 		},
 		{
-			name: "異常: capacity が 0",
+			name: "正常: capacity が 0（未設定扱い）",
 			req: func() model.CreateEventRequest {
 				r := validRequest()
-				r.Capacity = ptr(0)
+				r.Capacity = 0
 				return r
 			}(),
-			wantValErr: true,
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				if e.Capacity != 0 {
+					t.Errorf("Capacity: got %v, want 0", e.Capacity)
+				}
+			},
+		},
+		{
+			name: "正常: capacity が正数",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.Capacity = 50
+				return r
+			}(),
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				if e.Capacity != 50 {
+					t.Errorf("Capacity: got %v, want 50", e.Capacity)
+				}
+			},
 		},
 		{
 			name: "異常: capacity が負値",
 			req: func() model.CreateEventRequest {
 				r := validRequest()
-				r.Capacity = ptr(-1)
+				r.Capacity = -1
 				return r
 			}(),
 			wantValErr: true,

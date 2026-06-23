@@ -111,9 +111,9 @@ func validateCreateEventRequest(req model.CreateEventRequest) error {
 		}
 	}
 
-	// Capacity（任意）: 指定時は 1 以上。
-	if req.Capacity != nil && *req.Capacity < 1 {
-		return &ValidationError{Message: "定員は1以上で入力してください"}
+	// Capacity（任意）: 0=未設定（許可）、負数=不正。
+	if req.Capacity < 0 {
+		return &ValidationError{Message: "定員は0以上で入力してください"}
 	}
 
 	// ExternalURL（任意）: 指定時は 255 文字以内かつ http/https の妥当な URL。

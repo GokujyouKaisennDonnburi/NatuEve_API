@@ -186,7 +186,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "capacity": {
-                    "description": "Capacity は定員（任意・1以上）。",
+                    "description": "Capacity は定員（任意・0=未設定・正数=定員）。",
                     "type": "integer",
                     "example": 30
                 },

@@ -8,13 +8,13 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
 )
 
-// nullInt32 は *int を sql.NullInt32 に変換する。nil の場合は無効な値として扱う。
-func nullInt32(p *int) sql.NullInt32 {
-	if p == nil {
+// nullInt32 は 0 を NULL として扱う（未設定を表す）。
+// capacity は定員数であり int32 の範囲内であることが仕様上保証されているため変換する。
+func nullInt32(n int) sql.NullInt32 {
+	if n == 0 {
 		return sql.NullInt32{}
 	}
-	// capacity は定員数であり int32 の範囲内であることが仕様上保証されているため変換する。
-	return sql.NullInt32{Int32: int32(*p), Valid: true} //nolint:gosec
+	return sql.NullInt32{Int32: int32(n), Valid: true} //nolint:gosec
 }
 
 // EventRepository は events テーブルへのアクセスを抽象化する。
