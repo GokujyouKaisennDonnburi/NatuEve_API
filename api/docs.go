@@ -184,15 +184,24 @@ const docTemplate = `{
         "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventRequest": {
             "description": "イベント投稿に必要な情報。",
             "type": "object",
+            "required": [
+                "costs",
+                "description",
+                "eventDate",
+                "location",
+                "title"
+            ],
             "properties": {
                 "capacity": {
                     "description": "Capacity は定員（任意・0=未設定・正数=定員）。",
                     "type": "integer",
+                    "minimum": 0,
                     "example": 30
                 },
                 "costs": {
                     "description": "Costs は費用内訳（1件以上必須）。",
                     "type": "array",
+                    "minItems": 1,
                     "items": {
                         "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventCostInput"
                     }
@@ -210,6 +219,7 @@ const docTemplate = `{
                 "externalUrl": {
                     "description": "ExternalURL は関連URLs（任意・255文字以内・http/https）。",
                     "type": "string",
+                    "maxLength": 255,
                     "example": "https://example.com/event"
                 },
                 "imageObjectKeys": {
@@ -229,6 +239,7 @@ const docTemplate = `{
                 "location": {
                     "description": "Location は開催場所（必須・255文字以内）。",
                     "type": "string",
+                    "maxLength": 255,
                     "example": "東京都新宿御苑"
                 },
                 "pdfObjectKeys": {
@@ -241,6 +252,7 @@ const docTemplate = `{
                 "title": {
                     "description": "Title はイベントタイトル（必須・255文字以内）。",
                     "type": "string",
+                    "maxLength": 255,
                     "example": "サクラ観察会"
                 }
             }
@@ -262,19 +274,27 @@ const docTemplate = `{
         },
         "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventCostInput": {
             "type": "object",
+            "required": [
+                "category"
+            ],
             "properties": {
                 "category": {
                     "description": "Category は費用カテゴリ（例: \"参加費\"）。",
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 255
                 },
                 "cost": {
                     "description": "Cost は費用（円）。0 以上の整数。",
-                    "type": "integer"
+                    "type": "integer",
+                    "minimum": 0
                 }
             }
         },
         "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventItemInput": {
             "type": "object",
+            "required": [
+                "item"
+            ],
             "properties": {
                 "isRequired": {
                     "description": "IsRequired は必須かどうか。",
@@ -282,7 +302,8 @@ const docTemplate = `{
                 },
                 "item": {
                     "description": "Item は持ち物名（例: \"双眼鏡\"）。",
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 255
                 }
             }
         },

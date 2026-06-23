@@ -6,11 +6,13 @@ definitions:
       capacity:
         description: Capacity は定員（任意・0=未設定・正数=定員）。
         example: 30
+        minimum: 0
         type: integer
       costs:
         description: Costs は費用内訳（1件以上必須）。
         items:
           $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventCostInput'
+        minItems: 1
         type: array
       description:
         description: Description はイベント説明（必須）。
@@ -23,6 +25,7 @@ definitions:
       externalUrl:
         description: ExternalURL は関連URLs（任意・255文字以内・http/https）。
         example: https://example.com/event
+        maxLength: 255
         type: string
       imageObjectKeys:
         description: ImageObjectKeys は画像オブジェクトキーの一覧（任意）。
@@ -37,6 +40,7 @@ definitions:
       location:
         description: Location は開催場所（必須・255文字以内）。
         example: 東京都新宿御苑
+        maxLength: 255
         type: string
       pdfObjectKeys:
         description: PdfObjectKeys はPDFオブジェクトキーの一覧（任意・各要素255文字以内）。
@@ -46,7 +50,14 @@ definitions:
       title:
         description: Title はイベントタイトル（必須・255文字以内）。
         example: サクラ観察会
+        maxLength: 255
         type: string
+    required:
+    - costs
+    - description
+    - eventDate
+    - location
+    - title
     type: object
   github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventResponse:
     properties:
@@ -63,10 +74,14 @@ definitions:
     properties:
       category:
         description: 'Category は費用カテゴリ（例: "参加費"）。'
+        maxLength: 255
         type: string
       cost:
         description: Cost は費用（円）。0 以上の整数。
+        minimum: 0
         type: integer
+    required:
+    - category
     type: object
   github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventItemInput:
     properties:
@@ -75,7 +90,10 @@ definitions:
         type: boolean
       item:
         description: 'Item は持ち物名（例: "双眼鏡"）。'
+        maxLength: 255
         type: string
+    required:
+    - item
     type: object
   github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventListResponse:
     properties:

@@ -5,15 +5,15 @@ import "time"
 // EventCostInput はイベント費用の入力 DTO（カテゴリと金額）。
 type EventCostInput struct {
 	// Category は費用カテゴリ（例: "参加費"）。
-	Category string `json:"category"`
+	Category string `json:"category" validate:"required,max=255"`
 	// Cost は費用（円）。0 以上の整数。
-	Cost int `json:"cost"`
+	Cost int `json:"cost" validate:"min=0"`
 }
 
 // EventItemInput はイベント持ち物の入力 DTO。
 type EventItemInput struct {
 	// Item は持ち物名（例: "双眼鏡"）。
-	Item string `json:"item"`
+	Item string `json:"item" validate:"required,max=255"`
 	// IsRequired は必須かどうか。
 	IsRequired bool `json:"isRequired"`
 }
@@ -23,25 +23,25 @@ type EventItemInput struct {
 //	@Description	イベント投稿に必要な情報。
 type CreateEventRequest struct {
 	// Title はイベントタイトル（必須・255文字以内）。
-	Title string `json:"title" example:"サクラ観察会"`
+	Title string `json:"title" example:"サクラ観察会" validate:"required,max=255"`
 	// Description はイベント説明（必須）。
-	Description string `json:"description" example:"春の桜を観察するイベントです。"`
+	Description string `json:"description" example:"春の桜を観察するイベントです。" validate:"required"`
 	// Location は開催場所（必須・255文字以内）。
-	Location string `json:"location" example:"東京都新宿御苑"`
+	Location string `json:"location" example:"東京都新宿御苑" validate:"required,max=255"`
 	// EventDate はイベント開催日時(RFC3339)（必須）。
-	EventDate time.Time `json:"eventDate" example:"2026-07-01T10:00:00Z"`
+	EventDate time.Time `json:"eventDate" example:"2026-07-01T10:00:00Z" validate:"required"`
 	// Capacity は定員（任意・0=未設定・正数=定員）。
-	Capacity int `json:"capacity,omitempty" example:"30"`
+	Capacity int `json:"capacity,omitempty" example:"30" validate:"min=0"`
 	// ExternalURL は関連URLs（任意・255文字以内・http/https）。
-	ExternalURL string `json:"externalUrl,omitempty" example:"https://example.com/event"`
+	ExternalURL string `json:"externalUrl,omitempty" example:"https://example.com/event" validate:"omitempty,max=255"`
 	// Costs は費用内訳（1件以上必須）。
-	Costs []EventCostInput `json:"costs"`
+	Costs []EventCostInput `json:"costs" validate:"required,min=1,dive"`
 	// Items は持ち物リスト（任意）。
-	Items []EventItemInput `json:"items,omitempty"`
+	Items []EventItemInput `json:"items,omitempty" validate:"omitempty,dive"`
 	// ImageObjectKeys は画像オブジェクトキーの一覧（任意）。
-	ImageObjectKeys []string `json:"imageObjectKeys,omitempty"`
+	ImageObjectKeys []string `json:"imageObjectKeys,omitempty" validate:"omitempty,dive"`
 	// PdfObjectKeys はPDFオブジェクトキーの一覧（任意・各要素255文字以内）。
-	PdfObjectKeys []string `json:"pdfObjectKeys,omitempty"`
+	PdfObjectKeys []string `json:"pdfObjectKeys,omitempty" validate:"omitempty,dive,max=255"`
 }
 
 // NewEvent は検証済みのイベントドメイン型。repository 層に渡す。
