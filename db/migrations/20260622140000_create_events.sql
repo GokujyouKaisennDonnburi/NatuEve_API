@@ -5,11 +5,11 @@ CREATE TABLE events (
     title VARCHAR(255) NOT NULL,
     description TEXT,
     location VARCHAR(255),
-    event_date TIMESTAMP NOT NULL,
+    event_date TIMESTAMPTZ NOT NULL,
 	capacity INTEGER,
 	external_url VARCHAR(255),
-	created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+	updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 -- +goose Down
 -- (ロールバック時はeventsを削除する)
