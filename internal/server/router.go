@@ -24,7 +24,7 @@ import (
 func NewRouter(cfg config.Config, sqlDB *sql.DB) (*gin.Engine, error) {
 	// gin.Default() の代わりに slog 連携のロガー/リカバリを使う。
 	r := gin.New()
-	r.Use(middleware.SlogLogger(), middleware.SlogRecovery())
+	r.Use(middleware.SlogLogger(), middleware.SlogRecovery(), middleware.CORS())
 
 	// 信頼するプロキシを設定（nil = どのプロキシも信頼しない）。
 	if err := r.SetTrustedProxies(cfg.TrustedProxies); err != nil {
