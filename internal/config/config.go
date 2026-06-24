@@ -24,6 +24,15 @@ type Config struct {
 	// SupabaseJWTAudience は検証時に要求する JWT の aud クレーム。
 	// 未設定なら Supabase の既定値 "authenticated"。
 	SupabaseJWTAudience string
+	// R2AccountID は Cloudflare R2 のアカウント ID。
+	// 空なら storage 系ルートを登録しない（JWKS gating と同じ方針）。
+	R2AccountID string
+	// R2AccessKeyID は R2 の S3 互換 API アクセスキー ID。
+	R2AccessKeyID string
+	// R2SecretAccessKey は R2 の S3 互換 API シークレットキー。
+	R2SecretAccessKey string
+	// R2Bucket は R2 バケット名。未設定なら "natuportal"。
+	R2Bucket string
 }
 
 // Load は環境変数から Config を構築する。
@@ -48,6 +57,13 @@ func Load() Config {
 	cfg.SupabaseJWTAudience = os.Getenv("SUPABASE_JWT_AUD")
 	if cfg.SupabaseJWTAudience == "" {
 		cfg.SupabaseJWTAudience = "authenticated"
+	}
+	cfg.R2AccountID = os.Getenv("R2_ACCOUNT_ID")
+	cfg.R2AccessKeyID = os.Getenv("R2_ACCESS_KEY_ID")
+	cfg.R2SecretAccessKey = os.Getenv("R2_SECRET_ACCESS_KEY")
+	cfg.R2Bucket = os.Getenv("R2_BUCKET")
+	if cfg.R2Bucket == "" {
+		cfg.R2Bucket = "natuportal"
 	}
 	return cfg
 }
