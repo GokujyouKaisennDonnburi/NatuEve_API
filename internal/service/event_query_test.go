@@ -16,11 +16,15 @@ type stubEventRepository struct {
 	gotOrder  string
 	gotLimit  int
 	gotOffset int
-	// 返却値。
+	// ListSummaries / CountSummaries 返却値。
 	results    []model.EventSummary
 	totalCount int
 	err        error
 	countErr   error
+	// Create 用: 受け取った引数と返却値。
+	gotNewEvent  *model.NewEvent
+	createResult model.CreateEventResponse
+	createErr    error
 }
 
 func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
@@ -33,6 +37,11 @@ func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order strin
 
 func (s *stubEventRepository) CountSummaries(_ context.Context) (int, error) {
 	return s.totalCount, s.countErr
+}
+
+func (s *stubEventRepository) Create(_ context.Context, e *model.NewEvent) (model.CreateEventResponse, error) {
+	s.gotNewEvent = e
+	return s.createResult, s.createErr
 }
 
 // makeHelper はテストヘルパー共通処理を担う。

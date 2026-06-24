@@ -2,6 +2,71 @@ package model
 
 import "time"
 
+// EventCostInput はイベント費用の入力 DTO（カテゴリと金額）。
+type EventCostInput struct {
+	// Category は費用カテゴリ（例: "参加費"）。
+	Category string `json:"category" validate:"required,max=255"`
+	// Cost は費用（円）。0 以上の整数。
+	Cost int `json:"cost" validate:"min=0"`
+}
+
+// EventItemInput はイベント持ち物の入力 DTO。
+type EventItemInput struct {
+	// Item は持ち物名（例: "双眼鏡"）。
+	Item string `json:"item" validate:"required,max=255"`
+	// IsRequired は必須かどうか。
+	IsRequired bool `json:"isRequired"`
+}
+
+// CreateEventRequest はイベント投稿エンドポイントのリクエストボディ DTO。
+//
+//	@Description	イベント投稿に必要な情報。
+type CreateEventRequest struct {
+	// Title はイベントタイトル（必須・255文字以内）。
+	Title string `json:"title" example:"サクラ観察会" validate:"required,max=255"`
+	// Description はイベント説明（必須）。
+	Description string `json:"description" example:"春の桜を観察するイベントです。" validate:"required"`
+	// Location は開催場所（必須・255文字以内）。
+	Location string `json:"location" example:"東京都新宿御苑" validate:"required,max=255"`
+	// EventDate はイベント開催日時(RFC3339)（必須）。
+	EventDate time.Time `json:"eventDate" example:"2026-07-01T10:00:00Z" validate:"required"`
+	// Capacity は定員（任意・0=未設定・正数=定員）。
+	Capacity int `json:"capacity,omitempty" example:"30" validate:"min=0"`
+	// ExternalURL は関連URLs（任意・255文字以内・http/https）。
+	ExternalURL string `json:"externalUrl,omitempty" example:"https://example.com/event" validate:"omitempty,max=255"`
+	// Costs は費用内訳（1件以上必須）。
+	Costs []EventCostInput `json:"costs" validate:"required,min=1,dive"`
+	// Items は持ち物リスト（任意）。
+	Items []EventItemInput `json:"items,omitempty" validate:"omitempty,dive"`
+	// ImageObjectKeys は画像オブジェクトキーの一覧（任意）。
+	ImageObjectKeys []string `json:"imageObjectKeys,omitempty" validate:"omitempty,dive"`
+	// PdfObjectKeys はPDFオブジェクトキーの一覧（任意・各要素255文字以内）。
+	PdfObjectKeys []string `json:"pdfObjectKeys,omitempty" validate:"omitempty,dive,max=255"`
+}
+
+// NewEvent は検証済みのイベントドメイン型。repository 層に渡す。
+type NewEvent struct {
+	ProfileID       string
+	Title           string
+	Description     string
+	Location        string
+	EventDate       time.Time
+	Capacity        int
+	ExternalURL     string
+	Costs           []EventCostInput
+	Items           []EventItemInput
+	ImageObjectKeys []string
+	PdfObjectKeys   []string
+}
+
+// CreateEventResponse はイベント投稿エンドポイントのレスポンス DTO。
+type CreateEventResponse struct {
+	// ID は生成されたイベントの UUID。
+	ID string `json:"id" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	// CreatedAt はレコード作成日時(RFC3339)。
+	CreatedAt time.Time `json:"createdAt" example:"2026-06-23T12:00:00Z"`
+}
+
 // EventSummary はイベント一覧で返す DTO（詳細フィールドは含まない）。
 type EventSummary struct {
 	// ID はイベントの一意識別子(UUID)。

@@ -1,20 +1,99 @@
 basePath: /
 definitions:
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorBody:
+  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventRequest:
+    description: イベント投稿に必要な情報。
     properties:
-      code:
-        description: Code は機械可読なエラーコード。
-        example: internal_error
+      capacity:
+        description: Capacity は定員（任意・0=未設定・正数=定員）。
+        example: 30
+        minimum: 0
+        type: integer
+      costs:
+        description: Costs は費用内訳（1件以上必須）。
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventCostInput'
+        minItems: 1
+        type: array
+      description:
+        description: Description はイベント説明（必須）。
+        example: 春の桜を観察するイベントです。
         type: string
-      message:
-        description: Message は人間向けのエラーメッセージ。
-        example: サーバー内部でエラーが発生しました
+      eventDate:
+        description: EventDate はイベント開催日時(RFC3339)（必須）。
+        example: "2026-07-01T10:00:00Z"
+        type: string
+      externalUrl:
+        description: ExternalURL は関連URLs（任意・255文字以内・http/https）。
+        example: https://example.com/event
+        maxLength: 255
+        type: string
+      imageObjectKeys:
+        description: ImageObjectKeys は画像オブジェクトキーの一覧（任意）。
+        items:
+          type: string
+        type: array
+      items:
+        description: Items は持ち物リスト（任意）。
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventItemInput'
+        type: array
+      location:
+        description: Location は開催場所（必須・255文字以内）。
+        example: 東京都新宿御苑
+        maxLength: 255
+        type: string
+      pdfObjectKeys:
+        description: PdfObjectKeys はPDFオブジェクトキーの一覧（任意・各要素255文字以内）。
+        items:
+          type: string
+        type: array
+      title:
+        description: Title はイベントタイトル（必須・255文字以内）。
+        example: サクラ観察会
+        maxLength: 255
+        type: string
+    required:
+    - costs
+    - description
+    - eventDate
+    - location
+    - title
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventResponse:
+    properties:
+      createdAt:
+        description: CreatedAt はレコード作成日時(RFC3339)。
+        example: "2026-06-23T12:00:00Z"
+        type: string
+      id:
+        description: ID は生成されたイベントの UUID。
+        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
         type: string
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorResponse:
+  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventCostInput:
     properties:
-      error:
-        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorBody'
+      category:
+        description: 'Category は費用カテゴリ（例: "参加費"）。'
+        maxLength: 255
+        type: string
+      cost:
+        description: Cost は費用（円）。0 以上の整数。
+        minimum: 0
+        type: integer
+    required:
+    - category
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventItemInput:
+    properties:
+      isRequired:
+        description: IsRequired は必須かどうか。
+        type: boolean
+      item:
+        description: 'Item は持ち物名（例: "双眼鏡"）。'
+        maxLength: 255
+        type: string
+    required:
+    - item
     type: object
   github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventListResponse:
     properties:
@@ -70,6 +149,22 @@ definitions:
         example: ok
         type: string
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorBody:
+    properties:
+      code:
+        description: Code は機械可読なエラーコード。
+        example: internal_error
+        type: string
+      message:
+        description: Message は人間向けのエラーメッセージ。
+        example: サーバー内部でエラーが発生しました
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorBody'
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ProfileResponse:
     properties:
       avatarUrl:
@@ -96,6 +191,38 @@ definitions:
         description: UpdatedAt はプロフィール更新日時(RFC3339)。
         example: "2026-06-22T12:00:00Z"
         type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorBody:
+    properties:
+      code:
+        description: Code は機械可読なエラーコード。
+        example: unauthorized
+        type: string
+      message:
+        description: Message は人間向けのエラーメッセージ。
+        example: 認証が必要です
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorBody'
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorBody:
+    properties:
+      code:
+        description: Code は機械可読なエラーコード。
+        example: invalid_request
+        type: string
+      message:
+        description: Message は人間向けのエラーメッセージ。
+        example: タイトルは必須です
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorBody'
     type: object
 info:
   contact: {}
@@ -136,8 +263,43 @@ paths:
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse'
       summary: イベント一覧取得
+      tags:
+      - event
+    post:
+      consumes:
+      - application/json
+      description: 認証済みユーザーが新規イベントを投稿する。
+      parameters:
+      - description: イベント投稿リクエスト
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: イベント投稿
       tags:
       - event
   /api/v1/me:
@@ -153,11 +315,11 @@ paths:
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse'
       security:
       - BearerAuth: []
       summary: 本人プロフィール取得

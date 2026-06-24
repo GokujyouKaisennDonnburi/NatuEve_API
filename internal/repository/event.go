@@ -8,6 +8,15 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
 )
 
+// nullInt32 は 0 を NULL として扱う（未設定を表す）。
+// capacity は定員数であり int32 の範囲内であることが仕様上保証されているため変換する。
+func nullInt32(n int) sql.NullInt32 {
+	if n == 0 {
+		return sql.NullInt32{}
+	}
+	return sql.NullInt32{Int32: int32(n), Valid: true} //nolint:gosec
+}
+
 // EventRepository は events テーブルへのアクセスを抽象化する。
 type EventRepository interface {
 	// ListSummaries は指定されたソート順でイベントサマリーを取得する。
@@ -16,6 +25,8 @@ type EventRepository interface {
 	ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error)
 	// CountSummaries は events テーブルの全件数を返す。
 	CountSummaries(ctx context.Context) (int, error)
+	// Create はイベントを関連テーブルとともにトランザクション内で一括登録する。
+	Create(ctx context.Context, e *model.NewEvent) (model.CreateEventResponse, error)
 }
 
 // eventPostgres は EventRepository の PostgreSQL 実装。
@@ -111,4 +122,84 @@ func (r *eventPostgres) CountSummaries(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("count event summaries: %w", err)
 	}
 	return count, nil
+}
+
+// Create はイベントを関連テーブル（費用・持ち物・画像・PDF）とともに
+// トランザクション内で一括登録する。
+func (r *eventPostgres) Create(ctx context.Context, e *model.NewEvent) (model.CreateEventResponse, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return model.CreateEventResponse{}, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// events テーブルへ INSERT し、生成 ID と作成日時を取得する。
+	const insertEvent = `
+		INSERT INTO events (id, profile_id, title, description, location, event_date, capacity, external_url)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, created_at`
+
+	var resp model.CreateEventResponse
+	err = tx.QueryRowContext(ctx, insertEvent,
+		e.ProfileID,
+		e.Title,
+		nullString(e.Description),
+		nullString(e.Location),
+		e.EventDate,
+		nullInt32(e.Capacity),
+		nullString(e.ExternalURL),
+	).Scan(&resp.ID, &resp.CreatedAt)
+	if err != nil {
+		return model.CreateEventResponse{}, fmt.Errorf("insert event: %w", err)
+	}
+
+	// event_costs テーブルへ INSERT する。
+	const insertCost = `
+		INSERT INTO event_costs (id, event_id, category, cost)
+		VALUES (gen_random_uuid(), $1, $2, $3)`
+
+	for _, c := range e.Costs {
+		if _, err := tx.ExecContext(ctx, insertCost, resp.ID, c.Category, c.Cost); err != nil {
+			return model.CreateEventResponse{}, fmt.Errorf("insert event cost: %w", err)
+		}
+	}
+
+	// event_items テーブルへ INSERT する。
+	const insertItem = `
+		INSERT INTO event_items (id, event_id, event_item, is_required)
+		VALUES (gen_random_uuid(), $1, $2, $3)`
+
+	for _, item := range e.Items {
+		if _, err := tx.ExecContext(ctx, insertItem, resp.ID, item.Item, item.IsRequired); err != nil {
+			return model.CreateEventResponse{}, fmt.Errorf("insert event item: %w", err)
+		}
+	}
+
+	// event_images テーブルへ INSERT する。
+	const insertImage = `
+		INSERT INTO event_images (id, event_id, image_objectkey)
+		VALUES (gen_random_uuid(), $1, $2)`
+
+	for _, key := range e.ImageObjectKeys {
+		if _, err := tx.ExecContext(ctx, insertImage, resp.ID, key); err != nil {
+			return model.CreateEventResponse{}, fmt.Errorf("insert event image: %w", err)
+		}
+	}
+
+	// event_pdfs テーブルへ INSERT する。
+	const insertPDF = `
+		INSERT INTO event_pdfs (id, event_id, pdf_objectkey)
+		VALUES (gen_random_uuid(), $1, $2)`
+
+	for _, key := range e.PdfObjectKeys {
+		if _, err := tx.ExecContext(ctx, insertPDF, resp.ID, key); err != nil {
+			return model.CreateEventResponse{}, fmt.Errorf("insert event pdf: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return model.CreateEventResponse{}, fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return resp, nil
 }

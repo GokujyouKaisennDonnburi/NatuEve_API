@@ -22,3 +22,47 @@ type ErrorBody struct {
 func NewErrorResponse(code, message string) ErrorResponse {
 	return ErrorResponse{Error: ErrorBody{Code: code, Message: message}}
 }
+
+// --- ドキュメント専用エラーレスポンス型 ---
+// 実体は ErrorResponse と同じ {"error": {"code","message"}} 形式。
+// swag がステータスコード別に異なる example を出力できるよう、型として分離している。
+// ランタイムでは使用せず、swaggerコメントの @Failure 参照専用。
+
+// ValidationErrorResponse は入力検証エラー(HTTP 400)のドキュメント用レスポンス型。
+type ValidationErrorResponse struct {
+	Error ValidationErrorBody `json:"error"`
+}
+
+// ValidationErrorBody は ValidationErrorResponse のエラー本体。
+type ValidationErrorBody struct {
+	// Code は機械可読なエラーコード。
+	Code string `json:"code" example:"invalid_request"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"タイトルは必須です"`
+}
+
+// UnauthorizedErrorResponse は認証エラー(HTTP 401)のドキュメント用レスポンス型。
+type UnauthorizedErrorResponse struct {
+	Error UnauthorizedErrorBody `json:"error"`
+}
+
+// UnauthorizedErrorBody は UnauthorizedErrorResponse のエラー本体。
+type UnauthorizedErrorBody struct {
+	// Code は機械可読なエラーコード。
+	Code string `json:"code" example:"unauthorized"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"認証が必要です"`
+}
+
+// InternalErrorResponse はサーバー内部エラー(HTTP 500)のドキュメント用レスポンス型。
+type InternalErrorResponse struct {
+	Error InternalErrorBody `json:"error"`
+}
+
+// InternalErrorBody は InternalErrorResponse のエラー本体。
+type InternalErrorBody struct {
+	// Code は機械可読なエラーコード。
+	Code string `json:"code" example:"internal_error"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"サーバー内部でエラーが発生しました"`
+}

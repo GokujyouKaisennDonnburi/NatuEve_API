@@ -28,8 +28,8 @@ func NewUserHandler(svc *service.ProfileService) *UserHandler {
 //	@Produce		json
 //	@Security		BearerAuth
 //	@Success		200	{object}	model.ProfileResponse
-//	@Failure		401	{object}	model.ErrorResponse
-//	@Failure		500	{object}	model.ErrorResponse
+//	@Failure		401	{object}	model.UnauthorizedErrorResponse
+//	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/me [get]
 func (h *UserHandler) GetMe(c *gin.Context) {
 	authUser, ok := middleware.AuthFromContext(c)

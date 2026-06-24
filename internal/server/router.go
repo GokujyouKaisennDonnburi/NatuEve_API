@@ -53,8 +53,13 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 
 	// events 一覧は公開エンドポイント。DB があれば JWKS の有無に関わらず登録する。
 	eventRepo := repository.NewEventRepository(sqlDB)
-	eventSvc := service.NewEventQueryService(eventRepo)
-	eventHandler := handler.NewEventHandler(eventSvc)
+	eventQuerySvc := service.NewEventQueryService(eventRepo)
+	eventCmdSvc := service.NewEventCommandService(eventRepo)
+
+	profileRepo := repository.NewProfileRepository(sqlDB)
+	profileSvc := service.NewProfileService(profileRepo)
+
+	eventHandler := handler.NewEventHandler(eventQuerySvc, eventCmdSvc, profileSvc)
 
 	v1Public := r.Group("/api/v1")
 	v1Public.GET("/events", eventHandler.List)
@@ -69,13 +74,12 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 		return err
 	}
 
-	profileRepo := repository.NewProfileRepository(sqlDB)
-	profileSvc := service.NewProfileService(profileRepo)
 	userHandler := handler.NewUserHandler(profileSvc)
 
 	v1 := r.Group("/api/v1")
 	v1.Use(verifier.RequireAuth())
 	v1.GET("/me", userHandler.GetMe)
+	v1.POST("/events", eventHandler.Create)
 
 	return nil
 }
