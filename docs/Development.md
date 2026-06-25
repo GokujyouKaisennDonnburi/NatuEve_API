@@ -118,7 +118,7 @@ func (h *HealthHandler) Check(c *gin.Context) { ... }
 ## API ドキュメント（Swagger）
 
 ハンドラのコメントに書いた `@Summary` 等のアノテーションから OpenAPI を生成し、Swagger UI で見られる。
-UI: サーバ起動後に `http://localhost:8080/swagger/index.html`。
+UI: サーバ起動後に `http://localhost:8085/swagger/index.html`。
 
 ### swaggerUIでの検証方法
 

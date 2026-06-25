@@ -24,7 +24,7 @@ cp .env.example .env
 
 | 変数 | 説明 | デフォルト |
 |---|---|---|
-| `PORT` | サーバの待ち受けポート | `8080` |
+| `PORT` | サーバの待ち受けポート | `8085` |
 | `TRUSTED_PROXIES` | 信頼するプロキシ（カンマ区切り CIDR/IP）。未設定なら全プロキシを信頼しない。本番でプロキシ越しに置く場合に設定 | （未設定） |
 | `DATABASE_URL` | Postgres 接続文字列。未設定なら DB に接続せず起動する | （未設定） |
 | `DB_AUTO_MIGRATE` | `true` で起動時にマイグレーションを自動適用（開発用）。本番は `false` | `false` |
@@ -49,7 +49,7 @@ make up        # 起動（中身は docker compose up。停止は Ctrl+C → mak
 
 別ターミナルでヘルスチェック:
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8085/health
 # => {"status":"ok"}
 ```
 
@@ -58,7 +58,7 @@ curl http://localhost:8080/health
 
 ```bash
 docker build -t natuive-api .
-docker run -p 8080:8080 --env-file .env natuive-api
+docker run -p 8085:8085 --env-file .env natuive-api
 ```
 
 ### Docker を使わない場合（任意）
@@ -73,7 +73,7 @@ go test ./...        # テスト
 
 ハンドラのアノテーションから OpenAPI を生成し、Swagger UI で確認できる。
 
-- UI: サーバ起動後に `http://localhost:8080/swagger/index.html`
+- UI: サーバ起動後に `http://localhost:8085/swagger/index.html`
 - 仕様の生成物: `api/`（`docs.go` / `swagger.json` / `swagger.yaml`）はコミット対象（手編集禁止）
 
 アノテーション(ハンドラのコメントや `cmd/api/main.go` の `@title` 等)を変更したら再生成する:

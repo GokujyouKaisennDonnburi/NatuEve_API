@@ -7,7 +7,7 @@ services:
     # Air をバージョン固定で導入してから起動する。設定は .air.toml。
     command: sh -c "go install github.com/air-verse/air@v1.63.6 && air"
     ports:
-      - "8080:8080"
+      - "8085:8085"
     volumes:
       - .:/app
       # モジュールキャッシュを永続化して毎回のダウンロードを避ける
