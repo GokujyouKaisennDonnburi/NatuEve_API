@@ -43,24 +43,32 @@ func NewEventRepository(db *sql.DB) EventRepository {
 // ユーザー入力を直接 SQL に埋め込まず、ホワイトリストから固定文字列を選ぶ。
 var listSummariesQueries = map[string]string{
 	"event_date:asc": `
-		SELECT id, title, event_date, location, profile_id, created_at
-		FROM events
-		ORDER BY event_date ASC, id
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		       p.id, p.display_name, p.avatar_url
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		ORDER BY e.event_date ASC, e.id
 		LIMIT $1 OFFSET $2`,
 	"event_date:desc": `
-		SELECT id, title, event_date, location, profile_id, created_at
-		FROM events
-		ORDER BY event_date DESC, id
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		       p.id, p.display_name, p.avatar_url
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		ORDER BY e.event_date DESC, e.id
 		LIMIT $1 OFFSET $2`,
 	"created_at:asc": `
-		SELECT id, title, event_date, location, profile_id, created_at
-		FROM events
-		ORDER BY created_at ASC, id
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		       p.id, p.display_name, p.avatar_url
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		ORDER BY e.created_at ASC, e.id
 		LIMIT $1 OFFSET $2`,
 	"created_at:desc": `
-		SELECT id, title, event_date, location, profile_id, created_at
-		FROM events
-		ORDER BY created_at DESC, id
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		       p.id, p.display_name, p.avatar_url
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		ORDER BY e.created_at DESC, e.id
 		LIMIT $1 OFFSET $2`,
 }
 
@@ -85,8 +93,11 @@ func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, l
 	for rows.Next() {
 		var s model.EventSummary
 		var (
-			location  sql.NullString
-			profileID sql.NullString
+			location    sql.NullString
+			profileID   sql.NullString
+			pID         sql.NullString
+			displayName sql.NullString
+			avatarURL   sql.NullString
 		)
 		if err := rows.Scan(
 			&s.ID,
@@ -95,11 +106,19 @@ func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, l
 			&location,
 			&profileID,
 			&s.CreatedAt,
+			&pID,
+			&displayName,
+			&avatarURL,
 		); err != nil {
 			return nil, fmt.Errorf("scan event summary: %w", err)
 		}
 		s.Location = location.String
 		s.ProfileID = profileID.String
+		s.Profile = model.ProfileSummary{
+			ID:          pID.String,
+			DisplayName: displayName.String,
+			AvatarURL:   avatarURL.String,
+		}
 		summaries = append(summaries, s)
 	}
 	if err := rows.Err(); err != nil {
