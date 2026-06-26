@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
 // nullInt32 は 0 を NULL として扱う（未設定を表す）。

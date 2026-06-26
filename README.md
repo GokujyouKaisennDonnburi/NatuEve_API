@@ -1,4 +1,4 @@
-# NatuIve API
+# NatuEve API
 
 なちゅいべのバックエンド。Web・モバイルから呼び出される API サーバー（Go / Gin 製）。
 

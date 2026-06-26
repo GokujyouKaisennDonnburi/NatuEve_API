@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
 // ErrProfileNotFound はプロフィールが存在しないことを表すセンチネルエラー。

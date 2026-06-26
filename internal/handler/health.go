@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
 // HealthHandler はヘルスチェック系のエンドポイントを担当する。

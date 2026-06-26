@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/config"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/config"
 )
 
 func TestMain(m *testing.M) {

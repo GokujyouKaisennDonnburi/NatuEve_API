@@ -1,4 +1,4 @@
-# NatuIve API 開発用タスク
+# NatuEve API 開発用タスク
 # 使い方: `make` または `make help` で一覧を表示
 
 # swag は go.mod の swaggo/swag と同じバージョンに固定する（生成物のブレを防ぐ）。

@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
 // ObjectStore は R2 などのオブジェクトストレージを抽象化するインターフェイス。

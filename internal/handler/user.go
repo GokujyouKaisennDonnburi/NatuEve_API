@@ -5,9 +5,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/middleware"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/service"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/middleware"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
 )
 
 // UserHandler はユーザー(プロフィール)系のエンドポイントを担当する。

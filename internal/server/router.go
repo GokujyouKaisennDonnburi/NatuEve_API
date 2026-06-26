@@ -9,13 +9,13 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 
 	// swag が生成する OpenAPI ドキュメント。init() で登録するため blank import する。
-	_ "github.com/GokujyouKaisennDonnburi/NatuIve_API/api"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/config"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/handler"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/middleware"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/repository"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/service"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/storage"
+	_ "github.com/GokujyouKaisennDonnburi/NatuEve_API/api"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/config"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/handler"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/middleware"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/storage"
 )
 
 // NewRouter は設定と DB 接続をもとに Gin のルーターを構築して返す。

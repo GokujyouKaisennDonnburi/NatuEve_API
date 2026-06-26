@@ -29,7 +29,7 @@ db/
 接続文字列の例:
 
 ```
-postgres://app:app@localhost:5432/natuive?sslmode=disable
+postgres://app:app@localhost:5432/NatuEve?sslmode=disable
 ```
 
 - **docker compose 利用時**は `docker-compose.yml` の `api` サービスで `DATABASE_URL`（`@db:5432`）と `DB_AUTO_MIGRATE=true` を自動設定するため、`.env` 側は未設定でよい。
@@ -64,7 +64,7 @@ make up   # db 起動 → api 起動時に migrate up が走る
 別途 Postgres を用意し、`DATABASE_URL` を設定したうえで（compose を使わないのでホスト実行に切り替える）:
 
 ```bash
-DATABASE_URL=postgres://app:app@localhost:5432/natuive?sslmode=disable \
+DATABASE_URL=postgres://app:app@localhost:5432/NatuEve?sslmode=disable \
   make migrate-up GOOSE_EXEC='sh -c'   # 手動で適用
 make run                               # サーバ起動
 ```

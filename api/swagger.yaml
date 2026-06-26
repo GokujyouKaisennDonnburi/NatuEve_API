@@ -1,6 +1,6 @@
 basePath: /
 definitions:
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventRequest:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest:
     description: イベント投稿に必要な情報。
     properties:
       capacity:
@@ -11,7 +11,7 @@ definitions:
       costs:
         description: Costs は費用内訳（1件以上必須）。
         items:
-          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventCostInput'
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCostInput'
         minItems: 1
         type: array
       description:
@@ -35,7 +35,7 @@ definitions:
       items:
         description: Items は持ち物リスト（任意）。
         items:
-          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventItemInput'
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventItemInput'
         type: array
       location:
         description: Location は開催場所（必須・255文字以内）。
@@ -59,7 +59,7 @@ definitions:
     - location
     - title
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventResponse:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventResponse:
     properties:
       createdAt:
         description: CreatedAt はレコード作成日時(RFC3339)。
@@ -70,7 +70,7 @@ definitions:
         example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
         type: string
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventCostInput:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCostInput:
     properties:
       category:
         description: 'Category は費用カテゴリ（例: "参加費"）。'
@@ -83,7 +83,7 @@ definitions:
     required:
     - category
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventItemInput:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventItemInput:
     properties:
       isRequired:
         description: IsRequired は必須かどうか。
@@ -95,12 +95,12 @@ definitions:
     required:
     - item
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventListResponse:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventListResponse:
     properties:
       events:
         description: Events はイベントサマリーの一覧。
         items:
-          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventSummary'
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventSummary'
         type: array
       limit:
         description: Limit は正規化後の実際に使われた取得件数。
@@ -115,7 +115,7 @@ definitions:
         example: 153
         type: integer
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventSummary:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventSummary:
     properties:
       createdAt:
         description: CreatedAt はレコード作成日時(RFC3339)。
@@ -142,14 +142,14 @@ definitions:
         example: サクラ観察会
         type: string
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.HealthResponse:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.HealthResponse:
     properties:
       status:
         description: Status はサーバの稼働状態。正常時は "ok"。
         example: ok
         type: string
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorBody:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorBody:
     properties:
       code:
         description: Code は機械可読なエラーコード。
@@ -160,12 +160,12 @@ definitions:
         example: サーバー内部でエラーが発生しました
         type: string
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse:
     properties:
       error:
-        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorBody'
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorBody'
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.PresignRequest:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignRequest:
     description: アップロード用署名付き URL の発行リクエスト。
     properties:
       contentType:
@@ -186,7 +186,7 @@ definitions:
     - contentType
     - kind
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.PresignResponse:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignResponse:
     description: アップロード用署名付き URL とオブジェクトキー。
     properties:
       expiresAt:
@@ -203,7 +203,7 @@ definitions:
         example: https://xxxxx.r2.cloudflarestorage.com/natuportal/natueve/tmp/profile-uuid/uuid.jpg?X-Amz-...
         type: string
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ProfileResponse:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileResponse:
     properties:
       avatarUrl:
         description: AvatarURL はアバター画像 URL(未設定なら空)。
@@ -230,7 +230,7 @@ definitions:
         example: "2026-06-22T12:00:00Z"
         type: string
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorBody:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorBody:
     properties:
       code:
         description: Code は機械可読なエラーコード。
@@ -241,12 +241,12 @@ definitions:
         example: 認証が必要です
         type: string
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse:
     properties:
       error:
-        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorBody'
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorBody'
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorBody:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorBody:
     properties:
       code:
         description: Code は機械可読なエラーコード。
@@ -257,15 +257,15 @@ definitions:
         example: タイトルは必須です
         type: string
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorResponse:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse:
     properties:
       error:
-        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorBody'
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorBody'
     type: object
 info:
   contact: {}
-  description: NatuIve のバックエンド API
-  title: NatuIve API
+  description: NatuEve のバックエンド API
+  title: NatuEve API
   version: "1.0"
 paths:
   /api/v1/events:
@@ -297,11 +297,11 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventListResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventListResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
       summary: イベント一覧取得
       tags:
       - event
@@ -315,26 +315,26 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventRequest'
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
       security:
       - BearerAuth: []
       summary: イベント投稿
@@ -349,15 +349,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ProfileResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
       security:
       - BearerAuth: []
       summary: 本人プロフィール取得
@@ -379,26 +379,26 @@ paths:
         name: body
         required: true
         schema:
-          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.PresignRequest'
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.PresignResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
         "401":
           description: Unauthorized
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
       security:
       - BearerAuth: []
       summary: アップロード用署名付き URL 発行
@@ -413,7 +413,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.HealthResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.HealthResponse'
       summary: ヘルスチェック
       tags:
       - system

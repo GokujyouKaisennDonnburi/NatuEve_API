@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/repository"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
 // ValidationError はリクエストパラメータの検証失敗を表す型付きエラー。

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
 // assertNoErr はテストヘルパー: エラーが nil でなければ fatal する。

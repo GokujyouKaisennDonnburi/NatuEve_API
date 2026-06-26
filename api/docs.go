@@ -55,13 +55,13 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventListResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventListResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
                         }
                     }
                 }
@@ -90,7 +90,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventRequest"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest"
                         }
                     }
                 ],
@@ -98,25 +98,25 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
                         }
                     }
                 }
@@ -141,19 +141,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ProfileResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
                         }
                     }
                 }
@@ -184,7 +184,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.PresignRequest"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignRequest"
                         }
                     }
                 ],
@@ -192,25 +192,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.PresignResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
                         }
                     },
                     "401": {
                         "description": "Unauthorized",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
                         }
                     }
                 }
@@ -230,7 +230,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.HealthResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.HealthResponse"
                         }
                     }
                 }
@@ -238,7 +238,7 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventRequest": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest": {
             "description": "イベント投稿に必要な情報。",
             "type": "object",
             "required": [
@@ -260,7 +260,7 @@ const docTemplate = `{
                     "type": "array",
                     "minItems": 1,
                     "items": {
-                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventCostInput"
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCostInput"
                     }
                 },
                 "description": {
@@ -290,7 +290,7 @@ const docTemplate = `{
                     "description": "Items は持ち物リスト（任意）。",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventItemInput"
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventItemInput"
                     }
                 },
                 "location": {
@@ -314,7 +314,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.CreateEventResponse": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventResponse": {
             "type": "object",
             "properties": {
                 "createdAt": {
@@ -329,7 +329,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventCostInput": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCostInput": {
             "type": "object",
             "required": [
                 "category"
@@ -347,7 +347,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventItemInput": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventItemInput": {
             "type": "object",
             "required": [
                 "item"
@@ -364,14 +364,14 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventListResponse": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventListResponse": {
             "type": "object",
             "properties": {
                 "events": {
                     "description": "Events はイベントサマリーの一覧。",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventSummary"
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventSummary"
                     }
                 },
                 "limit": {
@@ -391,7 +391,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.EventSummary": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventSummary": {
             "type": "object",
             "properties": {
                 "createdAt": {
@@ -426,7 +426,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.HealthResponse": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.HealthResponse": {
             "type": "object",
             "properties": {
                 "status": {
@@ -436,7 +436,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorBody": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorBody": {
             "type": "object",
             "properties": {
                 "code": {
@@ -451,15 +451,15 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorResponse": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse": {
             "type": "object",
             "properties": {
                 "error": {
-                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.InternalErrorBody"
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorBody"
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.PresignRequest": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignRequest": {
             "description": "アップロード用署名付き URL の発行リクエスト。",
             "type": "object",
             "required": [
@@ -483,7 +483,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.PresignResponse": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignResponse": {
             "description": "アップロード用署名付き URL とオブジェクトキー。",
             "type": "object",
             "properties": {
@@ -504,7 +504,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ProfileResponse": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileResponse": {
             "type": "object",
             "properties": {
                 "avatarUrl": {
@@ -539,7 +539,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorBody": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorBody": {
             "type": "object",
             "properties": {
                 "code": {
@@ -554,15 +554,15 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorResponse": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse": {
             "type": "object",
             "properties": {
                 "error": {
-                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.UnauthorizedErrorBody"
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorBody"
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorBody": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorBody": {
             "type": "object",
             "properties": {
                 "code": {
@@ -577,11 +577,11 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorResponse": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse": {
             "type": "object",
             "properties": {
                 "error": {
-                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuIve_API_internal_model.ValidationErrorBody"
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorBody"
                 }
             }
         }
@@ -602,8 +602,8 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "",
 	BasePath:         "/",
 	Schemes:          []string{},
-	Title:            "NatuIve API",
-	Description:      "NatuIve のバックエンド API",
+	Title:            "NatuEve API",
+	Description:      "NatuEve のバックエンド API",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

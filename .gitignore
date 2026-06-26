@@ -2,7 +2,7 @@
 .env
 
 # ビルド成果物（go build . で生成されるバイナリ）
-/NatuIve_API
+/NatuEve_API
 
 # Go のテストバイナリ・カバレッジ
 *.test

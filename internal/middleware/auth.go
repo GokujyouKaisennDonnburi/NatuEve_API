@@ -9,8 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/config"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/config"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
 // authUserContextKey は gin.Context に AuthUser を格納する際のキー。

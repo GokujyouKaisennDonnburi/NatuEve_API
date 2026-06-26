@@ -45,16 +45,16 @@ jobs:
         env:
           POSTGRES_USER: app
           POSTGRES_PASSWORD: app
-          POSTGRES_DB: natuive
+          POSTGRES_DB: NatuEve
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U app -d natuive"
+          --health-cmd "pg_isready -U app -d NatuEve"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgres://app:app@localhost:5432/natuive?sslmode=disable
+      DATABASE_URL: postgres://app:app@localhost:5432/NatuEve?sslmode=disable
     steps:
       - uses: actions/checkout@v4
 

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
 // stubProfileRepository は ProfileRepository のテスト用スタブ。

@@ -1,4 +1,4 @@
-module github.com/GokujyouKaisennDonnburi/NatuIve_API
+module github.com/GokujyouKaisennDonnburi/NatuEve_API
 
 go 1.26.4
 

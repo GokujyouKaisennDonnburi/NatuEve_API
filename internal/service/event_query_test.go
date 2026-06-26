@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
 // stubEventRepository は EventRepository のテスト用スタブ。

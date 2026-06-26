@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/model"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/repository"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
 // AuthenticatedUser は認証済みユーザーの入力 DTO。

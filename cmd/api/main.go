@@ -1,4 +1,4 @@
-// Package main は NatuIve API サーバのエントリポイント。
+// Package main は NatuEve API サーバのエントリポイント。
 package main
 
 import (
@@ -15,14 +15,14 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/db"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/config"
-	"github.com/GokujyouKaisennDonnburi/NatuIve_API/internal/server"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/db"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/config"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/server"
 )
 
-// @title						NatuIve API
+// @title						NatuEve API
 // @version					1.0
-// @description				NatuIve のバックエンド API
+// @description				NatuEve のバックエンド API
 // @BasePath					/
 // @securityDefinitions.apikey	BearerAuth
 // @in							header

@@ -1,4 +1,4 @@
-# NatuIve_API
+# NatuEve_API
 
 なちゅいべ（NatuPortal の主力プロダクト）のバックエンド API サーバー。
 生物イベントの集約・検索・管理を行う。
@@ -10,7 +10,7 @@
 - golang-jwt + MicahParks/keyfunc（JWKS）
 
 ## Module Path
-`github.com/GokujyouKaisennDonnburi/NatuIve_API`
+`github.com/GokujyouKaisennDonnburi/NatuEve_API`
 
 ## Project Structure
 ```

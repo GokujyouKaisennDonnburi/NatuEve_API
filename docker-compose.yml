@@ -18,7 +18,7 @@ services:
     # DB 接続先と起動時マイグレーションはコンテナ向けにここで明示する
     # (godotenv の Load は既存の環境変数を上書きしないため、これが優先される)。
     environment:
-      DATABASE_URL: postgres://app:app@db:5432/natuive?sslmode=disable
+      DATABASE_URL: postgres://app:app@db:5432/NatuEve?sslmode=disable
       DB_AUTO_MIGRATE: "true"
     depends_on:
       db:
@@ -29,13 +29,13 @@ services:
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
-      POSTGRES_DB: natuive
+      POSTGRES_DB: NatuEve
     ports:
       - "5432:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U app -d natuive"]
+      test: ["CMD-SHELL", "pg_isready -U app -d NatuEve"]
       interval: 5s
       timeout: 5s
       retries: 5

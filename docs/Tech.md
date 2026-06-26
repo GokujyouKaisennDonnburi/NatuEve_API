@@ -57,8 +57,8 @@ curl http://localhost:8085/health
 マルチステージビルドで軽量な distroless イメージを作る。
 
 ```bash
-docker build -t natuive-api .
-docker run -p 8085:8085 --env-file .env natuive-api
+docker build -t NatuEve-api .
+docker run -p 8085:8085 --env-file .env NatuEve-api
 ```
 
 ### Docker を使わない場合（任意）
