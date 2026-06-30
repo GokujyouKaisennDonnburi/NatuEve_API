@@ -15,10 +15,19 @@ import (
 type stubReportRepository struct {
 	createResult model.CreateReportResponse
 	createErr    error
+	// GetByEventID 用: 返却値と記録した引数。
+	getResult     *model.ReportResponse
+	getErr        error
+	gotGetEventID string
 }
 
 func (s *stubReportRepository) Create(_ context.Context, _ *model.NewReport) (model.CreateReportResponse, error) {
 	return s.createResult, s.createErr
+}
+
+func (s *stubReportRepository) GetByEventID(_ context.Context, eventID string) (*model.ReportResponse, error) {
+	s.gotGetEventID = eventID
+	return s.getResult, s.getErr
 }
 
 // assertForbiddenError はテストヘルパー: err が *ForbiddenError であることを確認する。

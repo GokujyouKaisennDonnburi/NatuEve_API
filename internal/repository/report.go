@@ -12,6 +12,10 @@ import (
 type ReportRepository interface {
 	// Create はレポートを関連テーブルとともにトランザクション内で一括登録する。
 	Create(ctx context.Context, r *model.NewReport) (model.CreateReportResponse, error)
+	// GetByEventID は指定したイベント ID に紐づくレポート詳細を取得する。
+	// 1 イベント 1 レポート（reports.event_id は UNIQUE）を前提とする。
+	// レポートが存在しない場合は sql.ErrNoRows を %w でラップして返す。
+	GetByEventID(ctx context.Context, eventID string) (*model.ReportResponse, error)
 }
 
 // reportPostgres は ReportRepository の PostgreSQL 実装。
@@ -80,4 +84,77 @@ func (r *reportPostgres) Create(ctx context.Context, report *model.NewReport) (m
 	}
 
 	return resp, nil
+}
+
+// GetByEventID は event_id 起点でレポート本体と関連テーブル（画像・PDF）を取得する。
+// reports.event_id は UNIQUE のため、1 イベントにつき高々 1 件のレポートが返る。
+func (r *reportPostgres) GetByEventID(ctx context.Context, eventID string) (*model.ReportResponse, error) {
+	const query = `
+		SELECT	id, event_id, content, created_at, updated_at
+		FROM	reports
+		WHERE	event_id = $1`
+
+	var rep model.ReportResponse
+
+	// 初期化（JSON 安定化）。0 件でも null ではなく [] を返す。
+	rep.ImageObjectKeys = []string{}
+	rep.PdfObjectKeys = []string{}
+
+	if err := r.db.QueryRowContext(ctx, query, eventID).Scan(
+		&rep.ID,
+		&rep.EventID,
+		&rep.Content,
+		&rep.CreatedAt,
+		&rep.UpdatedAt,
+	); err != nil {
+		return nil, fmt.Errorf("get report by event id: %w", err)
+	}
+
+	// images
+	const imageQuery = `
+		SELECT	image_objectkey
+		FROM	report_images
+		WHERE	report_id = $1`
+
+	imageRows, err := r.db.QueryContext(ctx, imageQuery, rep.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get report images: %w", err)
+	}
+	defer func() { _ = imageRows.Close() }()
+
+	for imageRows.Next() {
+		var key string
+		if err := imageRows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("scan report image: %w", err)
+		}
+		rep.ImageObjectKeys = append(rep.ImageObjectKeys, key)
+	}
+	if err := imageRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate report images: %w", err)
+	}
+
+	// pdfs
+	const pdfQuery = `
+		SELECT	pdf_objectkey
+		FROM	report_pdfs
+		WHERE	report_id = $1`
+
+	pdfRows, err := r.db.QueryContext(ctx, pdfQuery, rep.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get report pdfs: %w", err)
+	}
+	defer func() { _ = pdfRows.Close() }()
+
+	for pdfRows.Next() {
+		var key string
+		if err := pdfRows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("scan report pdf: %w", err)
+		}
+		rep.PdfObjectKeys = append(rep.PdfObjectKeys, key)
+	}
+	if err := pdfRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate report pdfs: %w", err)
+	}
+
+	return &rep, nil
 }
