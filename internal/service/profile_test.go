@@ -31,6 +31,7 @@ func TestProfileServiceGetOrCreate(t *testing.T) {
 		Email:       "user@example.com",
 		DisplayName: "なちゅいべ太郎",
 		AvatarURL:   "https://example.com/a.png",
+		Description: "イベントを楽しむのが好きです。",
 	}
 
 	tests := []struct {
@@ -62,7 +63,7 @@ func TestProfileServiceGetOrCreate(t *testing.T) {
 				t.Fatalf("予期しないエラー: %v", err)
 			}
 			if got.ID != user.ID || got.Email != user.Email ||
-				got.DisplayName != user.DisplayName || got.AvatarURL != user.AvatarURL {
+				got.DisplayName != user.DisplayName || got.AvatarURL != user.AvatarURL || got.Description != user.Description {
 				t.Errorf("返り値が入力と一致しない: got %+v, want %+v", got, user)
 			}
 		})
