@@ -11,15 +11,17 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
 )
 
-// ReportHandler はレポート投稿系のエンドポイントを担当する。
+// ReportHandler はレポート系のエンドポイントを担当する。
 type ReportHandler struct {
-	cmdSvc *service.ReportCommandService
+	cmdSvc   *service.ReportCommandService
+	querySvc *service.ReportQueryService
 }
 
 // NewReportHandler は ReportHandler を生成する。
-func NewReportHandler(cmdSvc *service.ReportCommandService) *ReportHandler {
+func NewReportHandler(cmdSvc *service.ReportCommandService, querySvc *service.ReportQueryService) *ReportHandler {
 	return &ReportHandler{
-		cmdSvc: cmdSvc,
+		cmdSvc:   cmdSvc,
+		querySvc: querySvc,
 	}
 }
 
@@ -74,4 +76,35 @@ func (h *ReportHandler) Create(c *gin.Context) {
 
 	// レスポンスを返す
 	c.JSON(http.StatusCreated, resp)
+}
+
+// GetByEventID godoc
+//
+//	@Summary		レポート取得
+//	@Description	指定したイベントIDに紐づくレポートを取得する。1イベント1レポート。認証不要。
+//	@Tags			report
+//	@Produce		json
+//	@Param			id	path		string	true	"イベントID"
+//	@Success		200	{object}	model.ReportResponse
+//	@Failure		404	{object}	model.ErrorResponse
+//	@Failure		500	{object}	model.ErrorResponse
+//	@Router			/api/v1/events/{id}/report [get]
+func (h *ReportHandler) GetByEventID(c *gin.Context) {
+	eventID := c.Param("id")
+	if eventID == "" {
+		c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", "id is required"))
+		return
+	}
+
+	report, err := h.querySvc.GetByEventID(c.Request.Context(), eventID)
+	if err != nil {
+		if errors.Is(err, service.ErrReportNotFound) {
+			c.JSON(http.StatusNotFound, model.NewErrorResponse("not_found", "レポートが見つかりません"))
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "レポートの取得に失敗しました"))
+		return
+	}
+
+	c.JSON(http.StatusOK, report)
 }

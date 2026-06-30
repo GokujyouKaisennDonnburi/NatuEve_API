@@ -68,15 +68,19 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 
 	reportRepo := repository.NewReportRepository(sqlDB)
 	reportCmdSvc := service.NewReportCommandService(reportRepo, eventRepo, store)
+	reportQuerySvc := service.NewReportQueryService(reportRepo, cfg.R2PublicBaseURL)
 
 	eventHandler := handler.NewEventHandler(eventQuerySvc, eventCmdSvc, profileSvc)
-	reportHandler := handler.NewReportHandler(reportCmdSvc)
+	reportHandler := handler.NewReportHandler(reportCmdSvc, reportQuerySvc)
 
 	v1Public := r.Group("/api/v1")
 	v1Public.GET("/events", eventHandler.List)
 
 	// events/{id} は公開エンドポイント。DB があれば JWKS の有無に関わらず登録する。
 	v1Public.GET("/events/:id", eventHandler.GetByID)
+
+	// events/{id}/report は公開エンドポイント（1イベント1レポート）。
+	v1Public.GET("/events/:id/report", reportHandler.GetByEventID)
 
 	// user 系は認証が必要。DB と JWKS の両方が揃っているときのみ登録する。
 	if cfg.SupabaseJWKSURL == "" {
