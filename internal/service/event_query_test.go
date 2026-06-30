@@ -25,6 +25,9 @@ type stubEventRepository struct {
 	gotNewEvent  *model.NewEvent
 	createResult model.CreateEventResponse
 	createErr    error
+	// GetOwnerProfileID 用: 返却値。
+	ownerProfileID    string
+	ownerProfileIDErr error
 }
 
 func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
@@ -42,6 +45,10 @@ func (s *stubEventRepository) CountSummaries(_ context.Context) (int, error) {
 func (s *stubEventRepository) Create(_ context.Context, e *model.NewEvent) (model.CreateEventResponse, error) {
 	s.gotNewEvent = e
 	return s.createResult, s.createErr
+}
+
+func (s *stubEventRepository) GetOwnerProfileID(_ context.Context, _ string) (string, error) {
+	return s.ownerProfileID, s.ownerProfileIDErr
 }
 
 func (s *stubEventRepository) GetByID(_ context.Context, _ string) (*model.EventResponse, error) {

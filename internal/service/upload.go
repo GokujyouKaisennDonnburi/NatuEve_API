@@ -202,16 +202,17 @@ func stripEXIFAndReencode(data []byte, contentType string) ([]byte, error) {
 
 // buildFinalKey は最終キーを生成する。
 //
-// 画像: natueve/events/images/{uuid}{ext}
-// PDF:  natueve/events/documents/{uuid}{ext}
-func buildFinalKey(contentType string) string {
+// destination には "events" または "reports" を指定する。
+// 画像: natueve/{destination}/images/{uuid}{ext}
+// PDF:  natueve/{destination}/documents/{uuid}{ext}
+func buildFinalKey(destination, contentType string) string {
 	ext := contentTypeToExt[contentType]
 	id := uuid.New().String()
 
 	if isImageContentType(contentType) {
-		return fmt.Sprintf("natueve/events/images/%s%s", id, ext)
+		return fmt.Sprintf("natueve/%s/images/%s%s", destination, id, ext)
 	}
-	return fmt.Sprintf("natueve/events/documents/%s%s", id, ext)
+	return fmt.Sprintf("natueve/%s/documents/%s%s", destination, id, ext)
 }
 
 // ownershipPrefix は profileID からオブジェクトキーの所有権 prefix を返す。

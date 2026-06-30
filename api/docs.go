@@ -200,6 +200,69 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/reports": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "認証済みユーザーがイベントに対してレポートを投稿する。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "report"
+                ],
+                "summary": "レポート投稿",
+                "parameters": [
+                    {
+                        "description": "レポート投稿リクエスト",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateReportRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateReportResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/profiles/{id}": {
             "get": {
                 "description": "指定したユーザー ID のプロフィールを返す",
@@ -411,6 +474,57 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateReportRequest": {
+            "description": "レポート投稿に必要な情報。",
+            "type": "object",
+            "required": [
+                "content",
+                "eventId"
+            ],
+            "properties": {
+                "content": {
+                    "description": "Content はレポート内容（必須・10,000文字以内）。",
+                    "type": "string",
+                    "maxLength": 10000,
+                    "example": "多摩川アメリカザリガニ殲滅作戦の結果、参加者：5人、アメリカザリガニ防除数：138匹でした。"
+                },
+                "eventId": {
+                    "description": "EventID はレポート対象のイベントID（必須・255文字以内）。",
+                    "type": "string",
+                    "maxLength": 255,
+                    "example": "event_1234567890"
+                },
+                "imageObjectKeys": {
+                    "description": "ImageObjectKeys は画像オブジェクトキーの一覧（任意）。",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "pdfObjectKeys": {
+                    "description": "PdfObjectKeys はPDFオブジェクトキーの一覧（任意・各要素255文字以内）。",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateReportResponse": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "description": "CreatedAt はレコード作成日時(RFC3339)。DB の TIMESTAMPTZ を UTC で保持する。",
+                    "type": "string",
+                    "example": "2026-06-26T03:08:24Z"
+                },
+                "reportId": {
+                    "description": "ReportID は作成されたレポートのID。",
+                    "type": "string",
+                    "example": "report_1234567890"
+                }
+            }
+        },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorBody": {
             "type": "object",
             "properties": {
@@ -617,6 +731,29 @@ const docTemplate = `{
                     "description": "Title はイベントタイトル。",
                     "type": "string",
                     "example": "サクラ観察会"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は機械可読なエラーコード。",
+                    "type": "string",
+                    "example": "forbidden"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "このイベントにレポートを投稿する権限がありません"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorBody"
                 }
             }
         },

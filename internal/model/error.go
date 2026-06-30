@@ -54,6 +54,19 @@ type UnauthorizedErrorBody struct {
 	Message string `json:"message" example:"認証が必要です"`
 }
 
+// ForbiddenErrorResponse は認可エラー(HTTP 403)のドキュメント用レスポンス型。
+type ForbiddenErrorResponse struct {
+	Error ForbiddenErrorBody `json:"error"`
+}
+
+// ForbiddenErrorBody は ForbiddenErrorResponse のエラー本体。
+type ForbiddenErrorBody struct {
+	// Code は機械可読なエラーコード。
+	Code string `json:"code" example:"forbidden"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"このイベントにレポートを投稿する権限がありません"`
+}
+
 // InternalErrorResponse はサーバー内部エラー(HTTP 500)のドキュメント用レスポンス型。
 type InternalErrorResponse struct {
 	Error InternalErrorBody `json:"error"`

@@ -1,9 +1,9 @@
 -- +goose Up
-CREATE TABLE reports_pdfs(
+CREATE TABLE report_images(
     id UUID PRIMARY KEY,
     report_id UUID REFERENCES reports(id),
-    pdf_objectkey TEXT NOT NULL
+    image_objectkey TEXT NOT NULL
 );
 
 -- +goose Down
-DROP TABLE reports_pdfs;
+DROP TABLE report_images;

@@ -23,6 +23,18 @@ func (e *ValidationError) Error() string {
 	return e.Message
 }
 
+// ForbiddenError はアクセス権限のないリソースへの操作を表す型付きエラー。
+//
+// handler 層が errors.As で判定し、HTTP 403 を返すために使う。
+type ForbiddenError struct {
+	Message string
+}
+
+// Error は error インターフェイスを実装する。
+func (e *ForbiddenError) Error() string {
+	return e.Message
+}
+
 // EventCommandService はイベント書き込み系のビジネスロジックを提供する。
 //
 // CQRS の Command 側として位置づけ、参照系（EventQueryService）とは分離する。
@@ -97,7 +109,7 @@ func (s *EventCommandService) promoteObjects(
 	req model.CreateEventRequest,
 ) (finalImageKeys, finalPDFKeys, promotedKeys []string, err error) {
 	for _, key := range req.ImageObjectKeys {
-		finalKey, e := s.promoteOneObject(ctx, profileID, key, true)
+		finalKey, e := promoteOneObject(ctx, s.store, profileID, key, true, func(ct string) string { return buildFinalKey("events", ct) })
 		if e != nil {
 			// 昇格失敗時: ここまでに昇格済みのキーを best-effort 削除してエラー返却
 			for _, pk := range promotedKeys {
@@ -112,7 +124,7 @@ func (s *EventCommandService) promoteObjects(
 	}
 
 	for _, key := range req.PdfObjectKeys {
-		finalKey, e := s.promoteOneObject(ctx, profileID, key, false)
+		finalKey, e := promoteOneObject(ctx, s.store, profileID, key, false, func(ct string) string { return buildFinalKey("events", ct) })
 		if e != nil {
 			for _, pk := range promotedKeys {
 				if delErr := s.store.Delete(ctx, pk); delErr != nil {
@@ -126,91 +138,6 @@ func (s *EventCommandService) promoteObjects(
 	}
 
 	return finalImageKeys, finalPDFKeys, promotedKeys, nil
-}
-
-// promoteOneObject は 1 つの tmp オブジェクトを検証・洗浄して events/ に配置する。
-// isImage=true なら画像処理（EXIF 除去・Put）、false なら PDF 処理（Copy）。
-func (s *EventCommandService) promoteOneObject(ctx context.Context, profileID, key string, isImage bool) (string, error) {
-	// 所有権: natueve/tmp/{profileID}/ prefix 必須
-	if err := validateOwnership(key, profileID); err != nil {
-		return "", err
-	}
-
-	// Head: 存在・サイズ・Content-Type 確認
-	size, ct, err := s.store.Head(ctx, key)
-	if err != nil {
-		return "", &ValidationError{
-			Message: fmt.Sprintf("オブジェクト %q のメタデータ取得に失敗しました: %v", key, err),
-		}
-	}
-
-	if !isAllowedContentType(ct) {
-		return "", &ValidationError{
-			Message: fmt.Sprintf("オブジェクト %q の Content-Type %q は許可されていません", key, ct),
-		}
-	}
-
-	maxSize := maxSizeByContentType(ct)
-	if size > maxSize {
-		return "", &ValidationError{
-			Message: fmt.Sprintf("オブジェクト %q のサイズ(%d bytes)が上限(%d bytes)を超えています", key, size, maxSize),
-		}
-	}
-
-	// isImage フラグと宣言 Content-Type の整合性チェック
-	if isImage && !isImageContentType(ct) {
-		return "", &ValidationError{
-			Message: fmt.Sprintf("オブジェクト %q は画像として指定されましたが Content-Type が %q です", key, ct),
-		}
-	}
-	if !isImage && !isPDFContentType(ct) {
-		return "", &ValidationError{
-			Message: fmt.Sprintf("オブジェクト %q は PDF として指定されましたが Content-Type が %q です", key, ct),
-		}
-	}
-
-	// Get: 実体取得（マジックナンバー検証・再エンコード用）
-	// Head で確認済みの maxSize を渡し、TOCTOU による巨大ファイルのメモリ展開を防ぐ。
-	data, err := s.store.Get(ctx, key, maxSizeByContentType(ct))
-	if err != nil {
-		return "", &ValidationError{
-			Message: fmt.Sprintf("オブジェクト %q の取得に失敗しました: %v", key, err),
-		}
-	}
-
-	// マジックナンバー検証
-	detected := sniffContentType(data)
-	if !isSameContentTypeFamily(ct, detected) {
-		return "", &ValidationError{
-			Message: fmt.Sprintf("オブジェクト %q の実体(%q)が宣言 Content-Type(%q) と一致しません", key, detected, ct),
-		}
-	}
-
-	// 最終キー生成
-	finalKey := buildFinalKey(ct)
-
-	if isImage {
-		// EXIF/GPS 除去: 再エンコード（geofuzzing ルール準拠）
-		clean, err := stripEXIFAndReencode(data, ct)
-		if err != nil {
-			return "", &ValidationError{
-				Message: fmt.Sprintf("画像 %q の再エンコードに失敗しました: %v", key, err),
-			}
-		}
-		// 洗浄済み画像を Put
-		if err := s.store.Put(ctx, finalKey, clean, ct); err != nil {
-			return "", fmt.Errorf("画像の配置に失敗しました: %w", err)
-		}
-	} else {
-		// PDF は Copy して昇格する。
-		// PDF 内に埋め込まれた GPS 等のメタデータは今回スコープ外。
-		// 画像と異なり再エンコードによる除去は行わない。
-		if err := s.store.Copy(ctx, key, finalKey); err != nil {
-			return "", fmt.Errorf("PDFの配置に失敗しました: %w", err)
-		}
-	}
-
-	return finalKey, nil
 }
 
 // isSameContentTypeFamily は宣言 Content-Type と sniff した Content-Type が

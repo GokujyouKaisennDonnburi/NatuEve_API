@@ -29,6 +29,9 @@ type EventRepository interface {
 	GetByID(ctx context.Context, id string) (*model.EventResponse, error)
 	// Create はイベントを関連テーブルとともにトランザクション内で一括登録する。
 	Create(ctx context.Context, e *model.NewEvent) (model.CreateEventResponse, error)
+	// GetOwnerProfileID は指定した eventID のイベント投稿者 profile_id を返す。
+	// イベントが存在しない場合は sql.ErrNoRows を %w でラップして返す。
+	GetOwnerProfileID(ctx context.Context, eventID string) (string, error)
 }
 
 // eventPostgres は EventRepository の PostgreSQL 実装。
@@ -223,6 +226,19 @@ func (r *eventPostgres) Create(ctx context.Context, e *model.NewEvent) (model.Cr
 	}
 
 	return resp, nil
+}
+
+// GetOwnerProfileID は指定した eventID のイベント投稿者 profile_id を返す。
+// profile_id は nullable のため sql.NullString で受け取る。
+// 行が存在しない場合は sql.ErrNoRows を %w でラップして返す。
+func (r *eventPostgres) GetOwnerProfileID(ctx context.Context, eventID string) (string, error) {
+	const query = `SELECT profile_id FROM events WHERE id = $1`
+
+	var profileID sql.NullString
+	if err := r.db.QueryRowContext(ctx, query, eventID).Scan(&profileID); err != nil {
+		return "", fmt.Errorf("get event owner profile_id: %w", err)
+	}
+	return profileID.String, nil
 }
 
 func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventResponse, error) {
