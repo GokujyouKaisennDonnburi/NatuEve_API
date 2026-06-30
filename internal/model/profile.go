@@ -68,6 +68,7 @@ func NewProfileResponse(p *Profile) ProfileResponse {
 	}
 }
 
+// NewProfilePublic は Profile から ProfilePublic を組み立てる。
 func NewProfilePublic(p *Profile) ProfilePublic {
 	return ProfilePublic{
 		ID:          p.ID,
