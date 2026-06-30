@@ -90,6 +90,7 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	v1.Use(verifier.RequireAuth())
 	v1.GET("/me", userHandler.GetMe)
 	v1.POST("/events", eventHandler.Create)
+	v1.GET("/profiles/:id", userHandler.GetProfile)
 
 	// R2 設定がある場合のみ upload ルートを登録する（JWKS gating と同じ方針）。
 	if store != nil {

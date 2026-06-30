@@ -34,7 +34,7 @@ func NewProfileRepository(db *sql.DB) ProfileRepository {
 // GetByID は ID でプロフィールを取得する。
 func (r *profilePostgres) GetByID(ctx context.Context, id string) (*model.Profile, error) {
 	const query = `
-		SELECT id, email, display_name, avatar_url, created_at, updated_at
+		SELECT id, email, display_name, avatar_url, description, created_at, updated_at
 		FROM profiles
 		WHERE id = $1`
 
@@ -42,9 +42,10 @@ func (r *profilePostgres) GetByID(ctx context.Context, id string) (*model.Profil
 		p           model.Profile
 		displayName sql.NullString
 		avatarURL   sql.NullString
+		description sql.NullString
 	)
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&p.ID, &p.Email, &displayName, &avatarURL, &p.CreatedAt, &p.UpdatedAt,
+		&p.ID, &p.Email, &displayName, &avatarURL, &description, &p.CreatedAt, &p.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrProfileNotFound
@@ -54,33 +55,37 @@ func (r *profilePostgres) GetByID(ctx context.Context, id string) (*model.Profil
 	}
 	p.DisplayName = displayName.String
 	p.AvatarURL = avatarURL.String
+	p.Description = description.String
 	return &p, nil
 }
 
 // Upsert はプロフィールを作成または更新する。
 func (r *profilePostgres) Upsert(ctx context.Context, p *model.Profile) error {
 	const query = `
-		INSERT INTO profiles (id, email, display_name, avatar_url)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO profiles (id, email, display_name, avatar_url, description)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (id) DO UPDATE SET
 			email        = EXCLUDED.email,
 			display_name = EXCLUDED.display_name,
 			avatar_url   = EXCLUDED.avatar_url,
+			description  = EXCLUDED.description,
 			updated_at   = now()
-		RETURNING id, email, display_name, avatar_url, created_at, updated_at`
+		RETURNING id, email, display_name, avatar_url, description, created_at, updated_at`
 
 	var (
 		displayName sql.NullString
 		avatarURL   sql.NullString
+		description sql.NullString
 	)
 	err := r.db.QueryRowContext(ctx, query,
-		p.ID, p.Email, nullString(p.DisplayName), nullString(p.AvatarURL),
-	).Scan(&p.ID, &p.Email, &displayName, &avatarURL, &p.CreatedAt, &p.UpdatedAt)
+		p.ID, p.Email, nullString(p.DisplayName), nullString(p.AvatarURL), nullString(p.Description),
+	).Scan(&p.ID, &p.Email, &displayName, &avatarURL, &description, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("upsert profile: %w", err)
 	}
 	p.DisplayName = displayName.String
 	p.AvatarURL = avatarURL.String
+	p.Description = description.String
 	return nil
 }
 

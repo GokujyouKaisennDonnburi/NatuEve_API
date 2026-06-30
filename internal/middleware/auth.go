@@ -26,6 +26,8 @@ type AuthUser struct {
 	DisplayName string
 	// AvatarURL はアバター画像 URL(Google プロフィール由来。無ければ空)。
 	AvatarURL string
+	// Description は自己紹介(Supabase プロフィール由来。無ければ空)。
+	Description string
 }
 
 // SupabaseVerifier は Supabase Auth が発行した JWT を JWKS で検証する。
@@ -126,6 +128,7 @@ func authUserFromClaims(claims jwt.MapClaims) (AuthUser, bool) {
 		if user.Email == "" {
 			user.Email = stringClaim(meta, "email")
 		}
+		user.Description = stringClaim(meta, "description")
 	}
 	return user, true
 }

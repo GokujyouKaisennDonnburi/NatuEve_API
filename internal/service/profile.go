@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
@@ -16,6 +17,7 @@ type AuthenticatedUser struct {
 	Email       string
 	DisplayName string
 	AvatarURL   string
+	Description string
 }
 
 // ProfileService はプロフィールに関するビジネスロジックを提供する。
@@ -38,8 +40,22 @@ func (s *ProfileService) GetOrCreate(ctx context.Context, u AuthenticatedUser) (
 		Email:       u.Email,
 		DisplayName: u.DisplayName,
 		AvatarURL:   u.AvatarURL,
+		Description: u.Description,
 	}
 	if err := s.repo.Upsert(ctx, p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+var ErrProfileNotFound = errors.New("profile not found")
+
+func (s *ProfileService) GetByID(ctx context.Context, id string) (*model.Profile, error) {
+	p, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, repository.ErrProfileNotFound) {
+			return nil, ErrProfileNotFound
+		}
 		return nil, err
 	}
 	return p, nil

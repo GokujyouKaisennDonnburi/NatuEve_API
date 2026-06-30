@@ -1,13 +1,13 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
-
-	"github.com/gin-gonic/gin"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/middleware"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
+	"github.com/gin-gonic/gin"
 )
 
 // UserHandler はユーザー(プロフィール)系のエンドポイントを担当する。
@@ -43,9 +43,52 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 		Email:       authUser.Email,
 		DisplayName: authUser.DisplayName,
 		AvatarURL:   authUser.AvatarURL,
+		Description: authUser.Description,
 	})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "プロフィールの取得に失敗しました"))
+		c.JSON(http.StatusInternalServerError, model.NewErrorResponse(
+			"internal_error",
+			"プロフィールの取得に失敗しました",
+		))
+		return
+	}
+
+	c.JSON(http.StatusOK, model.NewProfileResponse(profile))
+}
+
+// GetProfile godoc
+//
+//	@Summary		ユーザープロフィール取得
+//	@Description	指定したユーザー ID のプロフィールを返す
+//	@Tags			user
+//	@Produce		json
+//	@Param			id	path	string	true	"ユーザー ID"
+//	@Success		200	{object}	model.ProfileResponse
+//	@Failure		404	{object}	model.ErrorResponse
+//	@Failure		500	{object}	model.InternalErrorResponse
+//	@Router			/api/v1/profiles/{id} [get]
+func (h *UserHandler) GetProfile(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, model.NewErrorResponse(
+			"bad_request",
+			"ユーザー ID は必須です",
+		))
+		return
+	}
+
+	profile, err := h.svc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrProfileNotFound) {
+			c.JSON(http.StatusNotFound,
+				model.NewErrorResponse("not_found", "プロフィールが見つかりません"),
+			)
+			return
+		}
+		c.JSON(http.StatusInternalServerError, model.NewErrorResponse(
+			"internal_error",
+			"プロフィールの取得に失敗しました",
+		))
 		return
 	}
 
