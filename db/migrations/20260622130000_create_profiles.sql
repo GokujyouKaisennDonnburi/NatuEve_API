@@ -7,7 +7,7 @@ CREATE TABLE profiles (
     email        TEXT NOT NULL,
     display_name TEXT,
     avatar_url   TEXT,
-    description  TEXT,
+    description  TEXT NOT NULL DEFAULT '',
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
