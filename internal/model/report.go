@@ -34,3 +34,29 @@ type CreateReportResponse struct {
 	// CreatedAt はレコード作成日時(RFC3339)。DB の TIMESTAMPTZ を UTC で保持する。
 	CreatedAt time.Time `json:"createdAt" example:"2026-06-26T03:08:24Z"`
 }
+
+// ReportResponse はレポート取得エンドポイントのレスポンス型。
+//
+// 1 イベント 1 レポート（reports.event_id は UNIQUE）のため、event_id 起点で取得する。
+type ReportResponse struct {
+	// ID はレポートの一意識別子(UUID)。
+	ID string `json:"id" example:"b2c3d4e5-f6a7-8901-bcde-f23456789012"`
+	// EventID は対象イベントのID(UUID)。
+	EventID string `json:"eventId" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	// Content はレポート内容。
+	Content string `json:"content" example:"多摩川アメリカザリガニ殲滅作戦の結果、参加者：5人、防除数：138匹でした。"`
+	// ImageObjectKeys は画像オブジェクトキーの一覧。
+	ImageObjectKeys []string `json:"imageObjectKeys"`
+	// PdfObjectKeys は PDF オブジェクトキーの一覧。
+	PdfObjectKeys []string `json:"pdfObjectKeys"`
+	// ImageUrls は ImageObjectKeys に対応する表示用の完全URL。
+	// 公開ベースURL（R2_PUBLIC_BASE_URL）未設定時は空配列。
+	ImageUrls []string `json:"imageUrls"`
+	// PdfUrls は PdfObjectKeys に対応する表示用の完全URL。
+	// 公開ベースURL（R2_PUBLIC_BASE_URL）未設定時は空配列。
+	PdfUrls []string `json:"pdfUrls"`
+	// CreatedAt はレコード作成日時(RFC3339)。
+	CreatedAt time.Time `json:"createdAt" example:"2026-06-26T03:08:24Z"`
+	// UpdatedAt はレコード更新日時(RFC3339)。
+	UpdatedAt time.Time `json:"updatedAt" example:"2026-06-26T03:08:24Z"`
+}
