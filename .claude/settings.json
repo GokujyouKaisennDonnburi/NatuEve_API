@@ -37,11 +37,7 @@
       "Bash(docker ps *)",
       "Bash(swag *)"
     ],
-    "ask": [
-      "Bash",
-      "Write",
-      "Edit"
-    ],
+    "ask": [],
     "deny": [
       "Bash(rm -rf:*)",
       "Bash(sudo rm:*)",
