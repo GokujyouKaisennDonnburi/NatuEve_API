@@ -28,12 +28,15 @@ type fakeObjectStore struct {
 	putKey         string
 	putBody        []byte
 	putContentType string
+	putDisposition string
 	putErr         error
 
 	// Copy の記録
-	copySrcKey string
-	copyDstKey string
-	copyErr    error
+	copySrcKey      string
+	copyDstKey      string
+	copyContentType string
+	copyDisposition string
+	copyErr         error
 
 	// Delete の記録
 	deleteKeys []string
@@ -67,16 +70,19 @@ func (f *fakeObjectStore) Get(_ context.Context, _ string, maxBytes int64) ([]by
 	return f.getData, nil
 }
 
-func (f *fakeObjectStore) Put(_ context.Context, key string, body []byte, contentType string) error {
+func (f *fakeObjectStore) Put(_ context.Context, key string, body []byte, contentType, contentDisposition string) error {
 	f.putKey = key
 	f.putBody = body
 	f.putContentType = contentType
+	f.putDisposition = contentDisposition
 	return f.putErr
 }
 
-func (f *fakeObjectStore) Copy(_ context.Context, srcKey, dstKey string) error {
+func (f *fakeObjectStore) Copy(_ context.Context, srcKey, dstKey, contentType, contentDisposition string) error {
 	f.copySrcKey = srcKey
 	f.copyDstKey = dstKey
+	f.copyContentType = contentType
+	f.copyDisposition = contentDisposition
 	return f.copyErr
 }
 
