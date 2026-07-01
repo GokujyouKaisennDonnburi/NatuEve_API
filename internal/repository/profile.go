@@ -70,8 +70,11 @@ func (r *profilePostgres) Upsert(ctx context.Context, p *model.Profile) error {
     		avatar_url   = EXCLUDED.avatar_url,
     		description  = EXCLUDED.description,
 			updated_at   = now()
-		RETURNING id, email, display_name, avatar_url, description, created_at, updated_at`
+		RETURNING id, email, display_name, description, created_at, updated_at`
 
+	// avatar_url は Supabase 側で設定される値を使うため、この upsert では読み戻さない
+	// （p.AvatarURL は呼び出し元が渡した JWT 由来の値を保持する）。ユーザーによる編集は
+	// 別途新設予定の編集用エンドポイントで扱う。そのため RETURNING / Scan からは avatar_url を除く。
 	var (
 		displayName sql.NullString
 		description sql.NullString
