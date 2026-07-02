@@ -6,6 +6,7 @@ CREATE TABLE event_members (
     username TEXT NOT NULL,
     mail_address TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (event_id, profile_id)
 );
 
 -- +goose Down
