@@ -64,7 +64,7 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 //	@Produce		json
 //	@Param			id	path	string	true	"ユーザー ID"
 //	@Success		200	{object}	model.ProfilePublic
-//	@Failure		404	{object}	model.ErrorResponse
+//	@Failure		404	{object}	model.NotFoundErrorResponse
 //	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/profiles/{id} [get]
 func (h *UserHandler) GetProfile(c *gin.Context) {
@@ -98,9 +98,9 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 //	@Security		BearerAuth
 //	@Param			request	body	model.UpdateProfileRequest	true	"更新内容"
 //	@Success		200	{object}	model.ProfileResponse
-//	@Failure		400	{object}	model.ErrorResponse
+//	@Failure		400	{object}	model.ValidationErrorResponse
 //	@Failure		401	{object}	model.UnauthorizedErrorResponse
-//	@Failure		404	{object}	model.ErrorResponse
+//	@Failure		404	{object}	model.NotFoundErrorResponse
 //	@Failure		413	{object}	model.RequestTooLargeErrorResponse
 //	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/me [patch]

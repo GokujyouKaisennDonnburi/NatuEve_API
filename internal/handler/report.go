@@ -86,8 +86,8 @@ func (h *ReportHandler) Create(c *gin.Context) {
 //	@Produce		json
 //	@Param			id	path		string	true	"イベントID"
 //	@Success		200	{object}	model.ReportResponse
-//	@Failure		404	{object}	model.ErrorResponse
-//	@Failure		500	{object}	model.ErrorResponse
+//	@Failure		404	{object}	model.NotFoundErrorResponse
+//	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/report [get]
 func (h *ReportHandler) GetByEventID(c *gin.Context) {
 	eventID := c.Param("id")

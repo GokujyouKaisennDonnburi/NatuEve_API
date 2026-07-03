@@ -136,22 +136,6 @@ definitions:
         example: report_1234567890
         type: string
     type: object
-  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorBody:
-    properties:
-      code:
-        description: Code は機械可読なエラーコード。
-        example: internal_error
-        type: string
-      message:
-        description: Message は人間向けのエラーメッセージ。
-        example: サーバー内部でエラーが発生しました
-        type: string
-    type: object
-  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse:
-    properties:
-      error:
-        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorBody'
-    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCostInput:
     properties:
       category:
@@ -765,11 +749,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
       summary: イベント詳細取得
       tags:
       - event
@@ -853,11 +837,11 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
       summary: レポート取得
       tags:
       - report
@@ -905,7 +889,7 @@ paths:
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
         "401":
           description: Unauthorized
           schema:
@@ -913,7 +897,7 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
         "413":
           description: Request Entity Too Large
           schema:
@@ -946,7 +930,7 @@ paths:
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
         "500":
           description: Internal Server Error
           schema:

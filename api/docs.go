@@ -157,13 +157,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
                         }
                     }
                 }
@@ -286,13 +286,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
                         }
                     }
                 }
@@ -372,7 +372,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
                         }
                     },
                     "401": {
@@ -384,7 +384,7 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
                         }
                     },
                     "413": {
@@ -431,7 +431,7 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
                         }
                     },
                     "500": {
@@ -772,29 +772,6 @@ const docTemplate = `{
                     "description": "ReportID は作成されたレポートのID。",
                     "type": "string",
                     "example": "report_1234567890"
-                }
-            }
-        },
-        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorBody": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "description": "Code は機械可読なエラーコード。",
-                    "type": "string",
-                    "example": "internal_error"
-                },
-                "message": {
-                    "description": "Message は人間向けのエラーメッセージ。",
-                    "type": "string",
-                    "example": "サーバー内部でエラーが発生しました"
-                }
-            }
-        },
-        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorBody"
                 }
             }
         },

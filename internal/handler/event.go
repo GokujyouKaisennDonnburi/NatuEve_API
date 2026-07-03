@@ -142,8 +142,8 @@ func queryInt(c *gin.Context, key string, defaultVal int) int {
 //	@Produce		json
 //	@Param			id	path	string	true	"イベントID"
 //	@Success		200	{object}	model.EventResponse
-//	@Failure		404	{object}	model.ErrorResponse
-//	@Failure		500	{object}	model.ErrorResponse
+//	@Failure		404	{object}	model.NotFoundErrorResponse
+//	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id} [get]
 func (h *EventHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
