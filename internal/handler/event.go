@@ -80,6 +80,7 @@ func (h *EventHandler) List(c *gin.Context) {
 //	@Success		201		{object}	model.CreateEventResponse
 //	@Failure		400		{object}	model.ValidationErrorResponse
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
+//	@Failure		413		{object}	model.RequestTooLargeErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events [post]
 func (h *EventHandler) Create(c *gin.Context) {
@@ -102,8 +103,7 @@ func (h *EventHandler) Create(c *gin.Context) {
 	}
 
 	var req model.CreateEventRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", "リクエストボディが不正です"))
+	if !bindJSON(c, &req) {
 		return
 	}
 

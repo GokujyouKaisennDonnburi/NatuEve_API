@@ -30,6 +30,7 @@ func NewRouter(cfg config.Config, sqlDB *sql.DB) (*gin.Engine, error) {
 	r.Use(middleware.SlogLogger(),
 		middleware.SlogRecovery(),
 		middleware.NewCORS(),
+		middleware.BodyLimit(),
 	)
 
 	// 信頼するプロキシを設定（nil = どのプロキシも信頼しない）。

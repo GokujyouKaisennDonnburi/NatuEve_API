@@ -101,6 +101,7 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 //	@Failure		400	{object}	model.ErrorResponse
 //	@Failure		401	{object}	model.UnauthorizedErrorResponse
 //	@Failure		404	{object}	model.ErrorResponse
+//	@Failure		413	{object}	model.RequestTooLargeErrorResponse
 //	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/me [patch]
 func (h *UserHandler) UpdateMe(c *gin.Context) {
@@ -111,8 +112,7 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 	}
 
 	var req model.UpdateProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, model.NewErrorResponse("bad_request", "リクエストが不正です"))
+	if !bindJSON(c, &req) {
 		return
 	}
 

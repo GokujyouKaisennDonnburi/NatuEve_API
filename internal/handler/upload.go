@@ -37,6 +37,7 @@ func NewUploadHandler(uploadSvc *service.UploadService) *UploadHandler {
 //	@Success		200		{object}	model.PresignResponse
 //	@Failure		400		{object}	model.ValidationErrorResponse
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
+//	@Failure		413		{object}	model.RequestTooLargeErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/uploads/presign [post]
 func (h *UploadHandler) PresignPut(c *gin.Context) {
@@ -47,8 +48,7 @@ func (h *UploadHandler) PresignPut(c *gin.Context) {
 	}
 
 	var req model.PresignRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", "リクエストボディが不正です"))
+	if !bindJSON(c, &req) {
 		return
 	}
 

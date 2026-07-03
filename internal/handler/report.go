@@ -38,6 +38,7 @@ func NewReportHandler(cmdSvc *service.ReportCommandService, querySvc *service.Re
 //	@Failure		400		{object}	model.ValidationErrorResponse
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		403		{object}	model.ForbiddenErrorResponse
+//	@Failure		413		{object}	model.RequestTooLargeErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/reports [post]
 func (h *ReportHandler) Create(c *gin.Context) {
@@ -52,8 +53,7 @@ func (h *ReportHandler) Create(c *gin.Context) {
 
 	// リクエストボディをバインドする
 	var req model.CreateReportRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", "リクエストボディが不正です"))
+	if !bindJSON(c, &req) {
 		return
 	}
 
