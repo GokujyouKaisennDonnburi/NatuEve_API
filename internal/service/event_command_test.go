@@ -167,6 +167,31 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 			wantValErr: true,
 		},
 		{
+			name: "正常: description がちょうど 10,000 文字（rune）",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				runes := make([]rune, 10000)
+				for i := range runes {
+					runes[i] = 'あ'
+				}
+				r.Description = string(runes)
+				return r
+			}(),
+		},
+		{
+			name: "異常: description が 10,001 文字（rune）",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				runes := make([]rune, 10001)
+				for i := range runes {
+					runes[i] = 'あ'
+				}
+				r.Description = string(runes)
+				return r
+			}(),
+			wantValErr: true,
+		},
+		{
 			name: "異常: location が空",
 			req: func() model.CreateEventRequest {
 				r := validRequest()

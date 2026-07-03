@@ -131,10 +131,13 @@ func validateCreateEventRequest(req model.CreateEventRequest) error {
 		return &ValidationError{Message: "タイトルは255文字以内で入力してください"}
 	}
 
-	// Description: trim 後に必須。
+	// Description: trim 後に必須・10,000文字以内。
 	description := strings.TrimSpace(req.Description)
 	if description == "" {
 		return &ValidationError{Message: "説明は必須です"}
+	}
+	if len([]rune(description)) > 10000 {
+		return &ValidationError{Message: "説明は10,000文字以内で入力してください"}
 	}
 
 	// Location: trim 後に必須・255文字以内。

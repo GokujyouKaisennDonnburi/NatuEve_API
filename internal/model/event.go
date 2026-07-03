@@ -24,8 +24,8 @@ type EventItemInput struct {
 type CreateEventRequest struct {
 	// Title はイベントタイトル（必須・255文字以内）。
 	Title string `json:"title" example:"サクラ観察会" validate:"required,max=255"`
-	// Description はイベント説明（必須）。
-	Description string `json:"description" example:"春の桜を観察するイベントです。" validate:"required"`
+	// Description はイベント説明（必須・10,000文字以内）。
+	Description string `json:"description" example:"春の桜を観察するイベントです。" validate:"required,max=10000"`
 	// Location は開催場所（必須・255文字以内）。
 	Location string `json:"location" example:"東京都新宿御苑" validate:"required,max=255"`
 	// EventDate はイベント開催日時(RFC3339)（必須）。
