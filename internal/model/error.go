@@ -93,6 +93,19 @@ type ConflictErrorBody struct {
 	Message string `json:"message" example:"既に参加しています"`
 }
 
+// RateLimitedErrorResponse はレート制限エラー(HTTP 429)のドキュメント用レスポンス型。
+type RateLimitedErrorResponse struct {
+	Error RateLimitedErrorBody `json:"error"`
+}
+
+// RateLimitedErrorBody は RateLimitedErrorResponse のエラー本体。
+type RateLimitedErrorBody struct {
+	// Code は機械可読なエラーコード。
+	Code string `json:"code" example:"rate_limited"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"リクエストが多すぎます。しばらくしてから再試行してください"`
+}
+
 // InternalErrorResponse はサーバー内部エラー(HTTP 500)のドキュメント用レスポンス型。
 type InternalErrorResponse struct {
 	Error InternalErrorBody `json:"error"`
