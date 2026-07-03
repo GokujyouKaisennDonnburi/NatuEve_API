@@ -72,14 +72,15 @@ func TestEventJoinServiceJoin(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		stub         *stubEventJoinRepository
-		profileID    uuid.NullUUID
-		req          model.JoinEventRequest
-		wantValErr   bool
-		wantNotFound bool
-		wantConflict bool
-		wantErr      bool
+		name             string
+		stub             *stubEventJoinRepository
+		profileID        uuid.NullUUID
+		req              model.JoinEventRequest
+		wantValErr       bool
+		wantNotFound     bool
+		wantConflict     bool
+		wantConflictCode string // wantConflict=true のとき検証する ConflictError.Code
+		wantErr          bool
 		// 正常系: レスポンスの全フィールドを検証する。
 		checkResp func(t *testing.T, resp model.JoinEventResponse)
 		// 正常系: repo に渡った EventMember の内容を検証する。
@@ -236,25 +237,28 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			wantNotFound: true,
 		},
 		{
-			name:         "異常: 既に参加済み（ConflictError）",
-			stub:         &stubEventJoinRepository{joinErr: repository.ErrAlreadyJoined},
-			profileID:    loggedInProfileID,
-			req:          validReq,
-			wantConflict: true,
+			name:             "異常: 既に参加済み（ConflictError）",
+			stub:             &stubEventJoinRepository{joinErr: repository.ErrAlreadyJoined},
+			profileID:        loggedInProfileID,
+			req:              validReq,
+			wantConflict:     true,
+			wantConflictCode: "already_joined",
 		},
 		{
-			name:         "異常: メール重複 - UNIQUE 制約由来のラップ済みエラー（ConflictError）",
-			stub:         &stubEventJoinRepository{joinErr: fmtWrap(repository.ErrAlreadyJoined)},
-			profileID:    anonymousProfileID,
-			req:          validReq,
-			wantConflict: true,
+			name:             "異常: メール重複 - UNIQUE 制約由来のラップ済みエラー（ConflictError）",
+			stub:             &stubEventJoinRepository{joinErr: fmtWrap(repository.ErrAlreadyJoined)},
+			profileID:        anonymousProfileID,
+			req:              validReq,
+			wantConflict:     true,
+			wantConflictCode: "already_joined",
 		},
 		{
-			name:         "異常: 定員超過（ConflictError）",
-			stub:         &stubEventJoinRepository{joinErr: repository.ErrEventCapacityFull},
-			profileID:    loggedInProfileID,
-			req:          validReq,
-			wantConflict: true,
+			name:             "異常: 定員超過（ConflictError）",
+			stub:             &stubEventJoinRepository{joinErr: repository.ErrEventCapacityFull},
+			profileID:        loggedInProfileID,
+			req:              validReq,
+			wantConflict:     true,
+			wantConflictCode: "capacity_full",
 		},
 		// --- リポジトリエラー伝播 ---
 		{
@@ -280,7 +284,10 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				_ = assertNotFoundError(t, err)
 				return
 			case tt.wantConflict:
-				_ = assertConflictError(t, err)
+				ce := assertConflictError(t, err)
+				if tt.wantConflictCode != "" && ce.Code != tt.wantConflictCode {
+					t.Errorf("ConflictError.Code: got %q, want %q", ce.Code, tt.wantConflictCode)
+				}
 				return
 			case tt.wantErr:
 				if err == nil {

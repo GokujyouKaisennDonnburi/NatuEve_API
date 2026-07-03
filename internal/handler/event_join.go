@@ -12,6 +12,15 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
 )
 
+// conflictCode は ConflictError の Code を返す。
+// Code が空の場合は既定値 "conflict" を返す。
+func conflictCode(ce *service.ConflictError) string {
+	if ce.Code != "" {
+		return ce.Code
+	}
+	return "conflict"
+}
+
 // Join はイベント参加申込 API。
 //
 //	@Summary		イベント参加
@@ -29,7 +38,7 @@ import (
 //	@Failure		400		{object}	model.ValidationErrorResponse
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		404		{object}	model.NotFoundErrorResponse
-//	@Failure		409		{object}	model.ConflictErrorResponse
+//	@Failure		409		{object}	model.ConflictErrorResponse	"code は already_joined（参加済み）または capacity_full（定員到達）"
 //	@Failure		429		{object}	model.RateLimitedErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/join [post]
@@ -98,7 +107,7 @@ func (h *EventHandler) Join(c *gin.Context) {
 		if errors.As(err, &ce) {
 			c.JSON(
 				http.StatusConflict,
-				model.NewErrorResponse("conflict", ce.Message),
+				model.NewErrorResponse(conflictCode(ce), ce.Message),
 			)
 			return
 		}

@@ -28,7 +28,9 @@ func (e *NotFoundError) Error() string {
 // ConflictError はリソースの競合を表す型付きエラー。
 //
 // handler 層が errors.As で判定し、HTTP 409 を返すために使う。
+// Code は機械可読なエラーコード。空なら handler 層が既定値 "conflict" を使う。
 type ConflictError struct {
+	Code    string
 	Message string
 }
 
@@ -79,9 +81,9 @@ func (s *EventJoinService) Join(
 		case errors.Is(err, repository.ErrEventNotFound):
 			return model.JoinEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
 		case errors.Is(err, repository.ErrAlreadyJoined):
-			return model.JoinEventResponse{}, &ConflictError{Message: "既に参加しています"}
+			return model.JoinEventResponse{}, &ConflictError{Code: "already_joined", Message: "既に参加しています"}
 		case errors.Is(err, repository.ErrEventCapacityFull):
-			return model.JoinEventResponse{}, &ConflictError{Message: "定員に達しています"}
+			return model.JoinEventResponse{}, &ConflictError{Code: "capacity_full", Message: "定員に達しています"}
 		}
 		return model.JoinEventResponse{}, fmt.Errorf("join event: %w", err)
 	}
