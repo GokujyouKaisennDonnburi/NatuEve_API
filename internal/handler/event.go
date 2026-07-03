@@ -17,15 +17,23 @@ type EventHandler struct {
 	querySvc   *service.EventQueryService
 	cmdSvc     *service.EventCommandService
 	profileSvc *service.ProfileService
+	joinSvc    *service.EventJoinService
 }
 
 // NewEventHandler は EventHandler を生成する。
-func NewEventHandler(querySvc *service.EventQueryService, cmdSvc *service.EventCommandService, profileSvc *service.ProfileService) *EventHandler {
+func NewEventHandler(
+	querySvc *service.EventQueryService,
+	cmdSvc *service.EventCommandService,
+	profileSvc *service.ProfileService,
+	joinSvc *service.EventJoinService,
+) *EventHandler {
 	return &EventHandler{
 		querySvc:   querySvc,
 		cmdSvc:     cmdSvc,
 		profileSvc: profileSvc,
+		joinSvc:    joinSvc,
 	}
+
 }
 
 // List godoc

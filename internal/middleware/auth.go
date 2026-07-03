@@ -59,37 +59,65 @@ func (v *SupabaseVerifier) RequireAuth() gin.HandlerFunc {
 			abortUnauthorized(c, "認証トークンがありません")
 			return
 		}
-
-		token, err := jwt.Parse(
-			raw,
-			v.keyfunc.Keyfunc,
-			jwt.WithValidMethods([]string{"RS256", "ES256"}),
-			jwt.WithAudience(v.audience),
-			jwt.WithExpirationRequired(),
-		)
-		if err != nil || !token.Valid {
-			abortUnauthorized(c, "認証トークンが無効です")
+		if !v.verifyAndSetUser(c, raw) {
 			return
 		}
-
-		claims, ok := token.Claims.(jwt.MapClaims)
-		if !ok {
-			abortUnauthorized(c, "認証トークンが無効です")
-			return
-		}
-
-		user, ok := authUserFromClaims(claims)
-		if !ok {
-			abortUnauthorized(c, "認証トークンに必要な情報がありません")
-			return
-		}
-
-		c.Set(authUserContextKey, user)
 		c.Next()
 	}
 }
 
-// AuthFromContext は RequireAuth が格納した AuthUser を取り出す。
+// OptionalAuth は Authorization ヘッダがある場合のみ JWT を検証する gin ミドルウェアを返す。
+//
+// ヘッダなし → 匿名として c.Next() を呼ぶ。
+// ヘッダありでトークンが無効 → 401 で中断する。
+// ヘッダありで有効 → AuthUser を格納して c.Next() を呼ぶ。
+func (v *SupabaseVerifier) OptionalAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		raw, ok := bearerToken(c.GetHeader("Authorization"))
+		if !ok {
+			// ヘッダなし → 匿名として続行する。
+			c.Next()
+			return
+		}
+		if !v.verifyAndSetUser(c, raw) {
+			return
+		}
+		c.Next()
+	}
+}
+
+// verifyAndSetUser はトークンを検証し、成功時に AuthUser を Context に格納する。
+// 検証失敗時は 401 を返して false を返す。
+func (v *SupabaseVerifier) verifyAndSetUser(c *gin.Context, raw string) bool {
+	token, err := jwt.Parse(
+		raw,
+		v.keyfunc.Keyfunc,
+		jwt.WithValidMethods([]string{"RS256", "ES256"}),
+		jwt.WithAudience(v.audience),
+		jwt.WithExpirationRequired(),
+	)
+	if err != nil || !token.Valid {
+		abortUnauthorized(c, "認証トークンが無効です")
+		return false
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		abortUnauthorized(c, "認証トークンが無効です")
+		return false
+	}
+
+	user, ok := authUserFromClaims(claims)
+	if !ok {
+		abortUnauthorized(c, "認証トークンに必要な情報がありません")
+		return false
+	}
+
+	c.Set(authUserContextKey, user)
+	return true
+}
+
+// AuthFromContext は RequireAuth / OptionalAuth が格納した AuthUser を取り出す。
 func AuthFromContext(c *gin.Context) (AuthUser, bool) {
 	v, ok := c.Get(authUserContextKey)
 	if !ok {

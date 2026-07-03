@@ -67,6 +67,32 @@ type ForbiddenErrorBody struct {
 	Message string `json:"message" example:"このイベントにレポートを投稿する権限がありません"`
 }
 
+// NotFoundErrorResponse はリソース未検出エラー(HTTP 404)のドキュメント用レスポンス型。
+type NotFoundErrorResponse struct {
+	Error NotFoundErrorBody `json:"error"`
+}
+
+// NotFoundErrorBody は NotFoundErrorResponse のエラー本体。
+type NotFoundErrorBody struct {
+	// Code は機械可読なエラーコード。
+	Code string `json:"code" example:"not_found"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"リソースが見つかりません"`
+}
+
+// ConflictErrorResponse はリソース競合エラー(HTTP 409)のドキュメント用レスポンス型。
+type ConflictErrorResponse struct {
+	Error ConflictErrorBody `json:"error"`
+}
+
+// ConflictErrorBody は ConflictErrorResponse のエラー本体。
+type ConflictErrorBody struct {
+	// Code は機械可読なエラーコード。
+	Code string `json:"code" example:"conflict"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"既に参加しています"`
+}
+
 // InternalErrorResponse はサーバー内部エラー(HTTP 500)のドキュメント用レスポンス型。
 type InternalErrorResponse struct {
 	Error InternalErrorBody `json:"error"`
