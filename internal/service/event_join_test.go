@@ -9,54 +9,16 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
 // stubEventJoinRepository は EventJoinRepository のテスト用スタブ。
 type stubEventJoinRepository struct {
-	// ExistsEvent 返却値。
-	existsEventResult bool
-	existsEventErr    error
-	// ExistsMember 返却値と受け取った引数の記録。
-	existsMemberResult    bool
-	existsMemberErr       error
-	gotExistsMemberID     uuid.UUID
-	gotExistsMemberProfID uuid.NullUUID
-	gotExistsMemberMail   string
-	// CountMembers 返却値。
-	countMembersResult int
-	countMembersErr    error
-	// GetCapacity 返却値。
-	getCapacityResult int
-	getCapacityErr    error
 	// Join 返却値（joinCreatedAt は成功時に member.CreatedAt へセットする）。
 	joinCreatedAt time.Time
 	joinErr       error
 	// 呼び出し時に Join へ渡された引数を記録する。
 	gotMember *model.EventMember
-}
-
-func (s *stubEventJoinRepository) ExistsEvent(_ context.Context, _ uuid.UUID) (bool, error) {
-	return s.existsEventResult, s.existsEventErr
-}
-
-func (s *stubEventJoinRepository) ExistsMember(
-	_ context.Context,
-	eventID uuid.UUID,
-	profileID uuid.NullUUID,
-	mailAddress string,
-) (bool, error) {
-	s.gotExistsMemberID = eventID
-	s.gotExistsMemberProfID = profileID
-	s.gotExistsMemberMail = mailAddress
-	return s.existsMemberResult, s.existsMemberErr
-}
-
-func (s *stubEventJoinRepository) CountMembers(_ context.Context, _ uuid.UUID) (int, error) {
-	return s.countMembersResult, s.countMembersErr
-}
-
-func (s *stubEventJoinRepository) GetCapacity(_ context.Context, _ uuid.UUID) (int, error) {
-	return s.getCapacityResult, s.getCapacityErr
 }
 
 func (s *stubEventJoinRepository) Join(_ context.Context, member *model.EventMember) error {
@@ -94,17 +56,6 @@ func assertConflictError(t *testing.T, err error) *ConflictError {
 	return ce
 }
 
-// defaultJoinStub は正常系テスト用のデフォルトスタブを返す。
-func defaultJoinStub(createdAt time.Time) *stubEventJoinRepository {
-	return &stubEventJoinRepository{
-		existsEventResult:  true,
-		existsMemberResult: false,
-		getCapacityResult:  30,
-		countMembersResult: 5,
-		joinCreatedAt:      createdAt,
-	}
-}
-
 func TestEventJoinServiceJoin(t *testing.T) {
 	// 固定 UUID でテストの再現性を確保する。
 	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
@@ -131,13 +82,13 @@ func TestEventJoinServiceJoin(t *testing.T) {
 		wantErr      bool
 		// 正常系: レスポンスの全フィールドを検証する。
 		checkResp func(t *testing.T, resp model.JoinEventResponse)
-		// 正常系: repo に渡った EventMember・ExistsMember 引数の内容を検証する。
+		// 正常系: repo に渡った EventMember の内容を検証する。
 		checkMember func(t *testing.T, stub *stubEventJoinRepository)
 	}{
 		// --- 正常系: ログイン参加 ---
 		{
 			name:      "正常: ログイン参加 - レスポンスの全フィールドが正しく返る",
-			stub:      defaultJoinStub(createdAt),
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: loggedInProfileID,
 			req:       validReq,
 			checkResp: func(t *testing.T, resp model.JoinEventResponse) {
@@ -182,19 +133,16 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				if m.MailAddress != "yamada@example.com" {
 					t.Errorf("EventMember.MailAddress: got %q, want %q", m.MailAddress, "yamada@example.com")
 				}
-				// ExistsMember に渡った引数を確認する。
-				if stub.gotExistsMemberProfID != loggedInProfileID {
-					t.Errorf("ExistsMember profileID: got %v, want %v", stub.gotExistsMemberProfID, loggedInProfileID)
-				}
-				if stub.gotExistsMemberMail != "yamada@example.com" {
-					t.Errorf("ExistsMember mailAddress: got %q, want %q", stub.gotExistsMemberMail, "yamada@example.com")
+				// 団体登録導入までは常に1名で登録されること。
+				if m.PartySize != 1 {
+					t.Errorf("EventMember.PartySize: got %d, want 1", m.PartySize)
 				}
 			},
 		},
 		// --- 正常系: 匿名参加 ---
 		{
 			name:      "正常: 匿名参加 - ProfileID が nil で返る",
-			stub:      defaultJoinStub(createdAt),
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: anonymousProfileID,
 			req:       validReq,
 			checkResp: func(t *testing.T, resp model.JoinEventResponse) {
@@ -212,16 +160,12 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				if m.ProfileID.Valid {
 					t.Errorf("EventMember.ProfileID.Valid: got true, want false（匿名）")
 				}
-				// 匿名時は ExistsMember に Valid=false の NullUUID が渡ること。
-				if stub.gotExistsMemberProfID.Valid {
-					t.Errorf("ExistsMember profileID.Valid: got true, want false（匿名）")
-				}
 			},
 		},
 		// --- 正常系: TrimSpace ---
 		{
 			name:      "正常: username・mailAddress の TrimSpace が反映される",
-			stub:      defaultJoinStub(createdAt),
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: loggedInProfileID,
 			req: model.JoinEventRequest{
 				Username:    "  山田太郎  ",
@@ -236,42 +180,26 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				if m.MailAddress != "yamada@example.com" {
 					t.Errorf("MailAddress trim: got %q, want %q", m.MailAddress, "yamada@example.com")
 				}
-				// ExistsMember にもトリム済みの値が渡ること。
-				if stub.gotExistsMemberMail != "yamada@example.com" {
-					t.Errorf("ExistsMember mailAddress trim: got %q, want %q", stub.gotExistsMemberMail, "yamada@example.com")
-				}
 			},
-		},
-		// --- 正常系: 定員なし ---
-		{
-			name: "正常: capacity 0 は定員なしのため参加成功",
-			stub: func() *stubEventJoinRepository {
-				s := defaultJoinStub(createdAt)
-				s.getCapacityResult = 0
-				s.countMembersResult = 999
-				return s
-			}(),
-			profileID: loggedInProfileID,
-			req:       validReq,
 		},
 		// --- バリデーションエラー ---
 		{
 			name:       "異常: username が空",
-			stub:       defaultJoinStub(createdAt),
+			stub:       &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID:  loggedInProfileID,
 			req:        model.JoinEventRequest{Username: "", MailAddress: "yamada@example.com"},
 			wantValErr: true,
 		},
 		{
 			name:       "異常: username が空白のみ",
-			stub:       defaultJoinStub(createdAt),
+			stub:       &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID:  loggedInProfileID,
 			req:        model.JoinEventRequest{Username: "   ", MailAddress: "yamada@example.com"},
 			wantValErr: true,
 		},
 		{
 			name:      "異常: username が 256 文字",
-			stub:      defaultJoinStub(createdAt),
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: loggedInProfileID,
 			req: func() model.JoinEventRequest {
 				runes := make([]rune, 256)
@@ -287,84 +215,51 @@ func TestEventJoinServiceJoin(t *testing.T) {
 		},
 		{
 			name:       "異常: mailAddress が空",
-			stub:       defaultJoinStub(createdAt),
+			stub:       &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID:  loggedInProfileID,
 			req:        model.JoinEventRequest{Username: "山田太郎", MailAddress: ""},
 			wantValErr: true,
 		},
 		{
 			name:       "異常: mailAddress の形式が不正",
-			stub:       defaultJoinStub(createdAt),
+			stub:       &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID:  loggedInProfileID,
 			req:        model.JoinEventRequest{Username: "山田太郎", MailAddress: "not-an-email"},
 			wantValErr: true,
 		},
-		// --- ビジネスチェックエラー ---
+		// --- repository の sentinel エラー変換 ---
 		{
-			name: "異常: イベントが存在しない（NotFoundError）",
-			stub: func() *stubEventJoinRepository {
-				s := defaultJoinStub(createdAt)
-				s.existsEventResult = false
-				return s
-			}(),
+			name:         "異常: イベントが存在しない（NotFoundError）",
+			stub:         &stubEventJoinRepository{joinErr: repository.ErrEventNotFound},
 			profileID:    loggedInProfileID,
 			req:          validReq,
 			wantNotFound: true,
 		},
 		{
-			name: "異常: 既に参加済み（ConflictError）",
-			stub: func() *stubEventJoinRepository {
-				s := defaultJoinStub(createdAt)
-				s.existsMemberResult = true
-				return s
-			}(),
+			name:         "異常: 既に参加済み（ConflictError）",
+			stub:         &stubEventJoinRepository{joinErr: repository.ErrAlreadyJoined},
 			profileID:    loggedInProfileID,
 			req:          validReq,
 			wantConflict: true,
 		},
 		{
-			name: "異常: メール重複（ConflictError）",
-			stub: func() *stubEventJoinRepository {
-				s := defaultJoinStub(createdAt)
-				// 匿名参加でも同一 mail_address は重複と見なす。
-				s.existsMemberResult = true
-				return s
-			}(),
+			name:         "異常: メール重複 - UNIQUE 制約由来のラップ済みエラー（ConflictError）",
+			stub:         &stubEventJoinRepository{joinErr: fmtWrap(repository.ErrAlreadyJoined)},
 			profileID:    anonymousProfileID,
 			req:          validReq,
 			wantConflict: true,
 		},
 		{
-			name: "異常: 定員超過（ConflictError）",
-			stub: func() *stubEventJoinRepository {
-				s := defaultJoinStub(createdAt)
-				s.getCapacityResult = 30
-				s.countMembersResult = 30
-				return s
-			}(),
+			name:         "異常: 定員超過（ConflictError）",
+			stub:         &stubEventJoinRepository{joinErr: repository.ErrEventCapacityFull},
 			profileID:    loggedInProfileID,
 			req:          validReq,
 			wantConflict: true,
 		},
 		// --- リポジトリエラー伝播 ---
 		{
-			name: "異常: repo.ExistsEvent がエラーを返す",
-			stub: func() *stubEventJoinRepository {
-				s := defaultJoinStub(createdAt)
-				s.existsEventErr = errors.New("db error")
-				return s
-			}(),
-			profileID: loggedInProfileID,
-			req:       validReq,
-			wantErr:   true,
-		},
-		{
-			name: "異常: repo.Join がエラーを返す",
-			stub: func() *stubEventJoinRepository {
-				s := defaultJoinStub(createdAt)
-				s.joinErr = errors.New("db error")
-				return s
-			}(),
+			name:      "異常: repo.Join が想定外のエラーを返す",
+			stub:      &stubEventJoinRepository{joinErr: errors.New("db error")},
 			profileID: loggedInProfileID,
 			req:       validReq,
 			wantErr:   true,
@@ -404,4 +299,10 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fmtWrap は sentinel エラーを %w でラップした状態を再現するヘルパー。
+// repository 実装はコンテキストを付けてラップするため、errors.Is で判定できることを確認する。
+func fmtWrap(err error) error {
+	return errors.Join(errors.New("event xxx"), err)
 }

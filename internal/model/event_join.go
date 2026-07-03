@@ -37,5 +37,7 @@ type EventMember struct {
 	ProfileID   uuid.NullUUID // ログイン時のみ Valid=true。匿名参加は Valid=false（DB上はNULL）。
 	Username    string
 	MailAddress string
-	CreatedAt   time.Time
+	// PartySize は代表者を含む参加人数（1以上）。団体登録導入までは常に1。
+	PartySize int
+	CreatedAt time.Time
 }
