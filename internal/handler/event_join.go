@@ -30,6 +30,7 @@ import (
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		404		{object}	model.NotFoundErrorResponse
 //	@Failure		409		{object}	model.ConflictErrorResponse
+//	@Failure		429		{object}	model.RateLimitedErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/join [post]
 func (h *EventHandler) Join(c *gin.Context) {
