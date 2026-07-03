@@ -225,7 +225,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "Conflict",
+                        "description": "code は already_joined（参加済み）または capacity_full（定員到達）",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse"
                         }
