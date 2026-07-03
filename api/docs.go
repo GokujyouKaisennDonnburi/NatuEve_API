@@ -1449,9 +1449,9 @@ const docTemplate = `{
                     "example": "invalid_request"
                 },
                 "message": {
-                    "description": "Message は人間向けのエラーメッセージ。",
+                    "description": "Message は人間向けのエラーメッセージ。\nJSON バインド失敗時は「リクエストボディが不正です」（全エンドポイント共通）、\nフィールド検証エラー時は「タイトルは必須です」のように原因ごとの文言が入る。",
                     "type": "string",
-                    "example": "タイトルは必須です"
+                    "example": "リクエストボディが不正です"
                 }
             }
         },

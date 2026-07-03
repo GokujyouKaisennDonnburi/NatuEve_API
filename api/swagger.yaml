@@ -638,8 +638,11 @@ definitions:
         example: invalid_request
         type: string
       message:
-        description: Message は人間向けのエラーメッセージ。
-        example: タイトルは必須です
+        description: |-
+          Message は人間向けのエラーメッセージ。
+          JSON バインド失敗時は「リクエストボディが不正です」（全エンドポイント共通）、
+          フィールド検証エラー時は「タイトルは必須です」のように原因ごとの文言が入る。
+        example: リクエストボディが不正です
         type: string
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse:

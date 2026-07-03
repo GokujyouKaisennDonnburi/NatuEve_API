@@ -38,7 +38,9 @@ type ValidationErrorBody struct {
 	// Code は機械可読なエラーコード。
 	Code string `json:"code" example:"invalid_request"`
 	// Message は人間向けのエラーメッセージ。
-	Message string `json:"message" example:"タイトルは必須です"`
+	// JSON バインド失敗時は「リクエストボディが不正です」（全エンドポイント共通）、
+	// フィールド検証エラー時は「タイトルは必須です」のように原因ごとの文言が入る。
+	Message string `json:"message" example:"リクエストボディが不正です"`
 }
 
 // UnauthorizedErrorResponse は認証エラー(HTTP 401)のドキュメント用レスポンス型。
