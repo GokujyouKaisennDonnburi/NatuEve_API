@@ -1,21 +1,5 @@
 basePath: /
 definitions:
-  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody:
-    properties:
-      code:
-        description: Code は機械可読なエラーコード。
-        example: conflict
-        type: string
-      message:
-        description: Message は人間向けのエラーメッセージ。
-        example: 既に参加しています
-        type: string
-    type: object
-  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse:
-    properties:
-      error:
-        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody'
-    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest:
     description: イベント投稿に必要な情報。
     properties:
@@ -358,6 +342,29 @@ definitions:
     properties:
       error:
         $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorBody'
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorBody:
+    properties:
+      code:
+        description: |-
+          Code は競合の原因を表す機械可読なエラーコード。
+          already_joined = 既に参加済み / capacity_full = 定員到達。
+        enum:
+        - already_joined
+        - capacity_full
+        example: already_joined
+        type: string
+      message:
+        description: |-
+          Message は人間向けのエラーメッセージ。
+          already_joined なら「既に参加しています」、capacity_full なら「定員に達しています」。
+        example: 既に参加しています
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorBody'
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinEventRequest:
     description: イベント参加申込に必要な情報。認証は任意。
@@ -786,9 +793,9 @@ paths:
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
         "409":
-          description: code は already_joined（参加済み）または capacity_full（定員到達）
+          description: 'already_joined: 既に参加しています / capacity_full: 定員に達しています'
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse'
         "429":
           description: Too Many Requests
           schema:

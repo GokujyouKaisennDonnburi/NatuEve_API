@@ -218,9 +218,9 @@
                         }
                     },
                     "409": {
-                        "description": "code は already_joined（参加済み）または capacity_full（定員到達）",
+                        "description": "already_joined: 既に参加しています / capacity_full: 定員に達しています",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse"
                         }
                     },
                     "429": {
@@ -560,29 +560,6 @@
         }
     },
     "definitions": {
-        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "description": "Code は機械可読なエラーコード。",
-                    "type": "string",
-                    "example": "conflict"
-                },
-                "message": {
-                    "description": "Message は人間向けのエラーメッセージ。",
-                    "type": "string",
-                    "example": "既に参加しています"
-                }
-            }
-        },
-        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody"
-                }
-            }
-        },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest": {
             "description": "イベント投稿に必要な情報。",
             "type": "object",
@@ -1050,6 +1027,33 @@
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorBody"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は競合の原因を表す機械可読なエラーコード。\nalready_joined = 既に参加済み / capacity_full = 定員到達。",
+                    "type": "string",
+                    "enum": [
+                        "already_joined",
+                        "capacity_full"
+                    ],
+                    "example": "already_joined"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。\nalready_joined なら「既に参加しています」、capacity_full なら「定員に達しています」。",
+                    "type": "string",
+                    "example": "既に参加しています"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorBody"
                 }
             }
         },
