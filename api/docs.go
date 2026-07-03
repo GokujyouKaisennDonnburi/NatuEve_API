@@ -113,6 +113,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -228,6 +234,12 @@ const docTemplate = `{
                         "description": "already_joined: 既に参加しています / capacity_full: 定員に達しています",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
                         }
                     },
                     "429": {
@@ -375,6 +387,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -479,6 +497,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -534,6 +558,12 @@ const docTemplate = `{
                         "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
                         }
                     },
                     "500": {
@@ -593,8 +623,9 @@ const docTemplate = `{
                     }
                 },
                 "description": {
-                    "description": "Description はイベント説明（必須）。",
+                    "description": "Description はイベント説明（必須・10,000文字以内）。",
                     "type": "string",
+                    "maxLength": 10000,
                     "example": "春の桜を観察するイベントです。"
                 },
                 "eventDate": {
@@ -1368,6 +1399,29 @@ const docTemplate = `{
                     "description": "UpdatedAt はレコード更新日時(RFC3339)。",
                     "type": "string",
                     "example": "2026-06-26T03:08:24Z"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は機械可読なエラーコード。",
+                    "type": "string",
+                    "example": "request_too_large"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "リクエストボディが大きすぎます（上限1MB）"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorBody"
                 }
             }
         },
