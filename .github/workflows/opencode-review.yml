@@ -13,8 +13,8 @@ jobs:
   review:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
+    # use_github_token: true のため OIDC は使われず id-token: write は不要
     permissions:
-      id-token: write
       contents: read
       pull-requests: write
       issues: write
@@ -23,7 +23,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: anomalyco/opencode/github@latest
+      - uses: anomalyco/opencode/github@10c894bdeef3618f5666fb506ef7f9491bb964d8 # v1.17.13
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
