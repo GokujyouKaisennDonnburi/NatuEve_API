@@ -3,10 +3,12 @@ package server
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+	"golang.org/x/time/rate"
 
 	// swag が生成する OpenAPI ドキュメント。init() で登録するため blank import する。
 	_ "github.com/GokujyouKaisennDonnburi/NatuEve_API/api"
@@ -44,6 +46,13 @@ func NewRouter(cfg config.Config, sqlDB *sql.DB) (*gin.Engine, error) {
 
 	return r, nil
 }
+
+// join のレートリミット設定。参加申込は匿名で叩けるため、同一 IP からの
+// 大量申込（架空メールでの定員埋め・DB 汚染）を平均 5回/分・バースト5回に絞る。
+const (
+	joinRateInterval = 12 * time.Second
+	joinRateBurst    = 5
+)
 
 // registerRoutes は各ハンドラをルーターに登録する。
 func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
@@ -100,10 +109,13 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	// events/{id}/report は公開エンドポイント（1イベント1レポート）。
 	v1Public.GET("/events/:id/report", reportHandler.GetByEventID)
 
+	// join は匿名で叩けるため IP レートリミットを掛ける。
+	joinLimiter := middleware.NewIPRateLimiter(rate.Every(joinRateInterval), joinRateBurst).Middleware()
+
 	// user 系は認証が必要。DB と JWKS の両方が揃っているときのみ登録する。
 	// JWKS 未設定の場合: join ルートのみ認証なし（常に匿名参加）で登録して終了する。
 	if cfg.SupabaseJWKSURL == "" {
-		v1Public.POST("/events/:id/join", eventHandler.Join)
+		v1Public.POST("/events/:id/join", joinLimiter, eventHandler.Join)
 		return nil
 	}
 
@@ -115,7 +127,7 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	// join は認証任意（OptionalAuth）: ログイン時のみ profileId を記録する。
 	v1Optional := r.Group("/api/v1")
 	v1Optional.Use(verifier.OptionalAuth())
-	v1Optional.POST("/events/:id/join", eventHandler.Join)
+	v1Optional.POST("/events/:id/join", joinLimiter, eventHandler.Join)
 
 	v1 := r.Group("/api/v1")
 	v1.Use(verifier.RequireAuth())

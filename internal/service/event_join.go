@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/mail"
 	"strings"
@@ -27,7 +28,9 @@ func (e *NotFoundError) Error() string {
 // ConflictError はリソースの競合を表す型付きエラー。
 //
 // handler 層が errors.As で判定し、HTTP 409 を返すために使う。
+// Code は機械可読なエラーコード。空なら handler 層が既定値 "conflict" を使う。
 type ConflictError struct {
+	Code    string
 	Message string
 }
 
@@ -49,7 +52,8 @@ func NewEventJoinService(repo repository.EventJoinRepository) *EventJoinService 
 // Join はイベント参加処理を行う。
 //
 // profileID が Invalid（匿名参加）の場合は profile_id を NULL として登録する。
-// バリデーション → イベント存在確認 → 重複参加確認 → 定員確認 → 参加登録の順に処理する。
+// 存在確認・重複確認・定員確認・登録は repository が1トランザクションで
+// 原子的に行い、結果は sentinel エラーで返るためここで HTTP 向けエラーに変換する。
 func (s *EventJoinService) Join(
 	ctx context.Context,
 	eventID uuid.UUID,
@@ -62,54 +66,25 @@ func (s *EventJoinService) Join(
 		return model.JoinEventResponse{}, err
 	}
 
-	// バリデーション済みの値を使う
-	username := strings.TrimSpace(req.Username)
-	mailAddress := strings.TrimSpace(req.MailAddress)
-
-	// イベント存在確認
-	exists, err := s.repo.ExistsEvent(ctx, eventID)
-	if err != nil {
-		return model.JoinEventResponse{}, fmt.Errorf("exists event: %w", err)
-	}
-	if !exists {
-		return model.JoinEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
-	}
-
-	// 重複参加確認（同一 mail_address またはログイン時は同一 profile_id）
-	joined, err := s.repo.ExistsMember(ctx, eventID, profileID, mailAddress)
-	if err != nil {
-		return model.JoinEventResponse{}, fmt.Errorf("exists member: %w", err)
-	}
-	if joined {
-		return model.JoinEventResponse{}, &ConflictError{Message: "既に参加しています"}
-	}
-
-	// 定員取得（0 = 定員なし）
-	capacity, err := s.repo.GetCapacity(ctx, eventID)
-	if err != nil {
-		return model.JoinEventResponse{}, fmt.Errorf("get capacity: %w", err)
-	}
-
-	// 現在参加人数取得
-	memberCount, err := s.repo.CountMembers(ctx, eventID)
-	if err != nil {
-		return model.JoinEventResponse{}, fmt.Errorf("count members: %w", err)
-	}
-
-	// 定員チェック（capacity == 0 は「定員なし」）
-	if capacity != 0 && memberCount >= capacity {
-		return model.JoinEventResponse{}, &ConflictError{Message: "定員に達しています"}
-	}
-
-	// 参加登録
+	// 参加登録（バリデーション済みの値を使う）
 	member := &model.EventMember{
 		EventID:     eventID,
 		ProfileID:   profileID,
-		Username:    username,
-		MailAddress: mailAddress,
+		Username:    strings.TrimSpace(req.Username),
+		MailAddress: strings.TrimSpace(req.MailAddress),
+		// 団体登録（代表者＋同伴者）導入までは常に1名。
+		PartySize: 1,
 	}
 
 	if err := s.repo.Join(ctx, member); err != nil {
+		switch {
+		case errors.Is(err, repository.ErrEventNotFound):
+			return model.JoinEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
+		case errors.Is(err, repository.ErrAlreadyJoined):
+			return model.JoinEventResponse{}, &ConflictError{Code: "already_joined", Message: "既に参加しています"}
+		case errors.Is(err, repository.ErrEventCapacityFull):
+			return model.JoinEventResponse{}, &ConflictError{Code: "capacity_full", Message: "定員に達しています"}
+		}
 		return model.JoinEventResponse{}, fmt.Errorf("join event: %w", err)
 	}
 

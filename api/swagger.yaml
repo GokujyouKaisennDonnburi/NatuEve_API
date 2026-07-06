@@ -1,21 +1,5 @@
 basePath: /
 definitions:
-  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody:
-    properties:
-      code:
-        description: Code は機械可読なエラーコード。
-        example: conflict
-        type: string
-      message:
-        description: Message は人間向けのエラーメッセージ。
-        example: 既に参加しています
-        type: string
-    type: object
-  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse:
-    properties:
-      error:
-        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody'
-    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest:
     description: イベント投稿に必要な情報。
     properties:
@@ -359,6 +343,29 @@ definitions:
       error:
         $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorBody'
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorBody:
+    properties:
+      code:
+        description: |-
+          Code は競合の原因を表す機械可読なエラーコード。
+          already_joined = 既に参加済み / capacity_full = 定員到達。
+        enum:
+        - already_joined
+        - capacity_full
+        example: already_joined
+        type: string
+      message:
+        description: |-
+          Message は人間向けのエラーメッセージ。
+          already_joined なら「既に参加しています」、capacity_full なら「定員に達しています」。
+        example: 既に参加しています
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorBody'
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinEventRequest:
     description: イベント参加申込に必要な情報。認証は任意。
     properties:
@@ -517,6 +524,22 @@ definitions:
         description: ID は Supabase Auth のユーザー ID(UUID)。
         example: d290f1ee-6c54-4b01-90e6-d701748f0851
         type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorBody:
+    properties:
+      code:
+        description: Code は機械可読なエラーコード。
+        example: rate_limited
+        type: string
+      message:
+        description: Message は人間向けのエラーメッセージ。
+        example: リクエストが多すぎます。しばらくしてから再試行してください
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorBody'
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ReportResponse:
     properties:
@@ -770,9 +793,13 @@ paths:
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
         "409":
-          description: Conflict
+          description: 'already_joined: 既に参加しています / capacity_full: 定員に達しています'
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse'
         "500":
           description: Internal Server Error
           schema:

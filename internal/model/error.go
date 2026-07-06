@@ -93,6 +93,37 @@ type ConflictErrorBody struct {
 	Message string `json:"message" example:"既に参加しています"`
 }
 
+// JoinConflictErrorResponse はイベント参加申込の競合エラー(HTTP 409)のドキュメント用レスポンス型。
+//
+// 参加申込は競合の原因が2種類あるため、汎用の ConflictErrorResponse ではなく
+// code を enum で明示する専用型を使う。
+type JoinConflictErrorResponse struct {
+	Error JoinConflictErrorBody `json:"error"`
+}
+
+// JoinConflictErrorBody は JoinConflictErrorResponse のエラー本体。
+type JoinConflictErrorBody struct {
+	// Code は競合の原因を表す機械可読なエラーコード。
+	// already_joined = 既に参加済み / capacity_full = 定員到達。
+	Code string `json:"code" example:"already_joined" enums:"already_joined,capacity_full"`
+	// Message は人間向けのエラーメッセージ。
+	// already_joined なら「既に参加しています」、capacity_full なら「定員に達しています」。
+	Message string `json:"message" example:"既に参加しています"`
+}
+
+// RateLimitedErrorResponse はレート制限エラー(HTTP 429)のドキュメント用レスポンス型。
+type RateLimitedErrorResponse struct {
+	Error RateLimitedErrorBody `json:"error"`
+}
+
+// RateLimitedErrorBody は RateLimitedErrorResponse のエラー本体。
+type RateLimitedErrorBody struct {
+	// Code は機械可読なエラーコード。
+	Code string `json:"code" example:"rate_limited"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"リクエストが多すぎます。しばらくしてから再試行してください"`
+}
+
 // InternalErrorResponse はサーバー内部エラー(HTTP 500)のドキュメント用レスポンス型。
 type InternalErrorResponse struct {
 	Error InternalErrorBody `json:"error"`
