@@ -38,7 +38,9 @@ type ValidationErrorBody struct {
 	// Code は機械可読なエラーコード。
 	Code string `json:"code" example:"invalid_request"`
 	// Message は人間向けのエラーメッセージ。
-	Message string `json:"message" example:"タイトルは必須です"`
+	// JSON バインド失敗時は「リクエストボディが不正です」（全エンドポイント共通）、
+	// フィールド検証エラー時は「タイトルは必須です」のように原因ごとの文言が入る。
+	Message string `json:"message" example:"リクエストボディが不正です"`
 }
 
 // UnauthorizedErrorResponse は認証エラー(HTTP 401)のドキュメント用レスポンス型。
@@ -109,6 +111,19 @@ type JoinConflictErrorBody struct {
 	// Message は人間向けのエラーメッセージ。
 	// already_joined なら「既に参加しています」、capacity_full なら「定員に達しています」。
 	Message string `json:"message" example:"既に参加しています"`
+}
+
+// RequestTooLargeErrorResponse はリクエストボディ超過エラー(HTTP 413)のドキュメント用レスポンス型。
+type RequestTooLargeErrorResponse struct {
+	Error RequestTooLargeErrorBody `json:"error"`
+}
+
+// RequestTooLargeErrorBody は RequestTooLargeErrorResponse のエラー本体。
+type RequestTooLargeErrorBody struct {
+	// Code は機械可読なエラーコード。
+	Code string `json:"code" example:"request_too_large"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"リクエストボディが大きすぎます（上限1MB）"`
 }
 
 // RateLimitedErrorResponse はレート制限エラー(HTTP 429)のドキュメント用レスポンス型。

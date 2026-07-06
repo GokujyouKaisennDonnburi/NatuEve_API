@@ -113,6 +113,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -151,13 +157,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
                         }
                     }
                 }
@@ -230,6 +236,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
+                        }
+                    },
                     "429": {
                         "description": "Too Many Requests",
                         "schema": {
@@ -274,13 +286,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
                         }
                     }
                 }
@@ -360,7 +372,7 @@ const docTemplate = `{
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
                         }
                     },
                     "401": {
@@ -372,7 +384,13 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
                         }
                     },
                     "500": {
@@ -413,7 +431,7 @@ const docTemplate = `{
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
                         }
                     },
                     "500": {
@@ -479,6 +497,12 @@ const docTemplate = `{
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse"
                         }
                     },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
+                        }
+                    },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
@@ -534,6 +558,12 @@ const docTemplate = `{
                         "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
                         }
                     },
                     "500": {
@@ -593,8 +623,9 @@ const docTemplate = `{
                     }
                 },
                 "description": {
-                    "description": "Description はイベント説明（必須）。",
+                    "description": "Description はイベント説明（必須・10,000文字以内）。",
                     "type": "string",
+                    "maxLength": 10000,
                     "example": "春の桜を観察するイベントです。"
                 },
                 "eventDate": {
@@ -741,29 +772,6 @@ const docTemplate = `{
                     "description": "ReportID は作成されたレポートのID。",
                     "type": "string",
                     "example": "report_1234567890"
-                }
-            }
-        },
-        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorBody": {
-            "type": "object",
-            "properties": {
-                "code": {
-                    "description": "Code は機械可読なエラーコード。",
-                    "type": "string",
-                    "example": "internal_error"
-                },
-                "message": {
-                    "description": "Message は人間向けのエラーメッセージ。",
-                    "type": "string",
-                    "example": "サーバー内部でエラーが発生しました"
-                }
-            }
-        },
-        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse": {
-            "type": "object",
-            "properties": {
-                "error": {
-                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorBody"
                 }
             }
         },
@@ -1371,6 +1379,29 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は機械可読なエラーコード。",
+                    "type": "string",
+                    "example": "request_too_large"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "リクエストボディが大きすぎます（上限1MB）"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorBody"
+                }
+            }
+        },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorBody": {
             "type": "object",
             "properties": {
@@ -1418,9 +1449,9 @@ const docTemplate = `{
                     "example": "invalid_request"
                 },
                 "message": {
-                    "description": "Message は人間向けのエラーメッセージ。",
+                    "description": "Message は人間向けのエラーメッセージ。\nJSON バインド失敗時は「リクエストボディが不正です」（全エンドポイント共通）、\nフィールド検証エラー時は「タイトルは必須です」のように原因ごとの文言が入る。",
                     "type": "string",
-                    "example": "タイトルは必須です"
+                    "example": "リクエストボディが不正です"
                 }
             }
         },

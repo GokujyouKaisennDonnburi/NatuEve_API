@@ -39,6 +39,7 @@ func conflictCode(ce *service.ConflictError) string {
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		404		{object}	model.NotFoundErrorResponse
 //	@Failure		409		{object}	model.JoinConflictErrorResponse	"already_joined: 既に参加しています / capacity_full: 定員に達しています"
+//	@Failure		413		{object}	model.RequestTooLargeErrorResponse
 //	@Failure		429		{object}	model.RateLimitedErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/join [post]
@@ -74,11 +75,7 @@ func (h *EventHandler) Join(c *gin.Context) {
 
 	// JSON受け取り
 	var req model.JoinEventRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(
-			http.StatusBadRequest,
-			model.NewErrorResponse("invalid_request", "リクエストが不正です"),
-		)
+	if !bindJSON(c, &req) {
 		return
 	}
 
