@@ -1,6 +1,6 @@
 # NatuEve_API
 
-なちゅいべ（NatuPortal の主力プロダクト）のバックエンド API サーバー。
+なちゅいべのバックエンド API サーバー。
 生物イベントの集約・検索・管理を行う。
 
 ## Tech Stack
@@ -62,8 +62,4 @@ docker compose down              # DB 停止
 - 環境変数は `.env` + godotenv、ハードコーディング禁止
 - **`.env` は絶対に読まない**（Supabase 鍵・JWT シークレット等を含む）。変数名や形式を知りたい時は `.env.example` を参照する
 
-## 詳細ルール
-以下を常時参照する（Claude Code の `@import`）。
-@.claude/rules/geofuzzing.md
-@.claude/rules/docker.md
-@.claude/rules/go-tests.md
+<!-- 詳細ルールは .claude/rules/ に配置（Claude Code 2.0.64+ が自動ロード） -->
