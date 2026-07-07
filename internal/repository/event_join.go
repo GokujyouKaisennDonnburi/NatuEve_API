@@ -37,6 +37,9 @@ type EventJoinRepository interface {
 	//   - ErrAlreadyJoined: 同一 mail_address（大文字小文字無視）またはログイン時は同一 profile_id で参加済み
 	//   - ErrEventCapacityFull: 定員超過（定員 NULL / 0 は定員なし）
 	Join(ctx context.Context, member *model.EventMember) error
+
+	// ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
+	ListRecipients(ctx context.Context, eventID string) ([]model.EventRecipient, error)
 }
 
 // eventJoinPostgres は PostgreSQL実装。
@@ -174,4 +177,35 @@ func (r *eventJoinPostgres) Join(
 	}
 
 	return nil
+}
+
+// ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
+func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID string) ([]model.EventRecipient, error) {
+	// 参加登録順で返す（送信順を決定的にし、ログ・監査での追跡を容易にする）。
+	const query = `
+	SELECT mail_address, username
+	FROM event_members
+	WHERE event_id = $1
+	ORDER BY created_at
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("list recipients: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var recipients []model.EventRecipient
+	for rows.Next() {
+		var recipient model.EventRecipient
+		if err := rows.Scan(&recipient.MailAddress, &recipient.Username); err != nil {
+			return nil, fmt.Errorf("scan recipient: %w", err)
+		}
+		recipients = append(recipients, recipient)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list recipients rows: %w", err)
+	}
+
+	return recipients, nil
 }

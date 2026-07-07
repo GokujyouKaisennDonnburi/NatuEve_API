@@ -38,6 +38,11 @@ type Config struct {
 	// 末尾スラッシュは正規化されるため有無を問わない。未設定なら URL は付与しない。
 	// 例: https://media.natuportal.com
 	R2PublicBaseURL string
+	// ResendAPIKey は Resend の API キー。
+	// 空なら一斉送信系ルートを登録しない（R2 の gating と同じ方針）。
+	ResendAPIKey string
+	// MailFrom は送信元メールアドレス。
+	MailFrom string
 }
 
 // Load は環境変数から Config を構築する。
@@ -71,5 +76,7 @@ func Load() Config {
 		cfg.R2Bucket = "natuportal"
 	}
 	cfg.R2PublicBaseURL = os.Getenv("R2_PUBLIC_BASE_URL")
+	cfg.ResendAPIKey = os.Getenv("RESEND_API_KEY")
+	cfg.MailFrom = os.Getenv("MAIL_FROM")
 	return cfg
 }
