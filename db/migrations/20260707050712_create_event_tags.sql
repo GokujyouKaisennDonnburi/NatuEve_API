@@ -1,8 +1,8 @@
 -- +goose Up
 -- event_tags はイベントとタグの中間テーブル。
 CREATE TABLE event_tags (
-    event_id UUID REFERENCES events(id),
-    tag_id   UUID REFERENCES tags(id),
+    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    tag_id   UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE
     PRIMARY KEY (event_id, tag_id)
 );
 
