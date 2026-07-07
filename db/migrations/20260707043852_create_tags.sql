@@ -2,7 +2,7 @@
 -- tags はイベントに付与するタグ。
 CREATE TABLE tags (
     id          UUID PRIMARY KEY,
-    tagname     VARCHAR(255) NOT NULL UNIQUE
+    tag_name    VARCHAR(255) NOT NULL UNIQUE
 );
 
 -- +goose Down
