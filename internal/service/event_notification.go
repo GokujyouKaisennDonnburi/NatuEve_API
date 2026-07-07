@@ -29,6 +29,12 @@ type Mailer interface {
 	SendBatch(ctx context.Context, emails []Email) error
 }
 
+// ErrMailRateLimited はメール送信基盤のレート制限により送信できなかったことを表す。
+//
+// Mailer 実装がリトライしても解消しなかった場合に、これをラップして返す。
+// handler 層は errors.Is で判定し HTTP 429 を返す。
+var ErrMailRateLimited = errors.New("mail rate limited")
+
 // maxNotificationRecipients は一斉送信1回あたりの宛先数上限。
 //
 // ADR-0001 で採用した Resend 無料枠は 100通/日のため、1回の一斉送信でこれを

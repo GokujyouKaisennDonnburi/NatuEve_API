@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,7 @@ func NewEventNotificationHandler(svc *service.EventNotificationService) *EventNo
 //	@Failure		400		{object}	model.ValidationErrorResponse
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		403		{object}	model.ForbiddenErrorResponse
+//	@Failure		429		{object}	model.RateLimitedErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/notifications [post]
 func (h *EventNotificationHandler) Send(c *gin.Context) {
@@ -67,6 +69,22 @@ func (h *EventNotificationHandler) Send(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
 			return
 		}
+		// メール送信基盤のレート制限。クライアントには 429 を返し、時間をおいた
+		// 再試行を促す（恒久的な失敗ではないため 500 にはしない）。
+		if errors.Is(err, service.ErrMailRateLimited) {
+			slog.Warn("一斉送信がレート制限されました",
+				slog.String("event_id", eventID),
+				slog.Any("error", err),
+			)
+			c.JSON(http.StatusTooManyRequests, model.NewErrorResponse("rate_limited", "送信が混み合っています。しばらく待ってから再度お試しください"))
+			return
+		}
+		// 想定外エラー（Resend 送信失敗・DB エラー等）は真因をログに残す。
+		// クライアントには詳細を返さないため、調査はこのログで行う。
+		slog.Error("一斉送信に失敗しました",
+			slog.String("event_id", eventID),
+			slog.Any("error", err),
+		)
 		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "通知の送信に失敗しました"))
 		return
 	}
