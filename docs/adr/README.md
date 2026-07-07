@@ -21,3 +21,4 @@
 | [0004](./0004-bulk-send-as-individual.md) | 一斉送信は個別送信で行う（特定電子メール法対応） | Accepted |
 | [0005](./0005-mail-rate-limit-handling.md) | メール送信のレート制限（429）対応方針 | Accepted |
 | [0006](./0006-resend-sdk-user-agent-override.md) | resend-go SDK の User-Agent を独自値に上書きする | Accepted |
+| [0007](./0007-bulk-notification-abuse-guard-scope.md) | 一斉送信の濫用対策はレート制限・送信量カウンタで行わない | Accepted |
