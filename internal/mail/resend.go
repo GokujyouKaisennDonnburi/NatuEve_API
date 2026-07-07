@@ -17,6 +17,14 @@ import (
 // resendBatchMaxSize は Resend の一括送信 API 1リクエストあたりの最大件数。
 const resendBatchMaxSize = 100
 
+// mailUserAgent は Resend へのリクエストに使う User-Agent。
+//
+// Resend の edge/WAF が SDK デフォルトの User-Agent（`resend-go/*`）を持つ
+// リクエストのみを一律 429（ratelimit ヘッダなし）で拒否する事象を確認した
+// （2026-07-07 確認）。同一リクエストでも User-Agent を変えると成功するため、
+// SDK が生成するデフォルト値を独自の値で上書きして回避する。
+const mailUserAgent = "natueve-api/1.0"
+
 // レート制限（Resend 既定は 2 リクエスト/秒）に当たった際のリトライ設定。
 const (
 	// maxSendAttempts は1チャンクあたりの最大試行回数（初回 + リトライ）。
@@ -38,8 +46,11 @@ type ResendClient struct {
 // apiKey: Resend の API キー
 // from: 送信元メールアドレス
 func NewResendClient(apiKey, from string) *ResendClient {
+	client := resend.NewClient(apiKey)
+	client.UserAgent = mailUserAgent
+
 	return &ResendClient{
-		client: resend.NewClient(apiKey),
+		client: client,
 		from:   from,
 	}
 }
