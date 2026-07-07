@@ -72,8 +72,7 @@ func (s *EventJoinService) Join(
 		ProfileID:   profileID,
 		Username:    strings.TrimSpace(req.Username),
 		MailAddress: strings.TrimSpace(req.MailAddress),
-		// 団体登録（代表者＋同伴者）導入までは常に1名。
-		PartySize: 1,
+		PartySize:   req.PartySize,
 	}
 
 	if err := s.repo.Join(ctx, member); err != nil {
@@ -100,6 +99,7 @@ func (s *EventJoinService) Join(
 		ProfileID:   respProfileID,
 		Username:    member.Username,
 		MailAddress: member.MailAddress,
+		PartySize:   member.PartySize,
 		CreatedAt:   member.CreatedAt,
 	}, nil
 }
@@ -126,6 +126,13 @@ func validateJoinEventRequest(req model.JoinEventRequest) error {
 	}
 	if _, err := mail.ParseAddress(mailAddress); err != nil {
 		return &ValidationError{Message: "メールアドレスの形式が不正です"}
+	}
+
+	// PartySize: 代表者を含む参加人数。1以上。
+	if req.PartySize < 1 {
+		return &ValidationError{
+			Message: "参加人数は1人以上で入力してください",
+		}
 	}
 
 	return nil

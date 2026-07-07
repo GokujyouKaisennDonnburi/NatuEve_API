@@ -14,6 +14,8 @@ type JoinEventRequest struct {
 	Username string `json:"username" example:"山田太郎" validate:"required,max=255"`
 	// MailAddress は参加するユーザーのメールアドレス（必須）。
 	MailAddress string `json:"mailAddress" example:"yamada@example.com" validate:"required,email,max=255"`
+	// PartySize は代表者を含む参加人数（必須・1以上）。
+	PartySize int `json:"partySize" example:"1" validate:"required,min=1"`
 }
 
 // JoinEventResponse は参加申込完了時に返すレスポンス。
@@ -26,6 +28,8 @@ type JoinEventResponse struct {
 	Username string `json:"username" example:"山田太郎"`
 	// MailAddress は参加するユーザーのメールアドレス。
 	MailAddress string `json:"mailAddress" example:"yamada@example.com"`
+	// PartySize は代表者を含む参加人数。
+	PartySize int `json:"partySize" example:"1"`
 	// CreatedAt は参加申込日時。
 	CreatedAt time.Time `json:"createdAt" example:"2023-01-01T12:00:00Z"`
 }
@@ -37,7 +41,7 @@ type EventMember struct {
 	ProfileID   uuid.NullUUID // ログイン時のみ Valid=true。匿名参加は Valid=false（DB上はNULL）。
 	Username    string
 	MailAddress string
-	// PartySize は代表者を含む参加人数（1以上）。団体登録導入までは常に1。
+	// PartySize は代表者を含む参加人数（1以上）。
 	PartySize int
 	CreatedAt time.Time
 }

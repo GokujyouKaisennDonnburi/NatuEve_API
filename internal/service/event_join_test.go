@@ -69,6 +69,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 	validReq := model.JoinEventRequest{
 		Username:    "山田太郎",
 		MailAddress: "yamada@example.com",
+		PartySize:   1,
 	}
 
 	tests := []struct {
@@ -109,6 +110,9 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				if resp.MailAddress != "yamada@example.com" {
 					t.Errorf("MailAddress: got %q, want %q", resp.MailAddress, "yamada@example.com")
 				}
+				if resp.PartySize != 1 {
+					t.Errorf("PartySize: got %d, want %d", resp.PartySize, 1)
+				}
 				if !resp.CreatedAt.Equal(createdAt) {
 					t.Errorf("CreatedAt: got %v, want %v", resp.CreatedAt, createdAt)
 				}
@@ -134,7 +138,6 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				if m.MailAddress != "yamada@example.com" {
 					t.Errorf("EventMember.MailAddress: got %q, want %q", m.MailAddress, "yamada@example.com")
 				}
-				// 団体登録導入までは常に1名で登録されること。
 				if m.PartySize != 1 {
 					t.Errorf("EventMember.PartySize: got %d, want 1", m.PartySize)
 				}
@@ -171,6 +174,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			req: model.JoinEventRequest{
 				Username:    "  山田太郎  ",
 				MailAddress: "  yamada@example.com  ",
+				PartySize:   1,
 			},
 			checkMember: func(t *testing.T, stub *stubEventJoinRepository) {
 				t.Helper()
@@ -180,6 +184,62 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				}
 				if m.MailAddress != "yamada@example.com" {
 					t.Errorf("MailAddress trim: got %q, want %q", m.MailAddress, "yamada@example.com")
+				}
+			},
+		},
+		// --- 正常系: 個人参加申請 ---
+		{
+			name: "正常: 1人参加申請 - PartySizeが正しく渡る",
+			stub: &stubEventJoinRepository{
+				joinCreatedAt: createdAt,
+			},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				PartySize:   1,
+			},
+			checkMember: func(t *testing.T, stub *stubEventJoinRepository) {
+				t.Helper()
+
+				if stub.gotMember == nil {
+					t.Fatal("gotMember が nil")
+				}
+
+				if stub.gotMember.PartySize != 1 {
+					t.Errorf(
+						"PartySize: got %d, want %d",
+						stub.gotMember.PartySize,
+						1,
+					)
+				}
+			},
+		},
+		// --- 正常系: 複数人参加申請 ---
+		{
+			name: "正常: 複数人参加申請 - PartySizeが正しく渡る",
+			stub: &stubEventJoinRepository{
+				joinCreatedAt: createdAt,
+			},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				PartySize:   5,
+			},
+			checkMember: func(t *testing.T, stub *stubEventJoinRepository) {
+				t.Helper()
+
+				if stub.gotMember == nil {
+					t.Fatal("gotMember が nil")
+				}
+
+				if stub.gotMember.PartySize != 5 {
+					t.Errorf(
+						"PartySize: got %d, want %d",
+						stub.gotMember.PartySize,
+						5,
+					)
 				}
 			},
 		},
@@ -259,6 +319,28 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			req:              validReq,
 			wantConflict:     true,
 			wantConflictCode: "capacity_full",
+		},
+		{
+			name: "異常: PartySizeが0",
+			stub: &stubEventJoinRepository{joinCreatedAt: createdAt,},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				PartySize:   0,
+			},
+			wantValErr: true,
+		},
+		{
+			name: "異常: PartySizeがマイナス",
+			stub: &stubEventJoinRepository{joinCreatedAt: createdAt,},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				PartySize:   -1,
+			},
+			wantValErr: true,
 		},
 		// --- リポジトリエラー伝播 ---
 		{
