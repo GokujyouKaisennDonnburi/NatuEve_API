@@ -34,6 +34,12 @@ type JoinEventResponse struct {
 	CreatedAt time.Time `json:"createdAt" example:"2023-01-01T12:00:00Z"`
 }
 
+// EventRecipient はイベント参加者への一斉送信の宛先1件分を表すモデル。
+// Repository 層で event_members から SELECT する際に使用する。
+type EventRecipient struct {
+	MailAddress string
+}
+
 // EventMember は event_members テーブルと対応するモデル。
 // Repository 層で INSERT・SELECT する際に使用する。
 type EventMember struct {

@@ -257,6 +257,82 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/events/{id}/notifications": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "イベント主催者が、参加者全員へ運用通知メールを一斉送信する。送信できるのはイベント主催者のみ。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notification"
+                ],
+                "summary": "イベント参加者への一斉送信",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "イベントID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "一斉送信リクエスト",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SendEventNotificationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SendEventNotificationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/events/{id}/report": {
             "get": {
                 "description": "指定したイベントIDに紐づくレポートを取得する。1イベント1レポート。認証不要。",
@@ -1411,6 +1487,53 @@ const docTemplate = `{
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorBody"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SendEventNotificationRequest": {
+            "description": "イベント参加者への一斉送信に必要な件名・本文。",
+            "type": "object",
+            "required": [
+                "body",
+                "subject"
+            ],
+            "properties": {
+                "body": {
+                    "description": "Body はメールの本文（必須・10,000文字以内）。",
+                    "type": "string",
+                    "maxLength": 10000,
+                    "example": "明日のイベントは予報通り雨となりますが、予定通り開催します。動きやすい服装でお越しください。"
+                },
+                "subject": {
+                    "description": "Subject はメールの件名（必須・255文字以内）。",
+                    "type": "string",
+                    "maxLength": 255,
+                    "example": "【重要】明日のイベントは雨天決行です"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SendEventNotificationResponse": {
+            "type": "object",
+            "properties": {
+                "eventId": {
+                    "description": "EventID は送信対象のイベントID。",
+                    "type": "string",
+                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                },
+                "failedCount": {
+                    "description": "FailedCount は送信に失敗した件数。",
+                    "type": "integer",
+                    "example": 0
+                },
+                "recipientCount": {
+                    "description": "RecipientCount は送信対象の参加者数。",
+                    "type": "integer",
+                    "example": 12
+                },
+                "sentCount": {
+                    "description": "SentCount は送信に成功した件数。",
+                    "type": "integer",
+                    "example": 12
                 }
             }
         },

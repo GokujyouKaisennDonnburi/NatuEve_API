@@ -47,8 +47,5 @@
       "Read(.env.local)",
       "Read(.env.*.local)"
     ]
-  },
-  "env": {
-    "CLAUDE_CODE_SUBAGENT_MODEL": "claude-sonnet-5"
   }
 }

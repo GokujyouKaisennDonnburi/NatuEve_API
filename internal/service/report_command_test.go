@@ -130,8 +130,8 @@ func TestValidateCreateReportRequest_ExternalUrls(t *testing.T) {
 
 func TestReportCommandServiceCreate_AuthorizationCheck(t *testing.T) {
 	const (
-		ownerProfileID = "owner-profile-uuid-001"
-		otherProfileID = "other-profile-uuid-002"
+		ownerProfileID = "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+		otherProfileID = "c3d4e5f6-a7b8-9012-cdef-345678901234"
 		validEventID   = "event-uuid-001"
 	)
 

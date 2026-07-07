@@ -19,6 +19,9 @@ type stubEventJoinRepository struct {
 	joinErr       error
 	// 呼び出し時に Join へ渡された引数を記録する。
 	gotMember *model.EventMember
+	// ListRecipients 返却値。
+	recipients        []model.EventRecipient
+	listRecipientsErr error
 }
 
 func (s *stubEventJoinRepository) Join(_ context.Context, member *model.EventMember) error {
@@ -28,6 +31,10 @@ func (s *stubEventJoinRepository) Join(_ context.Context, member *model.EventMem
 	}
 	member.CreatedAt = s.joinCreatedAt
 	return nil
+}
+
+func (s *stubEventJoinRepository) ListRecipients(_ context.Context, _ string) ([]model.EventRecipient, error) {
+	return s.recipients, s.listRecipientsErr
 }
 
 // assertNotFoundError はテストヘルパー: err が *NotFoundError であることを確認する。

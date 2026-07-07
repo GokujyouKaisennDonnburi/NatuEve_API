@@ -14,6 +14,7 @@ import (
 	_ "github.com/GokujyouKaisennDonnburi/NatuEve_API/api"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/config"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/handler"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/mail"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/middleware"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
@@ -144,6 +145,16 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 		uploadSvc := service.NewUploadService(store)
 		uploadHandler := handler.NewUploadHandler(uploadSvc)
 		v1.POST("/uploads/presign", uploadHandler.PresignPut)
+	}
+
+	// Resend 設定がある場合のみ通知ルートを登録する（R2 gating と同じ方針）。
+	// API キーだけでは送信できない（送信元 MAIL_FROM が無いと全送信が Resend 側で
+	// 失敗し毎回 500 になる）ため、両方揃っているときのみ登録する。
+	if cfg.ResendAPIKey != "" && cfg.MailFrom != "" {
+		mailer := mail.NewResendClient(cfg.ResendAPIKey, cfg.MailFrom)
+		notifySvc := service.NewEventNotificationService(eventRepo, eventJoinRepo, mailer)
+		notifyHandler := handler.NewEventNotificationHandler(notifySvc)
+		v1.POST("/events/:id/notifications", notifyHandler.Send)
 	}
 
 	return nil

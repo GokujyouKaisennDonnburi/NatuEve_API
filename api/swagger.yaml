@@ -614,6 +614,42 @@ definitions:
       error:
         $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorBody'
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SendEventNotificationRequest:
+    description: イベント参加者への一斉送信に必要な件名・本文。
+    properties:
+      body:
+        description: Body はメールの本文（必須・10,000文字以内）。
+        example: 明日のイベントは予報通り雨となりますが、予定通り開催します。動きやすい服装でお越しください。
+        maxLength: 10000
+        type: string
+      subject:
+        description: Subject はメールの件名（必須・255文字以内）。
+        example: 【重要】明日のイベントは雨天決行です
+        maxLength: 255
+        type: string
+    required:
+    - body
+    - subject
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SendEventNotificationResponse:
+    properties:
+      eventId:
+        description: EventID は送信対象のイベントID。
+        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        type: string
+      failedCount:
+        description: FailedCount は送信に失敗した件数。
+        example: 0
+        type: integer
+      recipientCount:
+        description: RecipientCount は送信対象の参加者数。
+        example: 12
+        type: integer
+      sentCount:
+        description: SentCount は送信に成功した件数。
+        example: 12
+        type: integer
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorBody:
     properties:
       code:
@@ -833,6 +869,55 @@ paths:
       summary: イベント参加
       tags:
       - event
+  /api/v1/events/{id}/notifications:
+    post:
+      consumes:
+      - application/json
+      description: イベント主催者が、参加者全員へ運用通知メールを一斉送信する。送信できるのはイベント主催者のみ。
+      parameters:
+      - description: イベントID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 一斉送信リクエスト
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SendEventNotificationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SendEventNotificationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: イベント参加者への一斉送信
+      tags:
+      - notification
   /api/v1/events/{id}/report:
     get:
       description: 指定したイベントIDに紐づくレポートを取得する。1イベント1レポート。認証不要。
