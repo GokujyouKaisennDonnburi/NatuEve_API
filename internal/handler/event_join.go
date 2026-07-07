@@ -28,6 +28,8 @@ func conflictCode(ce *service.ConflictError) string {
 //	@Description	Authorization ヘッダなし → 匿名参加（profileId = null）。
 //	@Description	ヘッダありでトークンが無効 → 401 で中断。
 //	@Description	ヘッダありで有効 → profileId を記録してログイン参加。
+//	@Description	partySizeで代表者を含む参加人数を指定できる。
+//	@Description	イベント定員を超える場合は409 Conflict（capacity_full）を返す。
 //	@Tags			event
 //	@Accept			json
 //	@Produce		json

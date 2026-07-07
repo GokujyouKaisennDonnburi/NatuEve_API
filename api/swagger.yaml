@@ -779,6 +779,8 @@ paths:
         Authorization ヘッダなし → 匿名参加（profileId = null）。
         ヘッダありでトークンが無効 → 401 で中断。
         ヘッダありで有効 → profileId を記録してログイン参加。
+        partySizeで代表者を含む参加人数を指定できる。
+        イベント定員を超える場合は409 Conflict（capacity_full）を返す。
       parameters:
       - description: イベントID
         in: path
