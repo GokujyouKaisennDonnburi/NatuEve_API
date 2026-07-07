@@ -176,7 +176,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → 匿名参加（profileId = null）。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → profileId を記録してログイン参加。",
+                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → 匿名参加（profileId = null）。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → profileId を記録してログイン参加。\npartySizeで代表者を含む参加人数を指定できる。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す。",
                 "consumes": [
                     "application/json"
                 ],
@@ -1077,6 +1077,7 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "mailAddress",
+                "partySize",
                 "username"
             ],
             "properties": {
@@ -1085,6 +1086,12 @@ const docTemplate = `{
                     "type": "string",
                     "maxLength": 255,
                     "example": "yamada@example.com"
+                },
+                "partySize": {
+                    "description": "PartySize は代表者を含む参加人数（必須・1以上）。",
+                    "type": "integer",
+                    "minimum": 1,
+                    "example": 1
                 },
                 "username": {
                     "description": "Username は参加するユーザーの表示名（必須・255文字以内）。",
@@ -1111,6 +1118,11 @@ const docTemplate = `{
                     "description": "MailAddress は参加するユーザーのメールアドレス。",
                     "type": "string",
                     "example": "yamada@example.com"
+                },
+                "partySize": {
+                    "description": "PartySize は代表者を含む参加人数。",
+                    "type": "integer",
+                    "example": 1
                 },
                 "profileId": {
                     "description": "ProfileID は参加するユーザーのUUID。ログイン時のみ記録され、匿名参加時は null。",
