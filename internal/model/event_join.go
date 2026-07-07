@@ -38,7 +38,6 @@ type JoinEventResponse struct {
 // Repository 層で event_members から SELECT する際に使用する。
 type EventRecipient struct {
 	MailAddress string
-	Username    string
 }
 
 // EventMember は event_members テーブルと対応するモデル。

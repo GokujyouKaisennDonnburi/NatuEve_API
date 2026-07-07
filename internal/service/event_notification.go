@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
@@ -98,7 +100,11 @@ func (s *EventNotificationService) SendBulk(
 	if err != nil {
 		return model.SendEventNotificationResponse{}, fmt.Errorf("get event owner: %w", err)
 	}
-	if ownerID != profileID {
+	// UUID として正規化して比較する（大文字小文字・表記ゆれによる誤判定を避ける）。
+	// パースに失敗した場合は認可を通さない（fail-closed）。
+	ownerUID, ownerErr := uuid.Parse(ownerID)
+	profileUID, profileErr := uuid.Parse(profileID)
+	if ownerErr != nil || profileErr != nil || ownerUID != profileUID {
 		return model.SendEventNotificationResponse{}, &ForbiddenError{Message: "このイベントの参加者へ通知を送信する権限がありません"}
 	}
 

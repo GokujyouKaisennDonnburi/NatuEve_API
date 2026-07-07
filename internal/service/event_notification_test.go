@@ -38,8 +38,8 @@ func TestEventNotificationServiceSendBulk(t *testing.T) {
 	)
 
 	recipients := []model.EventRecipient{
-		{MailAddress: "yamada@example.com", Username: "山田太郎"},
-		{MailAddress: "sato@example.com", Username: "佐藤花子"},
+		{MailAddress: "yamada@example.com"},
+		{MailAddress: "sato@example.com"},
 	}
 
 	tests := []struct {
@@ -220,7 +220,6 @@ func TestEventNotificationServiceSendBulk_TooManyRecipients(t *testing.T) {
 	for i := range recipients {
 		recipients[i] = model.EventRecipient{
 			MailAddress: fmt.Sprintf("user%d@example.com", i),
-			Username:    fmt.Sprintf("ユーザー%d", i),
 		}
 	}
 

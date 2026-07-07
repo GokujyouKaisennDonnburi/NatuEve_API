@@ -183,7 +183,7 @@ func (r *eventJoinPostgres) Join(
 func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID string) ([]model.EventRecipient, error) {
 	// 参加登録順で返す（送信順を決定的にし、ログ・監査での追跡を容易にする）。
 	const query = `
-	SELECT mail_address, username
+	SELECT mail_address
 	FROM event_members
 	WHERE event_id = $1
 	ORDER BY created_at
@@ -198,7 +198,7 @@ func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID string) 
 	var recipients []model.EventRecipient
 	for rows.Next() {
 		var recipient model.EventRecipient
-		if err := rows.Scan(&recipient.MailAddress, &recipient.Username); err != nil {
+		if err := rows.Scan(&recipient.MailAddress); err != nil {
 			return nil, fmt.Errorf("scan recipient: %w", err)
 		}
 		recipients = append(recipients, recipient)

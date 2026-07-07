@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
@@ -51,7 +53,11 @@ func (s *ReportCommandService) Create(ctx context.Context, profileID string, req
 	if err != nil {
 		return model.CreateReportResponse{}, fmt.Errorf("get event owner: %w", err)
 	}
-	if ownerID != profileID {
+	// UUID として正規化して比較する（大文字小文字・表記ゆれによる誤判定を避ける）。
+	// パースに失敗した場合は認可を通さない（fail-closed）。
+	ownerUID, ownerErr := uuid.Parse(ownerID)
+	profileUID, profileErr := uuid.Parse(profileID)
+	if ownerErr != nil || profileErr != nil || ownerUID != profileUID {
 		return model.CreateReportResponse{}, &ForbiddenError{Message: "このイベントにレポートを投稿する権限がありません"}
 	}
 
