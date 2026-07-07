@@ -359,6 +359,11 @@ definitions:
         example: yamada@example.com
         maxLength: 255
         type: string
+      partySize:
+        description: PartySize は代表者を含む参加人数（必須・1以上）。
+        example: 1
+        minimum: 1
+        type: integer
       username:
         description: Username は参加するユーザーの表示名（必須・255文字以内）。
         example: 山田太郎
@@ -366,6 +371,7 @@ definitions:
         type: string
     required:
     - mailAddress
+    - partySize
     - username
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinEventResponse:
@@ -382,6 +388,10 @@ definitions:
         description: MailAddress は参加するユーザーのメールアドレス。
         example: yamada@example.com
         type: string
+      partySize:
+        description: PartySize は代表者を含む参加人数。
+        example: 1
+        type: integer
       profileId:
         description: ProfileID は参加するユーザーのUUID。ログイン時のみ記録され、匿名参加時は null。
         example: b2c3d4e5-f6a7-8901-bcde-f23456789012
