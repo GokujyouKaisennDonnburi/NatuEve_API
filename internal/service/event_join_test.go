@@ -321,8 +321,8 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			wantConflictCode: "capacity_full",
 		},
 		{
-			name: "異常: PartySizeが0",
-			stub: &stubEventJoinRepository{joinCreatedAt: createdAt,},
+			name:      "異常: PartySizeが0",
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: loggedInProfileID,
 			req: model.JoinEventRequest{
 				Username:    "山田太郎",
@@ -332,8 +332,8 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			wantValErr: true,
 		},
 		{
-			name: "異常: PartySizeがマイナス",
-			stub: &stubEventJoinRepository{joinCreatedAt: createdAt,},
+			name:      "異常: PartySizeがマイナス",
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: loggedInProfileID,
 			req: model.JoinEventRequest{
 				Username:    "山田太郎",
