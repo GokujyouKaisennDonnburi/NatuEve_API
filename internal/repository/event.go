@@ -35,11 +35,12 @@ type EventRepository interface {
 	ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error)
 	// CountSummaries は events テーブルの全件数を返す。
 	CountSummaries(ctx context.Context) (int, error)
-	// SearchSummaries は q に部分一致するイベントサマリーを指定ソート順で取得する。
-	// title/description/location/主催者名(display_name)/持ち物(event_item) を横断検索する。
-	SearchSummaries(ctx context.Context, q, sort, order string, limit, offset int) ([]model.EventSummary, error)
-	// CountSearchSummaries は q に部分一致するイベントの件数を返す。
-	CountSearchSummaries(ctx context.Context, q string) (int, error)
+	// SearchSummaries は keywords すべてに一致するイベントサマリーを指定ソート順で取得する。
+	// 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item)
+	// を横断（OR）し、キーワード間は AND で結合する（AND 検索）。keywords は 1 件以上を前提とする。
+	SearchSummaries(ctx context.Context, keywords []string, sort, order string, limit, offset int) ([]model.EventSummary, error)
+	// CountSearchSummaries は keywords すべてに一致するイベントの件数を返す。keywords は 1 件以上を前提とする。
+	CountSearchSummaries(ctx context.Context, keywords []string) (int, error)
 	// GetByID は指定されたイベント ID の詳細情報を取得する。
 	GetByID(ctx context.Context, id string) (*model.EventResponse, error)
 	// Create はイベントを関連テーブルとともにトランザクション内で一括登録する。
@@ -163,16 +164,6 @@ func (r *eventPostgres) CountSummaries(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-// searchWhereClause は SearchSummaries / CountSearchSummaries 共通の検索条件。
-// title/description/主催者名(display_name)/location/持ち物(event_item) を横断検索する。
-// $1 には "%" + escapeLike(q) + "%" を渡す。
-const searchWhereClause = `
-	WHERE e.title ILIKE $1
-	   OR e.description ILIKE $1
-	   OR p.display_name ILIKE $1
-	   OR e.location ILIKE $1
-	   OR EXISTS (SELECT 1 FROM event_items i WHERE i.event_id = e.id AND i.event_item ILIKE $1)`
-
 // escapeLike は ILIKE のワイルドカード(% _)とエスケープ文字(\)を無効化し、
 // ユーザー入力を純粋な部分一致文字列として扱う。PostgreSQL の ILIKE は
 // デフォルトのエスケープ文字が \ のため ESCAPE 句は不要。
@@ -183,58 +174,68 @@ func escapeLike(s string) string {
 	return s
 }
 
-// searchSummariesQueries は (sort, order) の組み合わせから安全なクエリ文字列へのマップ。
+// searchOrderByClauses は (sort, order) の組み合わせから安全な ORDER BY 句へのマップ。
 // ユーザー入力を直接 SQL に埋め込まず、ホワイトリストから固定文字列を選ぶ。
-// $1=検索パターン、$2=limit、$3=offset。
-var searchSummariesQueries = map[string]string{
-	"event_date:asc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
-		       p.id, p.display_name, p.avatar_url
-		FROM events e
-		LEFT JOIN profiles p ON p.id = e.profile_id
-		` + searchWhereClause + `
-		ORDER BY e.event_date ASC, e.id
-		LIMIT $2 OFFSET $3`,
-	"event_date:desc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
-		       p.id, p.display_name, p.avatar_url
-		FROM events e
-		LEFT JOIN profiles p ON p.id = e.profile_id
-		` + searchWhereClause + `
-		ORDER BY e.event_date DESC, e.id
-		LIMIT $2 OFFSET $3`,
-	"created_at:asc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
-		       p.id, p.display_name, p.avatar_url
-		FROM events e
-		LEFT JOIN profiles p ON p.id = e.profile_id
-		` + searchWhereClause + `
-		ORDER BY e.created_at ASC, e.id
-		LIMIT $2 OFFSET $3`,
-	"created_at:desc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
-		       p.id, p.display_name, p.avatar_url
-		FROM events e
-		LEFT JOIN profiles p ON p.id = e.profile_id
-		` + searchWhereClause + `
-		ORDER BY e.created_at DESC, e.id
-		LIMIT $2 OFFSET $3`,
+// 同一ソートキーは id 昇順で安定ソートする。
+var searchOrderByClauses = map[string]string{
+	"event_date:asc":  "e.event_date ASC, e.id",
+	"event_date:desc": "e.event_date DESC, e.id",
+	"created_at:asc":  "e.created_at ASC, e.id",
+	"created_at:desc": "e.created_at DESC, e.id",
 }
 
-// SearchSummaries は q に部分一致するイベントサマリーを指定ソート順で取得する。
-// title/description/location/主催者名(display_name)/持ち物(event_item) を横断検索する。
+// buildSearchWhere は keywords を AND 検索する WHERE 句本体と ILIKE パターン引数を返す。
+// 各キーワードは5フィールド(title/description/display_name/location/持ち物)を OR で横断する
+// 1グループとなり、グループ間は AND で連結する。プレースホルダは $startIdx から連番で割り当てる。
+// キーワードは常にプレースホルダ経由で渡し、SQL 文字列へ直接埋め込まない（SQLインジェクション対策）。
+// keywords は 1 件以上であることを前提とする（0 件だと空の WHERE となり不正な SQL になる）。
+func buildSearchWhere(keywords []string, startIdx int) (string, []any) {
+	groups := make([]string, len(keywords))
+	args := make([]any, len(keywords))
+	for i, kw := range keywords {
+		ph := fmt.Sprintf("$%d", startIdx+i)
+		// %[1]s は同一プレースホルダを5箇所へ展開する（ワイヤプロトコル上、同一 $N の複数参照は正当）。
+		groups[i] = fmt.Sprintf(
+			"(e.title ILIKE %[1]s OR e.description ILIKE %[1]s OR p.display_name ILIKE %[1]s "+
+				"OR e.location ILIKE %[1]s "+
+				"OR EXISTS (SELECT 1 FROM event_items it WHERE it.event_id = e.id AND it.event_item ILIKE %[1]s))",
+			ph,
+		)
+		args[i] = "%" + escapeLike(kw) + "%"
+	}
+	return strings.Join(groups, " AND "), args
+}
+
+// SearchSummaries は keywords すべてに一致するイベントサマリーを指定ソート順で取得する（AND 検索）。
+// 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item) を横断（OR）する。
 // sort・order は呼び出し元（service 層）でホワイトリスト検証済みであることを前提とする。
-func (r *eventPostgres) SearchSummaries(ctx context.Context, q, sort, order string, limit, offset int) ([]model.EventSummary, error) {
-	key := sort + ":" + order
-	query, ok := searchSummariesQueries[key]
+func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, sort, order string, limit, offset int) ([]model.EventSummary, error) {
+	where, args := buildSearchWhere(keywords, 1)
+
+	orderBy, ok := searchOrderByClauses[sort+":"+order]
 	if !ok {
 		// フォールバック: created_at DESC（service 層で正規化済みのため通常到達しない）。
-		query = searchSummariesQueries["created_at:desc"]
+		orderBy = searchOrderByClauses["created_at:desc"]
 	}
 
-	pattern := "%" + escapeLike(q) + "%"
+	// limit / offset はキーワード分のプレースホルダの後ろに割り当てる。
+	limitIdx := len(args) + 1
+	offsetIdx := len(args) + 2
+	// G201: 埋め込むのは buildSearchWhere が生成する列名+プレースホルダ番号($N)、
+	// ホワイトリスト由来の ORDER BY、int のインデックスのみ。キーワード等のユーザー入力は
+	// 一切文字列連結せず args 経由でのみ渡すため SQL インジェクションは発生しない。
+	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
+	query := fmt.Sprintf(`
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		       p.id, p.display_name, p.avatar_url
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		WHERE %s
+		ORDER BY %s
+		LIMIT $%d OFFSET $%d`, where, orderBy, limitIdx, offsetIdx)
+	args = append(args, limit, offset)
 
-	rows, err := r.db.QueryContext(ctx, query, pattern, limit, offset)
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("search event summaries: %w", err)
 	}
@@ -283,19 +284,22 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, q, sort, order stri
 	return summaries, nil
 }
 
-// CountSearchSummaries は q に部分一致するイベントの件数を返す。
+// CountSearchSummaries は keywords すべてに一致するイベントの件数を返す（AND 検索）。
 // LEFT JOIN profiles は 1 対 1、持ち物は EXISTS のため行の重複は起きず COUNT(*) で正しい。
-func (r *eventPostgres) CountSearchSummaries(ctx context.Context, q string) (int, error) {
-	query := `
+func (r *eventPostgres) CountSearchSummaries(ctx context.Context, keywords []string) (int, error) {
+	where, args := buildSearchWhere(keywords, 1)
+
+	// G201: 埋め込むのは buildSearchWhere が生成する列名+プレースホルダ番号($N)のみ。
+	// キーワードは args 経由でのみ渡すため SQL インジェクションは発生しない。
+	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
+	query := fmt.Sprintf(`
 		SELECT COUNT(*)
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
-		` + searchWhereClause
-
-	pattern := "%" + escapeLike(q) + "%"
+		WHERE %s`, where)
 
 	var count int
-	if err := r.db.QueryRowContext(ctx, query, pattern).Scan(&count); err != nil {
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count search event summaries: %w", err)
 	}
 	return count, nil

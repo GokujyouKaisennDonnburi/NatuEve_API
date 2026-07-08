@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/api/v1/events": {
             "get": {
-                "description": "公開イベントを指定ソート順で返す。認証不要。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。\nprifileはProfileSummaryを返す。\nq を指定すると、タイトル/イベント詳細/主催者名/地域名/持ち物の5項目を横断して部分一致・大文字小文字無視で検索する。未指定または空文字なら全件を返す。",
+                "description": "公開イベントを指定ソート順で返す。認証不要。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。\nprifileはProfileSummaryを返す。\nq は検索キーワード。反復指定で AND 検索になる（例: ?q=桜\u0026q=東京）。各語はタイトル/イベント詳細/\n主催者名/地域名/持ち物を横断して部分一致・大文字小文字無視で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。",
                 "produces": [
                     "application/json"
                 ],
@@ -26,6 +26,16 @@ const docTemplate = `{
                 ],
                 "summary": "イベント一覧取得",
                 "parameters": [
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)",
+                        "name": "q",
+                        "in": "query"
+                    },
                     {
                         "type": "string",
                         "description": "ソートカラム(created_at|event_date, default: created_at)",
@@ -48,12 +58,6 @@ const docTemplate = `{
                         "type": "integer",
                         "description": "取得開始位置(default 0)",
                         "name": "offset",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "検索キーワード(タイトル/詳細/主催者名/地域名/持ち物を部分一致・大小無視で横断検索。未指定なら全件)",
-                        "name": "q",
                         "in": "query"
                     }
                 ],

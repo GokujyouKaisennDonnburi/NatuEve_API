@@ -709,8 +709,16 @@ paths:
         sort は "created_at"(デフォルト) / "event_date" のみ許可。不正値はデフォルトに戻す。
         order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
         prifileはProfileSummaryを返す。
-        q を指定すると、タイトル/イベント詳細/主催者名/地域名/持ち物の5項目を横断して部分一致・大文字小文字無視で検索する。未指定または空文字なら全件を返す。
+        q は検索キーワード。反復指定で AND 検索になる（例: ?q=桜&q=東京）。各語はタイトル/イベント詳細/
+        主催者名/地域名/持ち物を横断して部分一致・大文字小文字無視で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。
       parameters:
+      - collectionFormat: multi
+        description: 検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)
+        in: query
+        items:
+          type: string
+        name: q
+        type: array
       - description: 'ソートカラム(created_at|event_date, default: created_at)'
         in: query
         name: sort
@@ -727,10 +735,6 @@ paths:
         in: query
         name: offset
         type: integer
-      - description: 検索キーワード(タイトル/詳細/主催者名/地域名/持ち物を部分一致・大小無視で横断検索。未指定なら全件)
-        in: query
-        name: q
-        type: string
       produces:
       - application/json
       responses:
