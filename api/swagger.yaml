@@ -938,6 +938,7 @@ paths:
       description: |-
         イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。
         profileId は匿名参加（ログインしていない）の場合 null。
+        イベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。
       parameters:
       - description: イベントID
         in: path
@@ -963,10 +964,6 @@ paths:
           description: Forbidden
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
         "500":
           description: Internal Server Error
           schema:

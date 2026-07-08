@@ -274,7 +274,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。\nprofileId は匿名参加（ログインしていない）の場合 null。",
+                "description": "イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。\nprofileId は匿名参加（ログインしていない）の場合 null。\nイベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。",
                 "produces": [
                     "application/json"
                 ],
@@ -314,12 +314,6 @@ const docTemplate = `{
                         "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
                         }
                     },
                     "500": {
