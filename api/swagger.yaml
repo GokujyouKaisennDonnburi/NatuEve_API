@@ -206,6 +206,10 @@ definitions:
         description: TotalCount は参加者総数（client の表示用）。
         example: 5
         type: integer
+      totalMembers:
+        description: TotalMembers は全参加者の partySize 合計（実際の総参加人数）。
+        example: 8
+        type: integer
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberResponse:
     description: 参加者1人分の情報。profileId は匿名参加の場合 null。

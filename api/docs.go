@@ -1043,6 +1043,11 @@ const docTemplate = `{
                     "description": "TotalCount は参加者総数（client の表示用）。",
                     "type": "integer",
                     "example": 5
+                },
+                "totalMembers": {
+                    "description": "TotalMembers は全参加者の partySize 合計（実際の総参加人数）。",
+                    "type": "integer",
+                    "example": 8
                 }
             }
         },
