@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
@@ -184,10 +186,20 @@ var searchOrderByClauses = map[string]string{
 	"created_at:desc": "e.created_at DESC, e.id",
 }
 
+// normalizeSearchText は照合基準を全角/半角で揃えるため NFKC 正規化する。
+// 全角数字→半角数字、全角英字→半角英字、半角カナ→全角カナ 等を吸収する
+// （ひらがな↔カタカナは対象外）。SQL 側の normalize(col, NFKC) と同一の正規化形を用いることで、
+// 保存値とキーワードの表記ゆれ（半角/全角）を一致させる。
+func normalizeSearchText(s string) string {
+	return norm.NFKC.String(s)
+}
+
 // buildSearchWhere は keywords を AND 検索する WHERE 句本体と ILIKE パターン引数を返す。
 // 各キーワードは5フィールド(title/description/display_name/location/持ち物)を OR で横断する
 // 1グループとなり、グループ間は AND で連結する。プレースホルダは $startIdx から連番で割り当てる。
 // キーワードは常にプレースホルダ経由で渡し、SQL 文字列へ直接埋め込まない（SQLインジェクション対策）。
+// 半角/全角を同一視するため、カラム側は normalize(col, NFKC)、キーワード側は
+// normalizeSearchText で NFKC 正規化する（両辺を同じ正規化形にそろえる）。
 // keywords は 1 件以上であることを前提とする（0 件だと空の WHERE となり不正な SQL になる）。
 func buildSearchWhere(keywords []string, startIdx int) (string, []any) {
 	groups := make([]string, len(keywords))
@@ -196,12 +208,15 @@ func buildSearchWhere(keywords []string, startIdx int) (string, []any) {
 		ph := fmt.Sprintf("$%d", startIdx+i)
 		// %[1]s は同一プレースホルダを5箇所へ展開する（ワイヤプロトコル上、同一 $N の複数参照は正当）。
 		groups[i] = fmt.Sprintf(
-			"(e.title ILIKE %[1]s OR e.description ILIKE %[1]s OR p.display_name ILIKE %[1]s "+
-				"OR e.location ILIKE %[1]s "+
-				"OR EXISTS (SELECT 1 FROM event_items it WHERE it.event_id = e.id AND it.event_item ILIKE %[1]s))",
+			"(normalize(e.title, NFKC) ILIKE %[1]s OR normalize(e.description, NFKC) ILIKE %[1]s "+
+				"OR normalize(p.display_name, NFKC) ILIKE %[1]s OR normalize(e.location, NFKC) ILIKE %[1]s "+
+				"OR EXISTS (SELECT 1 FROM event_items it WHERE it.event_id = e.id "+
+				"AND normalize(it.event_item, NFKC) ILIKE %[1]s))",
 			ph,
 		)
-		args[i] = "%" + escapeLike(kw) + "%"
+		// NFKC 正規化 → LIKE エスケープ → % で囲む の順。全角％(U+FF05)は NFKC で ASCII '%' に
+		// なるため、正規化を先に行い escapeLike でワイルドカードとして無効化する必要がある。
+		args[i] = "%" + escapeLike(normalizeSearchText(kw)) + "%"
 	}
 	return strings.Join(groups, " AND "), args
 }

@@ -64,6 +64,34 @@ func TestEscapeLike(t *testing.T) {
 	}
 }
 
+// TestNormalizeSearchText は normalizeSearchText(NFKC) が半角/全角の表記ゆれを
+// 吸収すること、および ひらがな↔カタカナは変換しないことを検証する。
+func TestNormalizeSearchText(t *testing.T) {
+	t.Helper()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "全角数字→半角数字", input: "２０２６", want: "2026"},
+		{name: "全角英字→半角英字", input: "ＡＢＣ", want: "ABC"},
+		{name: "半角カナ→全角カナ", input: "ｶﾀｶﾅ", want: "カタカナ"},
+		{name: "全角パーセント→半角パーセント", input: "５０％", want: "50%"},
+		{name: "半角英数字はそのまま", input: "abc123", want: "abc123"},
+		{name: "ひらがなはカタカナ化しない", input: "さくら", want: "さくら"},
+		{name: "空文字はそのまま", input: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeSearchText(tt.input); got != tt.want {
+				t.Errorf("normalizeSearchText(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestBuildSearchWhere は buildSearchWhere が各キーワードを5フィールド OR の
 // 1グループとし、グループ間を AND で連結すること、プレースホルダを startIdx から
 // 連番で割り当てること、ILIKE パターン引数を順序どおり生成することを検証する。
@@ -82,10 +110,16 @@ func TestBuildSearchWhere(t *testing.T) {
 		wantArgs        []any
 	}{
 		{
-			name:         "単一キーワード: $1 が5箇所へ展開され AND を含まない",
-			keywords:     []string{"桜"},
-			startIdx:     1,
-			wantContains: []string{"e.title ILIKE $1", "e.description ILIKE $1", "p.display_name ILIKE $1", "e.location ILIKE $1", "it.event_item ILIKE $1"},
+			name:     "単一キーワード: $1 が5フィールド(normalize適用)へ展開され AND を含まない",
+			keywords: []string{"桜"},
+			startIdx: 1,
+			wantContains: []string{
+				"normalize(e.title, NFKC) ILIKE $1",
+				"normalize(e.description, NFKC) ILIKE $1",
+				"normalize(p.display_name, NFKC) ILIKE $1",
+				"normalize(e.location, NFKC) ILIKE $1",
+				"normalize(it.event_item, NFKC) ILIKE $1",
+			},
 			wantAndCount: 0,
 			wantArgs:     []any{"%桜%"},
 		},
@@ -93,7 +127,7 @@ func TestBuildSearchWhere(t *testing.T) {
 			name:            "複数キーワード: 連番プレースホルダと AND 連結",
 			keywords:        []string{"桜", "東京"},
 			startIdx:        1,
-			wantContains:    []string{"ILIKE $1", "ILIKE $2", " AND "},
+			wantContains:    []string{"ILIKE $1", "ILIKE $2", ") AND ("},
 			wantNotContains: []string{"ILIKE $3"},
 			wantAndCount:    1,
 			wantArgs:        []any{"%桜%", "%東京%"},
@@ -109,6 +143,20 @@ func TestBuildSearchWhere(t *testing.T) {
 		{
 			name:         "特殊文字を含むキーワードはエスケープされてパターン化される",
 			keywords:     []string{"50%"},
+			startIdx:     1,
+			wantContains: []string{"ILIKE $1"},
+			wantArgs:     []any{`%50\%%`},
+		},
+		{
+			name:         "全角数字は NFKC 正規化で半角化されてパターン化される",
+			keywords:     []string{"２０２６"},
+			startIdx:     1,
+			wantContains: []string{"ILIKE $1"},
+			wantArgs:     []any{"%2026%"},
+		},
+		{
+			name:         "全角パーセントは NFKC で ASCII 化された後 LIKE エスケープされる",
+			keywords:     []string{"５０％"},
 			startIdx:     1,
 			wantContains: []string{"ILIKE $1"},
 			wantArgs:     []any{`%50\%%`},

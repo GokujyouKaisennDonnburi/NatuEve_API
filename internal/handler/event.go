@@ -44,7 +44,8 @@ func NewEventHandler(
 //	@Description	order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
 //	@Description	prifileはProfileSummaryを返す。
 //	@Description	q は検索キーワード。反復指定で AND 検索になる（例: ?q=桜&q=東京）。各語はタイトル/イベント詳細/
-//	@Description	主催者名/地域名/持ち物を横断して部分一致・大文字小文字無視で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。
+//	@Description	主催者名/地域名/持ち物を横断して部分一致で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。
+//	@Description	照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。全角数字↔半角数字・全角英字↔半角英字・半角カナ↔全角カナ）。
 //	@Tags			event
 //	@Produce		json
 //	@Param			q		query		[]string	false	"検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)"	collectionFormat(multi)
