@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
@@ -43,26 +44,49 @@ func NewEventQueryService(repo repository.EventRepository, publicBaseURL string)
 
 // List は limit / offset / sort / order を正規化してからイベント一覧レスポンスを返す。
 //
+// q が空文字（前後空白トリム後）の場合は全件一覧を返す。
+// q が非空の場合は title/description/主催者名(display_name)/location/持ち物(event_item) を
+// 横断した部分一致（大文字小文字無視）検索を行う。
+//
 // 正規化ルール:
 //   - limit が 0 以下 → defaultLimit(20)
 //   - limit が maxLimit(100) 超過 → maxLimit(100)
 //   - offset が負値 → 0
 //   - sort が許可値("created_at"/"event_date")以外 → defaultSort("created_at")
 //   - order が許可値("asc"/"desc")以外 → defaultOrder("desc")
-func (s *EventQueryService) List(ctx context.Context, sort, order string, limit, offset int) (model.EventListResponse, error) {
+func (s *EventQueryService) List(ctx context.Context, q, sort, order string, limit, offset int) (model.EventListResponse, error) {
+	q = strings.TrimSpace(q)
 	limit = normalizeLimit(limit)
 	offset = normalizeOffset(offset)
 	sort = normalizeSort(sort)
 	order = normalizeOrder(order)
 
-	summaries, err := s.repo.ListSummaries(ctx, sort, order, limit, offset)
-	if err != nil {
-		return model.EventListResponse{}, err
-	}
+	var (
+		summaries  []model.EventSummary
+		totalCount int
+		err        error
+	)
 
-	totalCount, err := s.repo.CountSummaries(ctx)
-	if err != nil {
-		return model.EventListResponse{}, err
+	if q == "" {
+		summaries, err = s.repo.ListSummaries(ctx, sort, order, limit, offset)
+		if err != nil {
+			return model.EventListResponse{}, err
+		}
+
+		totalCount, err = s.repo.CountSummaries(ctx)
+		if err != nil {
+			return model.EventListResponse{}, err
+		}
+	} else {
+		summaries, err = s.repo.SearchSummaries(ctx, q, sort, order, limit, offset)
+		if err != nil {
+			return model.EventListResponse{}, err
+		}
+
+		totalCount, err = s.repo.CountSearchSummaries(ctx, q)
+		if err != nil {
+			return model.EventListResponse{}, err
+		}
 	}
 
 	return model.EventListResponse{

@@ -21,6 +21,18 @@ type stubEventRepository struct {
 	totalCount int
 	err        error
 	countErr   error
+	// SearchSummaries / CountSearchSummaries 呼び出し時に渡された引数を記録する。
+	gotSearchQuery  string
+	gotSearchSort   string
+	gotSearchOrder  string
+	gotSearchLimit  int
+	gotSearchOffset int
+	gotCountQuery   string
+	// SearchSummaries / CountSearchSummaries 返却値。
+	searchResults    []model.EventSummary
+	searchTotalCount int
+	searchErr        error
+	searchCountErr   error
 	// Create 用: 受け取った引数と返却値。
 	gotNewEvent  *model.NewEvent
 	createResult model.CreateEventResponse
@@ -40,6 +52,20 @@ func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order strin
 
 func (s *stubEventRepository) CountSummaries(_ context.Context) (int, error) {
 	return s.totalCount, s.countErr
+}
+
+func (s *stubEventRepository) SearchSummaries(_ context.Context, q, sort, order string, limit, offset int) ([]model.EventSummary, error) {
+	s.gotSearchQuery = q
+	s.gotSearchSort = sort
+	s.gotSearchOrder = order
+	s.gotSearchLimit = limit
+	s.gotSearchOffset = offset
+	return s.searchResults, s.searchErr
+}
+
+func (s *stubEventRepository) CountSearchSummaries(_ context.Context, q string) (int, error) {
+	s.gotCountQuery = q
+	return s.searchTotalCount, s.searchCountErr
 }
 
 func (s *stubEventRepository) Create(_ context.Context, e *model.NewEvent) (model.CreateEventResponse, error) {
@@ -244,7 +270,7 @@ func TestEventQueryServiceList_Normalization(t *testing.T) {
 			}
 			svc := NewEventQueryService(stub, "")
 
-			got, err := svc.List(context.Background(), tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
+			got, err := svc.List(context.Background(), "", tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
 
 			if tt.wantErr {
 				if err == nil {
@@ -284,6 +310,161 @@ func TestEventQueryServiceList_Normalization(t *testing.T) {
 			}
 			if got.Offset != tt.wantOffset {
 				t.Errorf("response.Offset: got %d, want %d", got.Offset, tt.wantOffset)
+			}
+		})
+	}
+}
+
+// TestEventQueryServiceList_Search は q（検索クエリ）の有無による経路切り替えと
+// 正規化後の引数が repository に渡ることを検証する。
+func TestEventQueryServiceList_Search(t *testing.T) {
+	t.Helper()
+
+	searchResults := []model.EventSummary{
+		{ID: "id-2", Title: "検索テストイベント", EventDate: time.Now().UTC(), CreatedAt: time.Now().UTC()},
+	}
+	const searchTotal = 3
+
+	listResults := []model.EventSummary{
+		{ID: "id-1", Title: "全件テストイベント", EventDate: time.Now().UTC(), CreatedAt: time.Now().UTC()},
+	}
+	const listTotal = 42
+
+	tests := []struct {
+		name             string
+		inputQ           string
+		inputSort        string
+		inputOrder       string
+		inputLimit       int
+		inputOffset      int
+		searchErr        error
+		searchCountErr   error
+		wantErr          bool
+		wantSearchCalled bool // true: SearchSummaries/CountSearchSummaries 経路、false: ListSummaries/CountSummaries 経路
+		wantQ            string
+		wantSort         string
+		wantOrder        string
+		wantLimit        int
+		wantOffset       int
+		wantTotal        int
+	}{
+		{
+			name:             "正常: qが非空なら SearchSummaries/CountSearchSummaries 経路に入り正規化後の値が渡る",
+			inputQ:           "  テント  ",
+			inputSort:        "event_date",
+			inputOrder:       "asc",
+			inputLimit:       10,
+			inputOffset:      5,
+			wantSearchCalled: true,
+			wantQ:            "テント",
+			wantSort:         "event_date",
+			wantOrder:        "asc",
+			wantLimit:        10,
+			wantOffset:       5,
+			wantTotal:        searchTotal,
+		},
+		{
+			name:             "正常: qが空白のみ(トリム後空文字)なら ListSummaries 経路(全件)に入る",
+			inputQ:           "   ",
+			inputSort:        "",
+			inputOrder:       "",
+			inputLimit:       0,
+			inputOffset:      0,
+			wantSearchCalled: false,
+			wantSort:         "created_at",
+			wantOrder:        "desc",
+			wantLimit:        20,
+			wantOffset:       0,
+			wantTotal:        listTotal,
+		},
+		{
+			name:             "異常: 検索経路で SearchSummaries のエラーが伝播する",
+			inputQ:           "テント",
+			inputLimit:       20,
+			wantSearchCalled: true,
+			searchErr:        errors.New("search db error"),
+			wantErr:          true,
+		},
+		{
+			name:             "異常: 検索経路で CountSearchSummaries のエラーが伝播する",
+			inputQ:           "テント",
+			inputLimit:       20,
+			wantSearchCalled: true,
+			searchCountErr:   errors.New("count search db error"),
+			wantErr:          true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			makeHelper(t)
+
+			stub := &stubEventRepository{
+				results:          listResults,
+				totalCount:       listTotal,
+				searchResults:    searchResults,
+				searchTotalCount: searchTotal,
+				searchErr:        tt.searchErr,
+				searchCountErr:   tt.searchCountErr,
+			}
+			svc := NewEventQueryService(stub, "")
+
+			got, err := svc.List(context.Background(), tt.inputQ, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("エラーを期待したが nil だった")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+
+			if tt.wantSearchCalled {
+				// 検索経路: SearchSummaries/CountSearchSummaries に正規化後の値が渡ること。
+				if stub.gotSearchQuery != tt.wantQ {
+					t.Errorf("search query: got %q, want %q", stub.gotSearchQuery, tt.wantQ)
+				}
+				if stub.gotSearchSort != tt.wantSort {
+					t.Errorf("search sort: got %q, want %q", stub.gotSearchSort, tt.wantSort)
+				}
+				if stub.gotSearchOrder != tt.wantOrder {
+					t.Errorf("search order: got %q, want %q", stub.gotSearchOrder, tt.wantOrder)
+				}
+				if stub.gotSearchLimit != tt.wantLimit {
+					t.Errorf("search limit: got %d, want %d", stub.gotSearchLimit, tt.wantLimit)
+				}
+				if stub.gotSearchOffset != tt.wantOffset {
+					t.Errorf("search offset: got %d, want %d", stub.gotSearchOffset, tt.wantOffset)
+				}
+				if stub.gotCountQuery != tt.wantQ {
+					t.Errorf("count search query: got %q, want %q", stub.gotCountQuery, tt.wantQ)
+				}
+				if stub.gotSort != "" {
+					t.Errorf("ListSummaries が呼ばれるべきではない: gotSort=%q", stub.gotSort)
+				}
+			} else {
+				// 全件経路: ListSummaries/CountSummaries に正規化後の値が渡ること。
+				if stub.gotSort != tt.wantSort {
+					t.Errorf("sort: got %q, want %q", stub.gotSort, tt.wantSort)
+				}
+				if stub.gotOrder != tt.wantOrder {
+					t.Errorf("order: got %q, want %q", stub.gotOrder, tt.wantOrder)
+				}
+				if stub.gotLimit != tt.wantLimit {
+					t.Errorf("limit: got %d, want %d", stub.gotLimit, tt.wantLimit)
+				}
+				if stub.gotOffset != tt.wantOffset {
+					t.Errorf("offset: got %d, want %d", stub.gotOffset, tt.wantOffset)
+				}
+				if stub.gotSearchQuery != "" {
+					t.Errorf("SearchSummaries が呼ばれるべきではない: gotSearchQuery=%q", stub.gotSearchQuery)
+				}
+			}
+
+			if got.TotalCount != tt.wantTotal {
+				t.Errorf("totalCount: got %d, want %d", got.TotalCount, tt.wantTotal)
 			}
 		})
 	}

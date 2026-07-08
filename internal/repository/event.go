@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
@@ -34,6 +35,11 @@ type EventRepository interface {
 	ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error)
 	// CountSummaries は events テーブルの全件数を返す。
 	CountSummaries(ctx context.Context) (int, error)
+	// SearchSummaries は q に部分一致するイベントサマリーを指定ソート順で取得する。
+	// title/description/location/主催者名(display_name)/持ち物(event_item) を横断検索する。
+	SearchSummaries(ctx context.Context, q, sort, order string, limit, offset int) ([]model.EventSummary, error)
+	// CountSearchSummaries は q に部分一致するイベントの件数を返す。
+	CountSearchSummaries(ctx context.Context, q string) (int, error)
 	// GetByID は指定されたイベント ID の詳細情報を取得する。
 	GetByID(ctx context.Context, id string) (*model.EventResponse, error)
 	// Create はイベントを関連テーブルとともにトランザクション内で一括登録する。
@@ -153,6 +159,144 @@ func (r *eventPostgres) CountSummaries(ctx context.Context) (int, error) {
 	var count int
 	if err := r.db.QueryRowContext(ctx, query).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count event summaries: %w", err)
+	}
+	return count, nil
+}
+
+// searchWhereClause は SearchSummaries / CountSearchSummaries 共通の検索条件。
+// title/description/主催者名(display_name)/location/持ち物(event_item) を横断検索する。
+// $1 には "%" + escapeLike(q) + "%" を渡す。
+const searchWhereClause = `
+	WHERE e.title ILIKE $1
+	   OR e.description ILIKE $1
+	   OR p.display_name ILIKE $1
+	   OR e.location ILIKE $1
+	   OR EXISTS (SELECT 1 FROM event_items i WHERE i.event_id = e.id AND i.event_item ILIKE $1)`
+
+// escapeLike は ILIKE のワイルドカード(% _)とエスケープ文字(\)を無効化し、
+// ユーザー入力を純粋な部分一致文字列として扱う。PostgreSQL の ILIKE は
+// デフォルトのエスケープ文字が \ のため ESCAPE 句は不要。
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
+// searchSummariesQueries は (sort, order) の組み合わせから安全なクエリ文字列へのマップ。
+// ユーザー入力を直接 SQL に埋め込まず、ホワイトリストから固定文字列を選ぶ。
+// $1=検索パターン、$2=limit、$3=offset。
+var searchSummariesQueries = map[string]string{
+	"event_date:asc": `
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		       p.id, p.display_name, p.avatar_url
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		` + searchWhereClause + `
+		ORDER BY e.event_date ASC, e.id
+		LIMIT $2 OFFSET $3`,
+	"event_date:desc": `
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		       p.id, p.display_name, p.avatar_url
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		` + searchWhereClause + `
+		ORDER BY e.event_date DESC, e.id
+		LIMIT $2 OFFSET $3`,
+	"created_at:asc": `
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		       p.id, p.display_name, p.avatar_url
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		` + searchWhereClause + `
+		ORDER BY e.created_at ASC, e.id
+		LIMIT $2 OFFSET $3`,
+	"created_at:desc": `
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		       p.id, p.display_name, p.avatar_url
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		` + searchWhereClause + `
+		ORDER BY e.created_at DESC, e.id
+		LIMIT $2 OFFSET $3`,
+}
+
+// SearchSummaries は q に部分一致するイベントサマリーを指定ソート順で取得する。
+// title/description/location/主催者名(display_name)/持ち物(event_item) を横断検索する。
+// sort・order は呼び出し元（service 層）でホワイトリスト検証済みであることを前提とする。
+func (r *eventPostgres) SearchSummaries(ctx context.Context, q, sort, order string, limit, offset int) ([]model.EventSummary, error) {
+	key := sort + ":" + order
+	query, ok := searchSummariesQueries[key]
+	if !ok {
+		// フォールバック: created_at DESC（service 層で正規化済みのため通常到達しない）。
+		query = searchSummariesQueries["created_at:desc"]
+	}
+
+	pattern := "%" + escapeLike(q) + "%"
+
+	rows, err := r.db.QueryContext(ctx, query, pattern, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("search event summaries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var summaries []model.EventSummary
+	for rows.Next() {
+		var s model.EventSummary
+		var (
+			location    sql.NullString
+			profileID   sql.NullString
+			pID         sql.NullString
+			displayName sql.NullString
+			avatarURL   sql.NullString
+		)
+		if err := rows.Scan(
+			&s.ID,
+			&s.Title,
+			&s.EventDate,
+			&location,
+			&profileID,
+			&s.CreatedAt,
+			&pID,
+			&displayName,
+			&avatarURL,
+		); err != nil {
+			return nil, fmt.Errorf("scan event summary: %w", err)
+		}
+		s.Location = location.String
+		s.ProfileID = profileID.String
+		s.Profile = model.ProfileSummary{
+			ID:          pID.String,
+			DisplayName: displayName.String,
+			AvatarURL:   avatarURL.String,
+		}
+		summaries = append(summaries, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate event summaries: %w", err)
+	}
+
+	// レコードが 0 件でも nil ではなく空スライスを返す。
+	if summaries == nil {
+		summaries = []model.EventSummary{}
+	}
+	return summaries, nil
+}
+
+// CountSearchSummaries は q に部分一致するイベントの件数を返す。
+// LEFT JOIN profiles は 1 対 1、持ち物は EXISTS のため行の重複は起きず COUNT(*) で正しい。
+func (r *eventPostgres) CountSearchSummaries(ctx context.Context, q string) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		` + searchWhereClause
+
+	pattern := "%" + escapeLike(q) + "%"
+
+	var count int
+	if err := r.db.QueryRowContext(ctx, query, pattern).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count search event summaries: %w", err)
 	}
 	return count, nil
 }

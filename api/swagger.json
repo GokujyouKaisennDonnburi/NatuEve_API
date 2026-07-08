@@ -10,7 +10,7 @@
     "paths": {
         "/api/v1/events": {
             "get": {
-                "description": "公開イベントを指定ソート順で返す。認証不要。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。\nprifileはProfileSummaryを返す。",
+                "description": "公開イベントを指定ソート順で返す。認証不要。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。\nprifileはProfileSummaryを返す。\nq を指定すると、タイトル/イベント詳細/主催者名/地域名/持ち物の5項目を横断して部分一致・大文字小文字無視で検索する。未指定または空文字なら全件を返す。",
                 "produces": [
                     "application/json"
                 ],
@@ -41,6 +41,12 @@
                         "type": "integer",
                         "description": "取得開始位置(default 0)",
                         "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "検索キーワード(タイトル/詳細/主催者名/地域名/持ち物を部分一致・大小無視で横断検索。未指定なら全件)",
+                        "name": "q",
                         "in": "query"
                     }
                 ],
