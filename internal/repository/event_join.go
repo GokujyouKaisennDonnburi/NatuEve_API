@@ -40,7 +40,7 @@ type EventJoinRepository interface {
 	Join(ctx context.Context, member *model.EventMember) error
 
 	// ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
-	ListRecipients(ctx context.Context, eventID string) ([]model.EventRecipient, error)
+	ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error)
 
 	// ListMembers は指定 eventID の参加者一覧を作成日時の昇順で返す。
 	// 0件の場合は nil ではなく空スライスを返す（呼び出し元の totalCount 計算で安全側に倒すため）。
@@ -185,7 +185,7 @@ func (r *eventJoinPostgres) Join(
 }
 
 // ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
-func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID string) ([]model.EventRecipient, error) {
+func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error) {
 	// 参加登録順で返す（送信順を決定的にし、ログ・監査での追跡を容易にする）。
 	const query = `
 	SELECT mail_address

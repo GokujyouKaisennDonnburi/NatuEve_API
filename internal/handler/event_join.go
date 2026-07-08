@@ -128,6 +128,7 @@ func (h *EventHandler) Join(c *gin.Context) {
 //	@Summary		イベント参加者一覧取得
 //	@Description	イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。
 //	@Description	profileId は匿名参加（ログインしていない）の場合 null。
+//	@Description	イベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。
 //	@Tags			event
 //	@Produce		json
 //	@Security		BearerAuth
@@ -136,7 +137,6 @@ func (h *EventHandler) Join(c *gin.Context) {
 //	@Failure		400	{object}	model.ValidationErrorResponse
 //	@Failure		401	{object}	model.UnauthorizedErrorResponse
 //	@Failure		403	{object}	model.ForbiddenErrorResponse
-//	@Failure		404	{object}	model.NotFoundErrorResponse
 //	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/members [get]
 func (h *EventHandler) ListMembers(c *gin.Context) {
@@ -155,15 +155,6 @@ func (h *EventHandler) ListMembers(c *gin.Context) {
 			c.JSON(
 				http.StatusBadRequest,
 				model.NewErrorResponse("invalid_request", ve.Message),
-			)
-			return
-		}
-
-		var nfe *service.NotFoundError
-		if errors.As(err, &nfe) {
-			c.JSON(
-				http.StatusNotFound,
-				model.NewErrorResponse("not_found", nfe.Message),
 			)
 			return
 		}

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
 // stubReportRepository は ReportRepository のテスト用スタブ。
@@ -132,7 +132,7 @@ func TestReportCommandServiceCreate_AuthorizationCheck(t *testing.T) {
 	const (
 		ownerProfileID = "b2c3d4e5-f6a7-8901-bcde-f23456789012"
 		otherProfileID = "c3d4e5f6-a7b8-9012-cdef-345678901234"
-		validEventID   = "event-uuid-001"
+		validEventID   = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 	)
 
 	dummyResp := model.CreateReportResponse{
@@ -157,10 +157,10 @@ func TestReportCommandServiceCreate_AuthorizationCheck(t *testing.T) {
 			ownerProfileID: ownerProfileID,
 		},
 		{
-			name:              "異常: 対象イベントが存在しない（ErrNoRows）",
+			name:              "異常: 対象イベントが存在しない（ErrEventNotFound）",
 			profileID:         ownerProfileID,
 			req:               validReportRequest(validEventID),
-			ownerProfileIDErr: fmt.Errorf("get event owner profile_id: %w", sql.ErrNoRows),
+			ownerProfileIDErr: fmt.Errorf("event xxx: %w", repository.ErrEventNotFound),
 			wantValidationErr: true,
 		},
 		{

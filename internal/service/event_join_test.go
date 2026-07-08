@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
@@ -39,7 +38,7 @@ func (s *stubEventJoinRepository) Join(_ context.Context, member *model.EventMem
 	return nil
 }
 
-func (s *stubEventJoinRepository) ListRecipients(_ context.Context, _ string) ([]model.EventRecipient, error) {
+func (s *stubEventJoinRepository) ListRecipients(_ context.Context, _ uuid.UUID) ([]model.EventRecipient, error) {
 	return s.recipients, s.listRecipientsErr
 }
 
@@ -425,17 +424,16 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 	createdAt2 := time.Date(2026, 7, 2, 9, 30, 0, 0, time.UTC)
 
 	tests := []struct {
-		name              string
-		profileID         string
-		eventID           string
-		joinStub          *stubEventJoinRepository
-		eventStub         *stubEventRepository
-		wantValErr        bool
-		wantForbiddenErr  bool
-		wantNotFoundErr   bool
-		wantErr           bool
-		checkResp         func(t *testing.T, resp model.EventMemberListResponse)
-		checkJoinedCalled func(t *testing.T, stub *stubEventJoinRepository)
+		name                   string
+		profileID              string
+		eventID                string
+		joinStub               *stubEventJoinRepository
+		eventStub              *stubEventRepository
+		wantValErr             bool
+		wantForbiddenErr       bool
+		wantErr                bool
+		checkResp              func(t *testing.T, resp model.EventMemberListResponse)
+		checkListMembersCalled func(t *testing.T, stub *stubEventJoinRepository)
 	}{
 		// 1. 正常: 主催者が取得 - 全フィールドが正しく返る
 		{
@@ -577,16 +575,16 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 			eventStub:        &stubEventRepository{ownerProfileID: ownerUID.String()},
 			wantForbiddenErr: true,
 		},
-		// 5. 異常: イベントが存在しない → NotFoundError
+		// 5. 異常: イベントが存在しない → ValidationError（兄弟エンドポイントと統一）
 		{
-			name:      "異常: イベントが存在しない → NotFoundError",
+			name:      "異常: イベントが存在しない → ValidationError（兄弟エンドポイントと統一）",
 			profileID: ownerUID.String(),
 			eventID:   eventUID.String(),
 			joinStub:  &stubEventJoinRepository{listMembers: nil},
 			eventStub: &stubEventRepository{
-				ownerProfileIDErr: fmt.Errorf("get event owner profile_id: %w", sql.ErrNoRows),
+				ownerProfileIDErr: fmt.Errorf("event %s: %w", eventUID, repository.ErrEventNotFound),
 			},
-			wantNotFoundErr: true,
+			wantValErr: true,
 		},
 		// 6. 異常: eventID が不正な形式 → ValidationError
 		{
@@ -646,7 +644,7 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 					t.Errorf("TotalCount: got %d, want 0", resp.TotalCount)
 				}
 			},
-			checkJoinedCalled: func(t *testing.T, stub *stubEventJoinRepository) {
+			checkListMembersCalled: func(t *testing.T, stub *stubEventJoinRepository) {
 				t.Helper()
 				if stub.gotListMembersID != eventUID {
 					t.Errorf("gotListMembersID: got %v, want %v", stub.gotListMembersID, eventUID)
@@ -668,9 +666,6 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 			case tt.wantForbiddenErr:
 				_ = assertForbiddenError(t, err)
 				return
-			case tt.wantNotFoundErr:
-				_ = assertNotFoundError(t, err)
-				return
 			case tt.wantErr:
 				if err == nil {
 					t.Fatal("エラーを期待したが nil だった")
@@ -684,10 +679,6 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				if errors.As(err, &fe) {
 					t.Errorf("想定外エラーが ForbiddenError として伝播: %v", err)
 				}
-				var nfe *NotFoundError
-				if errors.As(err, &nfe) {
-					t.Errorf("想定外エラーが NotFoundError として伝播: %v", err)
-				}
 				return
 			}
 
@@ -696,8 +687,8 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 			if tt.checkResp != nil {
 				tt.checkResp(t, resp)
 			}
-			if tt.checkJoinedCalled != nil {
-				tt.checkJoinedCalled(t, tt.joinStub)
+			if tt.checkListMembersCalled != nil {
+				tt.checkListMembersCalled(t, tt.joinStub)
 			}
 		})
 	}

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net/mail"
@@ -108,11 +107,10 @@ func (s *EventJoinService) Join(
 
 // ListMembers はイベント主催者が参加者一覧を取得する。
 //
-// 認可: events.profile_id == profileID の主催者のみ閲覧可。
-// バリデーション:
-//   - eventID が UUID として不正 → *ValidationError
-//   - イベントが存在しない → *NotFoundError
-//   - 主催者以外 → *ForbiddenError
+// 認可・バリデーションは requireEventOwner ヘルパーに集約。
+// エラーポリシー:
+//   - イベントID不正 or イベント不存在 → *ValidationError（400）
+//   - 主催者以外 or profileID 不正 → *ForbiddenError（403）
 //
 // 返却: created_at 昇順の参加者一覧。0件でも空配列で返す。
 func (s *EventJoinService) ListMembers(
@@ -120,30 +118,9 @@ func (s *EventJoinService) ListMembers(
 	profileID, eventID string,
 ) (model.EventMemberListResponse, error) {
 
-	trimmedEventID := strings.TrimSpace(eventID)
-	parsedEventID, err := uuid.Parse(trimmedEventID)
+	parsedEventID, err := requireEventOwner(ctx, s.eventRepo, profileID, eventID)
 	if err != nil {
-		return model.EventMemberListResponse{}, &ValidationError{Message: "イベントIDが不正です"}
-	}
-
-	// UUID として正規化して比較する（大文字小文字・表記ゆれによる誤判定を避ける）。
-	// パースに失敗した場合は認可を通さない（fail-closed）。
-	parsedProfileID, profileParseErr := uuid.Parse(profileID)
-	if profileParseErr != nil {
-		return model.EventMemberListResponse{}, &ForbiddenError{Message: "このイベントの参加者一覧を閲覧する権限がありません"}
-	}
-
-	ownerID, err := s.eventRepo.GetOwnerProfileID(ctx, trimmedEventID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return model.EventMemberListResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
-	}
-	if err != nil {
-		return model.EventMemberListResponse{}, fmt.Errorf("get event owner: %w", err)
-	}
-
-	ownerUID, ownerErr := uuid.Parse(ownerID)
-	if ownerErr != nil || ownerUID != parsedProfileID {
-		return model.EventMemberListResponse{}, &ForbiddenError{Message: "このイベントの参加者一覧を閲覧する権限がありません"}
+		return model.EventMemberListResponse{}, err
 	}
 
 	members, err := s.joinRepo.ListMembers(ctx, parsedEventID)
