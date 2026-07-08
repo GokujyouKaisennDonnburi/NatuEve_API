@@ -22,21 +22,23 @@ func NewTagService(repo repository.TagRepository) *TagService {
 // List はタグ一覧を取得し、レスポンスDTOへ変換して返す。
 func (s *TagService) List(
 	ctx context.Context,
-) ([]model.TagListResponse, error) {
+) (model.TagListResponse, error) {
 
 	tags, err := s.repo.List(ctx)
 	if err != nil {
-		return nil, err
+		return model.TagListResponse{}, err
 	}
 
-	resp := make([]model.TagListResponse, 0, len(tags))
+	resp := make([]model.TagResponse, 0, len(tags))
 
 	for _, tag := range tags {
-		resp = append(resp, model.TagListResponse{
+		resp = append(resp, model.TagResponse{
 			ID:   tag.ID.String(),
 			Name: tag.Name,
 		})
 	}
 
-	return resp, nil
+	return model.TagListResponse{
+		Tags: resp,
+	}, nil
 }

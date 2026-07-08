@@ -26,7 +26,7 @@ func NewTagHandler(tagSvc *service.TagService) *TagHandler {
 // @Description タグ一覧を取得する。
 // @Tags tag
 // @Produce json
-// @Success 200 {array} model.TagListResponse
+// @Success 200 {object} model.TagListResponse
 // @Failure 500 {object} model.InternalErrorResponse
 // @Router /api/v1/tags [get]
 func (h *TagHandler) List(c *gin.Context) {

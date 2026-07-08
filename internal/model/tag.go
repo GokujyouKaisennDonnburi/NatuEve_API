@@ -12,6 +12,11 @@ type Tag struct {
 
 // TagListResponse はタグ一覧のレスポンス DTO。
 type TagListResponse struct {
+	Tags []TagResponse `json:"tags"`
+}
+
+// TagResponse はタグ単体レスポンス DTO。
+type TagResponse struct {
 	// ID はタグの一意識別子(UUID)。
 	ID string `json:"id" example:"b2c3d4e5-f6a7-8901-bcde-f23456789012"`
 	// Name はタグ名。
