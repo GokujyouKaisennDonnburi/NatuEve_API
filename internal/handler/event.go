@@ -43,8 +43,12 @@ func NewEventHandler(
 //	@Description	sort は "created_at"(デフォルト) / "event_date" のみ許可。不正値はデフォルトに戻す。
 //	@Description	order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
 //	@Description	prifileはProfileSummaryを返す。
+//	@Description	q は検索キーワード。反復指定で AND 検索になる（例: ?q=桜&q=東京）。各語はタイトル/イベント詳細/
+//	@Description	主催者名/地域名/持ち物を横断して部分一致で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。
+//	@Description	照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。全角数字↔半角数字・全角英字↔半角英字・半角カナ↔全角カナ）。
 //	@Tags			event
 //	@Produce		json
+//	@Param			q		query		[]string	false	"検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)"	collectionFormat(multi)
 //	@Param			sort	query		string	false	"ソートカラム(created_at|event_date, default: created_at)"
 //	@Param			order	query		string	false	"ソート順(asc|desc, default: desc)"
 //	@Param			limit	query		int		false	"取得件数(default 20, 最大 100)"
@@ -54,12 +58,14 @@ func NewEventHandler(
 //	@Router			/api/v1/events [get]
 func (h *EventHandler) List(c *gin.Context) {
 	// クエリパラメータを取得する（不正値は service 層で安全側に丸める）。
+	// q は反復クエリ(?q=a&q=b)で複数受け取り AND 検索する（正規化は service 層）。
+	keywords := c.QueryArray("q")
 	sort := c.Query("sort")
 	order := c.Query("order")
 	limit := queryInt(c, "limit", 0)
 	offset := queryInt(c, "offset", 0)
 
-	resp, err := h.querySvc.List(c.Request.Context(), sort, order, limit, offset)
+	resp, err := h.querySvc.List(c.Request.Context(), keywords, sort, order, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "イベント一覧の取得に失敗しました"))
 		return

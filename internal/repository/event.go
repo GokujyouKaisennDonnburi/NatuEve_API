@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
@@ -34,6 +37,12 @@ type EventRepository interface {
 	ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error)
 	// CountSummaries は events テーブルの全件数を返す。
 	CountSummaries(ctx context.Context) (int, error)
+	// SearchSummaries は keywords すべてに一致するイベントサマリーを指定ソート順で取得する。
+	// 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item)
+	// を横断（OR）し、キーワード間は AND で結合する（AND 検索）。keywords は 1 件以上を前提とする。
+	SearchSummaries(ctx context.Context, keywords []string, sort, order string, limit, offset int) ([]model.EventSummary, error)
+	// CountSearchSummaries は keywords すべてに一致するイベントの件数を返す。keywords は 1 件以上を前提とする。
+	CountSearchSummaries(ctx context.Context, keywords []string) (int, error)
 	// GetByID は指定されたイベント ID の詳細情報を取得する。
 	GetByID(ctx context.Context, id string) (*model.EventResponse, error)
 	// Create はイベントを関連テーブルとともにトランザクション内で一括登録する。
@@ -153,6 +162,160 @@ func (r *eventPostgres) CountSummaries(ctx context.Context) (int, error) {
 	var count int
 	if err := r.db.QueryRowContext(ctx, query).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count event summaries: %w", err)
+	}
+	return count, nil
+}
+
+// escapeLike は ILIKE のワイルドカード(% _)とエスケープ文字(\)を無効化し、
+// ユーザー入力を純粋な部分一致文字列として扱う。PostgreSQL の ILIKE は
+// デフォルトのエスケープ文字が \ のため ESCAPE 句は不要。
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
+
+// searchOrderByClauses は (sort, order) の組み合わせから安全な ORDER BY 句へのマップ。
+// ユーザー入力を直接 SQL に埋め込まず、ホワイトリストから固定文字列を選ぶ。
+// 同一ソートキーは id 昇順で安定ソートする。
+var searchOrderByClauses = map[string]string{
+	"event_date:asc":  "e.event_date ASC, e.id",
+	"event_date:desc": "e.event_date DESC, e.id",
+	"created_at:asc":  "e.created_at ASC, e.id",
+	"created_at:desc": "e.created_at DESC, e.id",
+}
+
+// normalizeSearchText は照合基準を全角/半角で揃えるため NFKC 正規化する。
+// 全角数字→半角数字、全角英字→半角英字、半角カナ→全角カナ 等を吸収する
+// （ひらがな↔カタカナは対象外）。SQL 側の normalize(col, NFKC) と同一の正規化形を用いることで、
+// 保存値とキーワードの表記ゆれ（半角/全角）を一致させる。
+func normalizeSearchText(s string) string {
+	return norm.NFKC.String(s)
+}
+
+// buildSearchWhere は keywords を AND 検索する WHERE 句本体と ILIKE パターン引数を返す。
+// 各キーワードは5フィールド(title/description/display_name/location/持ち物)を OR で横断する
+// 1グループとなり、グループ間は AND で連結する。プレースホルダは $startIdx から連番で割り当てる。
+// キーワードは常にプレースホルダ経由で渡し、SQL 文字列へ直接埋め込まない（SQLインジェクション対策）。
+// 半角/全角を同一視するため、カラム側は normalize(col, NFKC)、キーワード側は
+// normalizeSearchText で NFKC 正規化する（両辺を同じ正規化形にそろえる）。
+// keywords は 1 件以上であることを前提とする（0 件だと空の WHERE となり不正な SQL になる）。
+func buildSearchWhere(keywords []string, startIdx int) (string, []any) {
+	groups := make([]string, len(keywords))
+	args := make([]any, len(keywords))
+	for i, kw := range keywords {
+		ph := fmt.Sprintf("$%d", startIdx+i)
+		// %[1]s は同一プレースホルダを5箇所へ展開する（ワイヤプロトコル上、同一 $N の複数参照は正当）。
+		groups[i] = fmt.Sprintf(
+			"(normalize(e.title, NFKC) ILIKE %[1]s OR normalize(e.description, NFKC) ILIKE %[1]s "+
+				"OR normalize(p.display_name, NFKC) ILIKE %[1]s OR normalize(e.location, NFKC) ILIKE %[1]s "+
+				"OR EXISTS (SELECT 1 FROM event_items it WHERE it.event_id = e.id "+
+				"AND normalize(it.event_item, NFKC) ILIKE %[1]s))",
+			ph,
+		)
+		// NFKC 正規化 → LIKE エスケープ → % で囲む の順。全角％(U+FF05)は NFKC で ASCII '%' に
+		// なるため、正規化を先に行い escapeLike でワイルドカードとして無効化する必要がある。
+		args[i] = "%" + escapeLike(normalizeSearchText(kw)) + "%"
+	}
+	return strings.Join(groups, " AND "), args
+}
+
+// SearchSummaries は keywords すべてに一致するイベントサマリーを指定ソート順で取得する（AND 検索）。
+// 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item) を横断（OR）する。
+// sort・order は呼び出し元（service 層）でホワイトリスト検証済みであることを前提とする。
+func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, sort, order string, limit, offset int) ([]model.EventSummary, error) {
+	where, args := buildSearchWhere(keywords, 1)
+
+	orderBy, ok := searchOrderByClauses[sort+":"+order]
+	if !ok {
+		// フォールバック: created_at DESC（service 層で正規化済みのため通常到達しない）。
+		orderBy = searchOrderByClauses["created_at:desc"]
+	}
+
+	// limit / offset はキーワード分のプレースホルダの後ろに割り当てる。
+	limitIdx := len(args) + 1
+	offsetIdx := len(args) + 2
+	// G201: 埋め込むのは buildSearchWhere が生成する列名+プレースホルダ番号($N)、
+	// ホワイトリスト由来の ORDER BY、int のインデックスのみ。キーワード等のユーザー入力は
+	// 一切文字列連結せず args 経由でのみ渡すため SQL インジェクションは発生しない。
+	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
+	query := fmt.Sprintf(`
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		       p.id, p.display_name, p.avatar_url
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		WHERE %s
+		ORDER BY %s
+		LIMIT $%d OFFSET $%d`, where, orderBy, limitIdx, offsetIdx)
+	args = append(args, limit, offset)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("search event summaries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var summaries []model.EventSummary
+	for rows.Next() {
+		var s model.EventSummary
+		var (
+			location    sql.NullString
+			profileID   sql.NullString
+			pID         sql.NullString
+			displayName sql.NullString
+			avatarURL   sql.NullString
+		)
+		if err := rows.Scan(
+			&s.ID,
+			&s.Title,
+			&s.EventDate,
+			&location,
+			&profileID,
+			&s.CreatedAt,
+			&pID,
+			&displayName,
+			&avatarURL,
+		); err != nil {
+			return nil, fmt.Errorf("scan event summary: %w", err)
+		}
+		s.Location = location.String
+		s.ProfileID = profileID.String
+		s.Profile = model.ProfileSummary{
+			ID:          pID.String,
+			DisplayName: displayName.String,
+			AvatarURL:   avatarURL.String,
+		}
+		summaries = append(summaries, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate event summaries: %w", err)
+	}
+
+	// レコードが 0 件でも nil ではなく空スライスを返す。
+	if summaries == nil {
+		summaries = []model.EventSummary{}
+	}
+	return summaries, nil
+}
+
+// CountSearchSummaries は keywords すべてに一致するイベントの件数を返す（AND 検索）。
+// LEFT JOIN profiles は 1 対 1、持ち物は EXISTS のため行の重複は起きず COUNT(*) で正しい。
+func (r *eventPostgres) CountSearchSummaries(ctx context.Context, keywords []string) (int, error) {
+	where, args := buildSearchWhere(keywords, 1)
+
+	// G201: 埋め込むのは buildSearchWhere が生成する列名+プレースホルダ番号($N)のみ。
+	// キーワードは args 経由でのみ渡すため SQL インジェクションは発生しない。
+	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
+	query := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM events e
+		LEFT JOIN profiles p ON p.id = e.profile_id
+		WHERE %s`, where)
+
+	var count int
+	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count search event summaries: %w", err)
 	}
 	return count, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
@@ -21,6 +22,9 @@ const (
 	defaultSort = "created_at"
 	// defaultOrder はソート順のデフォルト値。
 	defaultOrder = "desc"
+	// maxSearchKeywords は AND 検索で受け付けるキーワードの最大件数。
+	// クエリ肥大化・過剰な JOIN/サブクエリ生成を防ぐため上限を設ける。超過分は切り捨てる。
+	maxSearchKeywords = 10
 )
 
 // EventQueryService はイベント参照系のビジネスロジックを提供する。
@@ -43,26 +47,50 @@ func NewEventQueryService(repo repository.EventRepository, publicBaseURL string)
 
 // List は limit / offset / sort / order を正規化してからイベント一覧レスポンスを返す。
 //
+// keywords が空（トリム後に有効な語が無い）の場合は全件一覧を返す。
+// 有効な語がある場合は AND 検索を行う: 各キーワードは title/description/主催者名(display_name)/
+// location/持ち物(event_item) を横断（OR・部分一致・大文字小文字無視）し、キーワード間は AND で結合する。
+//
 // 正規化ルール:
+//   - keywords は各要素を前後トリムし、空要素を除去。maxSearchKeywords(10) 件を超えた分は切り捨てる
 //   - limit が 0 以下 → defaultLimit(20)
 //   - limit が maxLimit(100) 超過 → maxLimit(100)
 //   - offset が負値 → 0
 //   - sort が許可値("created_at"/"event_date")以外 → defaultSort("created_at")
 //   - order が許可値("asc"/"desc")以外 → defaultOrder("desc")
-func (s *EventQueryService) List(ctx context.Context, sort, order string, limit, offset int) (model.EventListResponse, error) {
+func (s *EventQueryService) List(ctx context.Context, keywords []string, sort, order string, limit, offset int) (model.EventListResponse, error) {
+	keywords = normalizeKeywords(keywords)
 	limit = normalizeLimit(limit)
 	offset = normalizeOffset(offset)
 	sort = normalizeSort(sort)
 	order = normalizeOrder(order)
 
-	summaries, err := s.repo.ListSummaries(ctx, sort, order, limit, offset)
-	if err != nil {
-		return model.EventListResponse{}, err
-	}
+	var (
+		summaries  []model.EventSummary
+		totalCount int
+		err        error
+	)
 
-	totalCount, err := s.repo.CountSummaries(ctx)
-	if err != nil {
-		return model.EventListResponse{}, err
+	if len(keywords) == 0 {
+		summaries, err = s.repo.ListSummaries(ctx, sort, order, limit, offset)
+		if err != nil {
+			return model.EventListResponse{}, err
+		}
+
+		totalCount, err = s.repo.CountSummaries(ctx)
+		if err != nil {
+			return model.EventListResponse{}, err
+		}
+	} else {
+		summaries, err = s.repo.SearchSummaries(ctx, keywords, sort, order, limit, offset)
+		if err != nil {
+			return model.EventListResponse{}, err
+		}
+
+		totalCount, err = s.repo.CountSearchSummaries(ctx, keywords)
+		if err != nil {
+			return model.EventListResponse{}, err
+		}
 	}
 
 	return model.EventListResponse{
@@ -71,6 +99,27 @@ func (s *EventQueryService) List(ctx context.Context, sort, order string, limit,
 		Limit:      limit,
 		Offset:     offset,
 	}, nil
+}
+
+// normalizeKeywords は各キーワードを前後トリムし、空要素を除去する。
+// 有効な語が maxSearchKeywords 件に達したらそれ以降は切り捨てる。
+// 有効な語が無い場合は nil を返す（呼び出し元は全件一覧に分岐する）。
+func normalizeKeywords(keywords []string) []string {
+	if len(keywords) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(keywords))
+	for _, k := range keywords {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		out = append(out, k)
+		if len(out) >= maxSearchKeywords {
+			break
+		}
+	}
+	return out
 }
 
 // normalizeLimit は limit を有効範囲(1〜maxLimit)に丸める。
