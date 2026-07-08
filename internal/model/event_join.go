@@ -74,4 +74,6 @@ type EventMemberListResponse struct {
 	Members []EventMemberResponse `json:"members"`
 	// TotalCount は参加者総数（client の表示用）。
 	TotalCount int `json:"totalCount" example:"5"`
+	// TotalMembers は全参加者の partySize 合計（実際の総参加人数）。
+	TotalMembers int `json:"totalMembers" example:"8"`
 }

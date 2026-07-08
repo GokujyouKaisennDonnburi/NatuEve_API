@@ -129,6 +129,7 @@ func (s *EventJoinService) ListMembers(
 	}
 
 	respMembers := make([]model.EventMemberResponse, 0, len(members))
+	totalMembers := 0
 	for _, m := range members {
 		var respProfileID *uuid.UUID
 		if m.ProfileID.Valid {
@@ -142,11 +143,13 @@ func (s *EventJoinService) ListMembers(
 			MailAddress: m.MailAddress,
 			CreatedAt:   m.CreatedAt,
 		})
+		totalMembers += m.PartySize
 	}
 
 	return model.EventMemberListResponse{
-		Members:    respMembers,
-		TotalCount: len(respMembers),
+		Members:      respMembers,
+		TotalCount:   len(respMembers),
+		TotalMembers: totalMembers,
 	}, nil
 }
 

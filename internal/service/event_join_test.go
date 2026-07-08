@@ -455,7 +455,7 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 						ProfileID:   uuid.NullUUID{}, // 匿名参加
 						Username:    "匿名花子",
 						MailAddress: "anon@example.com",
-						PartySize:   1,
+						PartySize:   5,
 						CreatedAt:   createdAt2,
 					},
 				},
@@ -468,6 +468,10 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				}
 				if resp.TotalCount != 2 {
 					t.Errorf("TotalCount: got %d, want 2", resp.TotalCount)
+				}
+				// PartySize 3 + 5 = 8（TotalCount と区別できる値にしている）。
+				if resp.TotalMembers != 8 {
+					t.Errorf("TotalMembers: got %d, want 8", resp.TotalMembers)
 				}
 
 				// 1人目: ログイン参加
@@ -499,8 +503,8 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				if m1.ProfileID != nil {
 					t.Errorf("Members[1].ProfileID: got %v, want nil（匿名）", *m1.ProfileID)
 				}
-				if m1.PartySize != 1 {
-					t.Errorf("Members[1].PartySize: got %d, want 1", m1.PartySize)
+				if m1.PartySize != 5 {
+					t.Errorf("Members[1].PartySize: got %d, want 5", m1.PartySize)
 				}
 				if m1.MailAddress != "anon@example.com" {
 					t.Errorf("Members[1].MailAddress: got %q, want %q", m1.MailAddress, "anon@example.com")
@@ -529,6 +533,9 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				}
 				if resp.TotalCount != 0 {
 					t.Errorf("TotalCount: got %d, want 0", resp.TotalCount)
+				}
+				if resp.TotalMembers != 0 {
+					t.Errorf("TotalMembers: got %d, want 0", resp.TotalMembers)
 				}
 			},
 		},
@@ -560,6 +567,9 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				}
 				if resp.TotalCount != 1 {
 					t.Errorf("TotalCount: got %d, want 1", resp.TotalCount)
+				}
+				if resp.TotalMembers != 1 {
+					t.Errorf("TotalMembers: got %d, want 1", resp.TotalMembers)
 				}
 			},
 		},
@@ -639,6 +649,9 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				}
 				if resp.TotalCount != 0 {
 					t.Errorf("TotalCount: got %d, want 0", resp.TotalCount)
+				}
+				if resp.TotalMembers != 0 {
+					t.Errorf("TotalMembers: got %d, want 0", resp.TotalMembers)
 				}
 			},
 			checkListMembersCalled: func(t *testing.T, stub *stubEventJoinRepository) {
