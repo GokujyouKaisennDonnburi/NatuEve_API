@@ -39,7 +39,9 @@ func (r *tagPostgres) List(
 	if err != nil {
 		return nil, fmt.Errorf("list tags: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	tags := make([]model.Tag, 0)
 
