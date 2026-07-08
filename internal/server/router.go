@@ -84,6 +84,9 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	eventJoinRepo := repository.NewEventJoinRepository(sqlDB)
 	eventJoinSvc := service.NewEventJoinService(eventJoinRepo)
 
+	tagRepo := repository.NewTagRepository(sqlDB)
+	tagSvc := service.NewTagService(tagRepo)
+
 	profileRepo := repository.NewProfileRepository(sqlDB)
 	profileSvc := service.NewProfileService(profileRepo)
 
@@ -97,11 +100,13 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 		profileSvc,
 		eventJoinSvc,
 	)
+	tagHandler := handler.NewTagHandler(tagSvc)
 	userHandler := handler.NewUserHandler(profileSvc)
 	reportHandler := handler.NewReportHandler(reportCmdSvc, reportQuerySvc)
 
 	v1Public := r.Group("/api/v1")
 	v1Public.GET("/events", eventHandler.List)
+	v1Public.GET("/tags", tagHandler.List)
 
 	// events/{id} は公開エンドポイント。DB があれば JWKS の有無に関わらず登録する。
 	v1Public.GET("/events/:id", eventHandler.GetByID)

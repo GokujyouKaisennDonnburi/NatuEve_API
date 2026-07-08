@@ -598,6 +598,32 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/tags": {
+            "get": {
+                "description": "タグ一覧を取得する。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tag"
+                ],
+                "summary": "タグ一覧取得",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagListResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/uploads/presign": {
             "post": {
                 "security": [
@@ -1544,6 +1570,32 @@ const docTemplate = `{
                     "description": "SentCount は送信に成功した件数。",
                     "type": "integer",
                     "example": 12
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagListResponse": {
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagResponse"
+                    }
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "description": "ID はタグの一意識別子(UUID)。",
+                    "type": "string",
+                    "example": "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+                },
+                "name": {
+                    "description": "Name はタグ名。",
+                    "type": "string",
+                    "example": "外来生物"
                 }
             }
         },
