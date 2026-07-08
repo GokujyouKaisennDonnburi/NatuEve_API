@@ -52,8 +52,10 @@ docker compose down              # DB 停止
 - 認証基盤は NatuPortal の複数プロダクトで共有
 
 ### 型共有
-- OpenAPI 定義からGoの型を自動生成する
-- 手書きの API 型定義は作らない
+- ハンドラの godoc コメントに `@Summary` `@Success {object} model.Xxx` 等を併記する
+- `make swag` が Go のソースを静的解析して OpenAPI（`api/`）を生成する
+- `internal/model/` の API 型は手書きで定義し、swag 出力と乖離しないよう `@Router` / `@Success` のコメントで参照する
+- フロント等他言語の型を OpenAPI から生成したい場合は、生成元を `api/swagger.yaml`（make swag の成果物）にする
 
 ## Conventions
 - エラーレスポンスは統一フォーマット（`{"error": {"code": "...", "message": "..."}}`)
