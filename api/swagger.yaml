@@ -652,6 +652,13 @@ definitions:
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagListResponse:
     properties:
+      tags:
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagResponse'
+        type: array
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagResponse:
+    properties:
       id:
         description: ID はタグの一意識別子(UUID)。
         example: b2c3d4e5-f6a7-8901-bcde-f23456789012
@@ -1102,9 +1109,7 @@ paths:
         "200":
           description: OK
           schema:
-            items:
-              $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagListResponse'
-            type: array
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagListResponse'
         "500":
           description: Internal Server Error
           schema:

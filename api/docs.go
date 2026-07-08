@@ -602,10 +602,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "type": "array",
-                            "items": {
-                                "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagListResponse"
-                            }
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagListResponse"
                         }
                     },
                     "500": {
@@ -1567,6 +1564,17 @@ const docTemplate = `{
             }
         },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagListResponse": {
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagResponse"
+                    }
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagResponse": {
             "type": "object",
             "properties": {
                 "id": {
