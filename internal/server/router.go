@@ -82,7 +82,7 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	eventQuerySvc := service.NewEventQueryService(eventRepo, cfg.R2PublicBaseURL)
 	eventCmdSvc := service.NewEventCommandService(eventRepo, store)
 	eventJoinRepo := repository.NewEventJoinRepository(sqlDB)
-	eventJoinSvc := service.NewEventJoinService(eventJoinRepo)
+	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo)
 
 	tagRepo := repository.NewTagRepository(sqlDB)
 	tagSvc := service.NewTagService(tagRepo)
@@ -142,6 +142,8 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	v1.GET("/me", userHandler.GetMe)
 	v1.PATCH("/me", userHandler.UpdateMe)
 	v1.POST("/events", eventHandler.Create)
+
+	v1.GET("/events/:id/members", eventHandler.ListMembers)
 
 	v1.POST("/reports", reportHandler.Create)
 
