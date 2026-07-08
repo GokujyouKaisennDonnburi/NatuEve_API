@@ -195,6 +195,42 @@ definitions:
         example: 153
         type: integer
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberListResponse:
+    properties:
+      members:
+        description: Members は参加者の一覧。0件の場合は空配列（null ではない）。
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberResponse'
+        type: array
+      totalCount:
+        description: TotalCount は参加者総数（client の表示用）。
+        example: 5
+        type: integer
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberResponse:
+    description: 参加者1人分の情報。profileId は匿名参加の場合 null。
+    properties:
+      createdAt:
+        description: CreatedAt は参加申込日時(RFC3339)。
+        example: "2026-07-01T12:00:00Z"
+        type: string
+      mailAddress:
+        description: MailAddress は参加者のメールアドレス。
+        example: yamada@example.com
+        type: string
+      partySize:
+        description: PartySize は代表者を含む参加人数。
+        example: 1
+        type: integer
+      profileId:
+        description: ProfileID は参加者のプロフィールUUID。匿名参加の場合は null。
+        example: b2c3d4e5-f6a7-8901-bcde-f23456789012
+        type: string
+      username:
+        description: Username は参加者の表示名。
+        example: 山田太郎
+        type: string
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventResponse:
     properties:
       capacity:
@@ -895,6 +931,49 @@ paths:
       security:
       - BearerAuth: []
       summary: イベント参加
+      tags:
+      - event
+  /api/v1/events/{id}/members:
+    get:
+      description: |-
+        イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。
+        profileId は匿名参加（ログインしていない）の場合 null。
+      parameters:
+      - description: イベントID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: イベント参加者一覧取得
       tags:
       - event
   /api/v1/events/{id}/notifications:

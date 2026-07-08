@@ -267,6 +267,70 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/events/{id}/members": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。\nprofileId は匿名参加（ログインしていない）の場合 null。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event"
+                ],
+                "summary": "イベント参加者一覧取得",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "イベントID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/events/{id}/notifications": {
             "post": {
                 "security": [
@@ -968,6 +1032,54 @@ const docTemplate = `{
                     "description": "TotalCount はフィルタなし全件数。クライアントが最終ページ offset を算出するために使う。",
                     "type": "integer",
                     "example": 153
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberListResponse": {
+            "type": "object",
+            "properties": {
+                "members": {
+                    "description": "Members は参加者の一覧。0件の場合は空配列（null ではない）。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberResponse"
+                    }
+                },
+                "totalCount": {
+                    "description": "TotalCount は参加者総数（client の表示用）。",
+                    "type": "integer",
+                    "example": 5
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberResponse": {
+            "description": "参加者1人分の情報。profileId は匿名参加の場合 null。",
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "description": "CreatedAt は参加申込日時(RFC3339)。",
+                    "type": "string",
+                    "example": "2026-07-01T12:00:00Z"
+                },
+                "mailAddress": {
+                    "description": "MailAddress は参加者のメールアドレス。",
+                    "type": "string",
+                    "example": "yamada@example.com"
+                },
+                "partySize": {
+                    "description": "PartySize は代表者を含む参加人数。",
+                    "type": "integer",
+                    "example": 1
+                },
+                "profileId": {
+                    "description": "ProfileID は参加者のプロフィールUUID。匿名参加の場合は null。",
+                    "type": "string",
+                    "example": "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+                },
+                "username": {
+                    "description": "Username は参加者の表示名。",
+                    "type": "string",
+                    "example": "山田太郎"
                 }
             }
         },
