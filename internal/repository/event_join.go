@@ -220,7 +220,7 @@ func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID uuid.UUI
 // レコードが 0 件でも nil ではなく空スライスを返す。
 func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) ([]model.EventMember, error) {
 	const query = `
-	SELECT id, event_id, profile_id, username, mail_address, party_size, created_at
+	SELECT event_id, profile_id, username, mail_address, party_size, created_at
 	FROM event_members
 	WHERE event_id = $1
 	ORDER BY created_at
@@ -237,7 +237,6 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 	for rows.Next() {
 		var m model.EventMember
 		if err := rows.Scan(
-			&m.ID,
 			&m.EventID,
 			&m.ProfileID,
 			&m.Username,

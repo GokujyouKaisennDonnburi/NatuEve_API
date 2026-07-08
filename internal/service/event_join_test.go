@@ -443,7 +443,6 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 			joinStub: &stubEventJoinRepository{
 				listMembers: []model.EventMember{
 					{
-						ID:          uuid.New(),
 						EventID:     eventUID,
 						ProfileID:   profileUID,
 						Username:    "山田太郎",
@@ -452,7 +451,6 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 						CreatedAt:   createdAt1,
 					},
 					{
-						ID:          uuid.New(),
 						EventID:     eventUID,
 						ProfileID:   uuid.NullUUID{}, // 匿名参加
 						Username:    "匿名花子",
@@ -542,7 +540,6 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 			joinStub: &stubEventJoinRepository{
 				listMembers: []model.EventMember{
 					{
-						ID:          uuid.New(),
 						EventID:     eventUID,
 						ProfileID:   uuid.NullUUID{}, // 匿名
 						Username:    "匿名A",

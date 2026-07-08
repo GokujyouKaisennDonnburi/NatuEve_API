@@ -43,7 +43,6 @@ type EventRecipient struct {
 // EventMember は event_members テーブルと対応するモデル。
 // Repository 層で INSERT・SELECT する際に使用する。
 type EventMember struct {
-	ID          uuid.UUID
 	EventID     uuid.UUID
 	ProfileID   uuid.NullUUID // ログイン時のみ Valid=true。匿名参加は Valid=false（DB上はNULL）。
 	Username    string
