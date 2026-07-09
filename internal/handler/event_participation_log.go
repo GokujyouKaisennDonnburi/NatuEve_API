@@ -41,25 +41,34 @@ func NewEventParticipationLogHandler(svc *service.EventParticipationLogService) 
 //	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/participation-logs [get]
 func (h *EventParticipationLogHandler) GetLatestStatus(c *gin.Context) {
+	// パスパラメータからイベントID取得
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			model.NewErrorResponse("invalid_request", "イベントIDが不正です"),
+		)
+		return
+	}
+
+	// 認証情報の取得（必須）。
 	authUser, ok := middleware.AuthFromContext(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, model.NewErrorResponse("unauthorized", "認証が必要です"))
 		return
 	}
 
-	eventID := c.Param("id")
+	profileID, parseErr := uuid.Parse(authUser.ID)
+	if parseErr != nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			model.NewErrorResponse("unauthorized", "ユーザーIDが不正です"),
+		)
+		return
+	}
 
-	resp, err := h.svc.GetLatestStatus(c.Request.Context(), authUser.ID, eventID)
+	resp, err := h.svc.GetLatestStatus(c.Request.Context(), eventID, profileID)
 	if err != nil {
-		var ve *service.ValidationError
-		if errors.As(err, &ve) {
-			c.JSON(
-				http.StatusBadRequest,
-				model.NewErrorResponse("invalid_request", ve.Message),
-			)
-			return
-		}
-
 		var nfe *service.NotFoundError
 		if errors.As(err, &nfe) {
 			c.JSON(
@@ -72,7 +81,7 @@ func (h *EventParticipationLogHandler) GetLatestStatus(c *gin.Context) {
 		// 想定外エラー（DB エラー等）は真因をログに残す。
 		// クライアントには詳細を返さないため、調査はこのログで行う。
 		slog.Error("参加状態取得に失敗しました",
-			slog.String("event_id", eventID),
+			slog.String("event_id", eventID.String()),
 			slog.Any("error", err),
 		)
 		c.JSON(

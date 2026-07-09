@@ -57,7 +57,6 @@ func newParticipationLogService(eventStub *stubEventRepository, logStub *stubEve
 }
 
 func TestEventParticipationLogServiceCreate(t *testing.T) {
-	// 固定 UUID でテストの再現性を確保する。
 	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 	profileID := uuid.MustParse("b2c3d4e5-f6a7-8901-bcde-f23456789012")
 	logID := uuid.MustParse("c3d4e5f6-a7b8-9012-cdef-345678901234")
@@ -212,98 +211,71 @@ func TestEventParticipationLogServiceCreate(t *testing.T) {
 }
 
 func TestEventParticipationLogService_GetLatestStatus(t *testing.T) {
-	// 固定値: eventID と profileID は有効な UUID 文字列として使う。
-	eventID := "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-	profileID := "b2c3d4e5-f6a7-8901-bcde-f23456789012"
-	parsedEventID := uuid.MustParse(eventID)
-	parsedProfileID := uuid.MustParse(profileID)
+	// 固定値: eventID と profileID はパース済み uuid.UUID として使う。
+	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	profileID := uuid.MustParse("b2c3d4e5-f6a7-8901-bcde-f23456789012")
 	updatedAt := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
 		name string
 		// eventStub の存在確認結果。
-		ownerProfileID    string
-		ownerProfileIDErr error
+		exists    bool
+		existsErr error
 		// logStub の GetLatest 結果。
 		latestLog model.EventParticipationLog
 		latestErr error
-		// 入力。
-		inEventID   string
-		inProfileID string
 		// 期待値。
 		wantAction        *string
 		wantParticipating bool
 		wantUpdatedAtNil  bool
-		wantValErr        bool
 		wantNotFound      bool
 		wantErr           bool
 	}{
 		{
 			name:              "正常: 最新アクションが join → participating=true",
-			ownerProfileID:    "owner-uuid",
+			exists:            true,
 			latestLog:         model.EventParticipationLog{Action: "join", CreatedAt: updatedAt},
-			inEventID:         eventID,
-			inProfileID:       profileID,
 			wantAction:        strPtr("join"),
 			wantParticipating: true,
 		},
 		{
 			name:              "正常: 最新アクションが leave → participating=false",
-			ownerProfileID:    "owner-uuid",
+			exists:            true,
 			latestLog:         model.EventParticipationLog{Action: "leave", CreatedAt: updatedAt},
-			inEventID:         eventID,
-			inProfileID:       profileID,
 			wantAction:        strPtr("leave"),
 			wantParticipating: false,
 		},
 		{
 			name:              "正常: 履歴なし（sql.ErrNoRows）→ action=null, participating=false, updatedAt=null",
-			ownerProfileID:    "owner-uuid",
+			exists:            true,
 			latestErr:         fmt.Errorf("latest participation log: %w", sql.ErrNoRows),
-			inEventID:         eventID,
-			inProfileID:       profileID,
 			wantAction:        nil,
 			wantParticipating: false,
 			wantUpdatedAtNil:  true,
 		},
 		{
-			name:           "異常: eventID が不正 UUID → *ValidationError",
-			ownerProfileID: "owner-uuid",
-			inEventID:      "not-a-uuid",
-			inProfileID:    profileID,
-			wantValErr:     true,
+			name:         "異常: イベント不存在 → *NotFoundError",
+			exists:       false,
+			wantNotFound: true,
 		},
 		{
-			name:           "異常: profileID が不正 UUID → *ValidationError",
-			ownerProfileID: "owner-uuid",
-			inEventID:      eventID,
-			inProfileID:    "not-a-uuid",
-			wantValErr:     true,
+			name:      "異常: Exists で予期しない repo エラー → そのまま伝播",
+			existsErr: errors.New("db connection lost"),
+			wantErr:   true,
 		},
 		{
-			name:              "異常: イベント不存在 → *NotFoundError",
-			ownerProfileIDErr: repository.ErrEventNotFound,
-			inEventID:         eventID,
-			inProfileID:       profileID,
-			wantNotFound:      true,
-		},
-		{
-			name:           "異常: GetLatest で予期しない repo エラー → そのまま伝播",
-			ownerProfileID: "owner-uuid",
-			latestErr:      errors.New("db connection lost"),
-			inEventID:      eventID,
-			inProfileID:    profileID,
-			wantErr:        true,
+			name:      "異常: GetLatest で予期しない repo エラー → そのまま伝播",
+			exists:    true,
+			latestErr: errors.New("db connection lost"),
+			wantErr:   true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Helper()
-
 			eventStub := &stubEventRepository{
-				ownerProfileID:    tt.ownerProfileID,
-				ownerProfileIDErr: tt.ownerProfileIDErr,
+				exists:    tt.exists,
+				existsErr: tt.existsErr,
 			}
 			logStub := &stubEventParticipationLogRepository{
 				latestLog: tt.latestLog,
@@ -311,13 +283,9 @@ func TestEventParticipationLogService_GetLatestStatus(t *testing.T) {
 			}
 			svc := newParticipationLogService(eventStub, logStub)
 
-			resp, err := svc.GetLatestStatus(context.Background(), tt.inProfileID, tt.inEventID)
+			resp, err := svc.GetLatestStatus(context.Background(), eventID, profileID)
 
 			// 期待される型付きエラーの検証。
-			if tt.wantValErr {
-				_ = assertValidationError(t, err)
-				return
-			}
 			if tt.wantNotFound {
 				_ = assertNotFoundError(t, err)
 				return
@@ -326,12 +294,11 @@ func TestEventParticipationLogService_GetLatestStatus(t *testing.T) {
 				if err == nil {
 					t.Fatalf("エラーを期待したが nil だった")
 				}
-				// ValidationError / NotFoundError は別ケースで処理済みなので、
+				// NotFoundError は別ケースで処理済みなので、
 				// ここではそれ以外のエラーであることも確認する。
-				var ve *ValidationError
 				var nfe *NotFoundError
-				if errors.As(err, &ve) || errors.As(err, &nfe) {
-					t.Fatalf("予期しない型付きエラーが返った: %T", err)
+				if errors.As(err, &nfe) {
+					t.Fatalf("予期しない *NotFoundError が返った: %v", err)
 				}
 				return
 			}
@@ -367,15 +334,13 @@ func TestEventParticipationLogService_GetLatestStatus(t *testing.T) {
 				}
 			}
 
-			// repo への引数伝播の検証（履歴なし/異常eventID以外のケース）。
-			// eventID が不正な場合は requireEventExists で弾かれるため logRepo は呼ばれない。
-			// イベント不存在の場合も logRepo は呼ばれない。
-			if !tt.wantValErr && !tt.wantNotFound {
-				if logStub.gotEventID != parsedEventID {
-					t.Errorf("logRepo gotEventID = %v, want %v", logStub.gotEventID, parsedEventID)
+			// repo への引数伝播の検証（イベント不存在の場合は logRepo は呼ばれない）。
+			if !tt.wantNotFound {
+				if logStub.gotEventID != eventID {
+					t.Errorf("logRepo gotEventID = %v, want %v", logStub.gotEventID, eventID)
 				}
-				if logStub.gotProfileID != parsedProfileID {
-					t.Errorf("logRepo gotProfileID = %v, want %v", logStub.gotProfileID, parsedProfileID)
+				if logStub.gotProfileID != profileID {
+					t.Errorf("logRepo gotProfileID = %v, want %v", logStub.gotProfileID, profileID)
 				}
 			}
 		})

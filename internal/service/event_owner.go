@@ -11,38 +11,32 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
-// requireEventExists は eventID のイベントが存在することを確認し、
-// 成功時のみパース済みイベント UUID を返す。主催者権限は確認しない。
+// requireEventExists は eventID のイベントが存在することを確認する。
+// 主催者権限は確認しない。成功時は nil を返す。
 //
 // 参照系（参加状態取得など）で「イベント不存在を 404 NotFound として返す」
 // エンドポイントのための存在確認ヘルパー。主催者チェックが必要な場合は
 // requireEventOwner を使うこと。
 //
+// eventID は呼び出し元でパース済みの uuid.UUID を受け取る（uuid.Parse が受理するが
+// Postgres が拒否する形式を事前に排除するため、正規化文字列でクエリする）。
+//
 // 戻り値のポリシー:
-//   - eventID が空・UUID として不正 → *ValidationError
 //   - イベントが存在しない → *NotFoundError（404 not_found として返す）
 //   - 上記以外の repo エラー → %w でラップしてそのまま伝播
 func requireEventExists(
 	ctx context.Context,
 	eventRepo repository.EventRepository,
-	eventID string,
-) (uuid.UUID, error) {
-	trimmedEventID := strings.TrimSpace(eventID)
-	parsedEventID, err := uuid.Parse(trimmedEventID)
+	eventID uuid.UUID,
+) error {
+	exists, err := eventRepo.Exists(ctx, eventID)
 	if err != nil {
-		return uuid.Nil, &ValidationError{Message: "イベントIDが不正です"}
+		return fmt.Errorf("check event exists: %w", err)
 	}
-
-	// GetOwnerProfileID は存在確認も兼ねる（イベント不在時は ErrEventNotFound）。
-	// owner 値自体は使わないが、最も軽量な存在確認クエリとして流用する。
-	if _, err := eventRepo.GetOwnerProfileID(ctx, trimmedEventID); err != nil {
-		if errors.Is(err, repository.ErrEventNotFound) {
-			return uuid.Nil, &NotFoundError{Message: "イベントが見つかりません"}
-		}
-		return uuid.Nil, fmt.Errorf("get event owner: %w", err)
+	if !exists {
+		return &NotFoundError{Message: "イベントが見つかりません"}
 	}
-
-	return parsedEventID, nil
+	return nil
 }
 
 // requireEventOwner は eventID のイベント投稿者が profileID のユーザーであることを

@@ -18,8 +18,8 @@ type EventParticipationLogRepository interface {
 	// GetLatest は指定 eventID・profileID の最新の参加アクションを取得する。
 	//
 	// 履歴が1件も存在しない場合は sql.ErrNoRows を %w でラップして返す
-	// （Service 層で「未参加」として扱う）。
-	// それ以外のエラーは fmt.Errorf でラップして返す。
+	// （Service 層で「未参加」として扱う）。created_at が同値の行がある場合は
+	// id DESC で決定的にタイブレークする。
 	GetLatest(ctx context.Context, eventID, profileID uuid.UUID) (model.EventParticipationLog, error)
 
 	// Create はイベント参加状態ログ(join/leave)を1件追記する。成功時は log.ID と log.CreatedAt を埋める。
@@ -42,7 +42,8 @@ func NewEventParticipationLogRepository(db *sql.DB) EventParticipationLogReposit
 }
 
 // GetLatest は指定 eventID・profileID の最新の参加アクションを
-// ORDER BY created_at DESC LIMIT 1 で取得する。
+// ORDER BY created_at DESC, id DESC LIMIT 1 で取得する。
+// created_at が同値の複数行がある場合に id DESC で決定的なタイブレークを効かせる。
 func (r *eventParticipationLogPostgres) GetLatest(
 	ctx context.Context,
 	eventID, profileID uuid.UUID,
@@ -51,7 +52,7 @@ func (r *eventParticipationLogPostgres) GetLatest(
 	SELECT id, event_id, profile_id, action, created_at
 	FROM event_participation_logs
 	WHERE event_id = $1 AND profile_id = $2
-	ORDER BY created_at DESC
+	ORDER BY created_at DESC, id DESC
 	LIMIT 1
 	`
 
@@ -63,9 +64,6 @@ func (r *eventParticipationLogPostgres) GetLatest(
 		&log.Action,
 		&log.CreatedAt,
 	)
-	if errors.Is(err, sql.ErrNoRows) {
-		return model.EventParticipationLog{}, fmt.Errorf("latest participation log: %w", err)
-	}
 	if err != nil {
 		return model.EventParticipationLog{}, fmt.Errorf("get latest participation log: %w", err)
 	}

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
@@ -42,6 +44,9 @@ type stubEventRepository struct {
 	// GetOwnerProfileID 用: 返却値。
 	ownerProfileID    string
 	ownerProfileIDErr error
+	// Exists 用: 返却値。
+	exists    bool
+	existsErr error
 }
 
 func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
@@ -81,6 +86,10 @@ func (s *stubEventRepository) GetOwnerProfileID(_ context.Context, _ string) (st
 
 func (s *stubEventRepository) GetByID(_ context.Context, _ string) (*model.EventResponse, error) {
 	return nil, nil
+}
+
+func (s *stubEventRepository) Exists(_ context.Context, _ uuid.UUID) (bool, error) {
+	return s.exists, s.existsErr
 }
 
 // makeHelper はテストヘルパー共通処理を担う。
