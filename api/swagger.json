@@ -394,6 +394,64 @@
                 }
             }
         },
+        "/api/v1/events/{id}/participation-logs": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "認証ユーザー自身の、指定イベントに対する最新の参加状態を取得する。\n申し込もうとしているユーザーが既に参加しているかを判定するために使う。\n履歴が1件もない場合は action=null, participating=false, updatedAt=null を返す（200）。\n主催者権限は不要。本人の参加状態のみを返す。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event"
+                ],
+                "summary": "イベント参加状態取得",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "イベントID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipationStatusResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/events/{id}/report": {
             "get": {
                 "description": "指定したイベントIDに紐づくレポートを取得する。1イベント1レポート。認証不要。",
@@ -1372,6 +1430,29 @@
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorBody"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipationStatusResponse": {
+            "description": "認証ユーザー自身の最新の参加状態。履歴が1件もない場合は action=null, participating=false, updatedAt=null。",
+            "type": "object",
+            "properties": {
+                "action": {
+                    "description": "Action は最新の参加アクション。履歴なしの場合は null。\n\"join\" または \"leave\" のいずれか。",
+                    "type": "string",
+                    "x-nullable": true,
+                    "example": "join"
+                },
+                "participating": {
+                    "description": "Participating は最新アクションから派生した参加フラグ。\naction=\"join\" なら true、それ以外（leave or 履歴なし）は false。",
+                    "type": "boolean",
+                    "example": true
+                },
+                "updatedAt": {
+                    "description": "UpdatedAt は最新アクションの発生日時(RFC3339)。履歴なしの場合は null。",
+                    "type": "string",
+                    "x-nullable": true,
+                    "example": "2026-07-01T12:00:00Z"
                 }
             }
         },
