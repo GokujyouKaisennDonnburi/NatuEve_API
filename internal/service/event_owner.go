@@ -11,6 +11,34 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
+// requireEventExists は eventID のイベントが存在することを確認する。
+// 主催者権限は確認しない。成功時は nil を返す。
+//
+// 参照系（参加状態取得など）で「イベント不存在を 404 NotFound として返す」
+// エンドポイントのための存在確認ヘルパー。主催者チェックが必要な場合は
+// requireEventOwner を使うこと。
+//
+// eventID は呼び出し元でパース済みの uuid.UUID を受け取る（uuid.Parse が受理するが
+// Postgres が拒否する形式を事前に排除するため、正規化文字列でクエリする）。
+//
+// 戻り値のポリシー:
+//   - イベントが存在しない → *NotFoundError（404 not_found として返す）
+//   - 上記以外の repo エラー → %w でラップしてそのまま伝播
+func requireEventExists(
+	ctx context.Context,
+	eventRepo repository.EventRepository,
+	eventID uuid.UUID,
+) error {
+	exists, err := eventRepo.Exists(ctx, eventID)
+	if err != nil {
+		return fmt.Errorf("check event exists: %w", err)
+	}
+	if !exists {
+		return &NotFoundError{Message: "イベントが見つかりません"}
+	}
+	return nil
+}
+
 // requireEventOwner は eventID のイベント投稿者が profileID のユーザーであることを
 // 確認し、成功時のみパース済みイベント UUID を返す。
 //

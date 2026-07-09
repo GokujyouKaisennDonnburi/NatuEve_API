@@ -493,6 +493,28 @@ definitions:
         example: c3d4e5f6-a7b8-9012-cdef-345678901234
         type: string
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipationStatusResponse:
+    description: 認証ユーザー自身の最新の参加状態。履歴が1件もない場合は action=null, participating=false, updatedAt=null。
+    properties:
+      action:
+        description: |-
+          Action は最新の参加アクション。履歴なしの場合は null。
+          "join" または "leave" のいずれか。
+        example: join
+        type: string
+        x-nullable: true
+      participating:
+        description: |-
+          Participating は最新アクションから派生した参加フラグ。
+          action="join" なら true、それ以外（leave or 履歴なし）は false。
+        example: true
+        type: boolean
+      updatedAt:
+        description: UpdatedAt は最新アクションの発生日時(RFC3339)。履歴なしの場合は null。
+        example: "2026-07-01T12:00:00Z"
+        type: string
+        x-nullable: true
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignRequest:
     description: アップロード用署名付き URL の発行リクエスト。
     properties:
@@ -1063,6 +1085,46 @@ paths:
       tags:
       - notification
   /api/v1/events/{id}/participation-logs:
+    get:
+      description: |-
+        認証ユーザー自身の、指定イベントに対する最新の参加状態を取得する。
+        申し込もうとしているユーザーが既に参加しているかを判定するために使う。
+        履歴が1件もない場合は action=null, participating=false, updatedAt=null を返す（200）。
+        主催者権限は不要。本人の参加状態のみを返す。
+      parameters:
+      - description: イベントID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipationStatusResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: イベント参加状態取得
+      tags:
+      - event
     post:
       consumes:
       - application/json

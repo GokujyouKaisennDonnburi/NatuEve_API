@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,12 +16,28 @@ import (
 
 // stubEventParticipationLogRepository は EventParticipationLogRepository のテスト用スタブ。
 type stubEventParticipationLogRepository struct {
+	// GetLatest 返却値。
+	latestLog model.EventParticipationLog
+	latestErr error
+	// 呼び出し時に GetLatest へ渡された引数を記録する。
+	gotEventID   uuid.UUID
+	gotProfileID uuid.UUID
+
 	// Create 返却値（createCreatedAt は成功時に log.ID / log.CreatedAt へセットする）。
 	createID        uuid.UUID
 	createCreatedAt time.Time
 	createErr       error
 	// 呼び出し時に Create へ渡された引数を記録する。
 	gotLog *model.EventParticipationLog
+}
+
+func (s *stubEventParticipationLogRepository) GetLatest(_ context.Context, eventID, profileID uuid.UUID) (model.EventParticipationLog, error) {
+	s.gotEventID = eventID
+	s.gotProfileID = profileID
+	if s.latestErr != nil {
+		return model.EventParticipationLog{}, s.latestErr
+	}
+	return s.latestLog, nil
 }
 
 func (s *stubEventParticipationLogRepository) Create(_ context.Context, log *model.EventParticipationLog) error {
@@ -32,8 +50,13 @@ func (s *stubEventParticipationLogRepository) Create(_ context.Context, log *mod
 	return nil
 }
 
+// newParticipationLogService はテスト用に Service を組み立てる。
+// eventStub は存在確認用、logStub は最新ログ取得/ログ追記用。
+func newParticipationLogService(eventStub *stubEventRepository, logStub *stubEventParticipationLogRepository) *EventParticipationLogService {
+	return NewEventParticipationLogService(logStub, eventStub)
+}
+
 func TestEventParticipationLogServiceCreate(t *testing.T) {
-	// 固定 UUID でテストの再現性を確保する。
 	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 	profileID := uuid.MustParse("b2c3d4e5-f6a7-8901-bcde-f23456789012")
 	logID := uuid.MustParse("c3d4e5f6-a7b8-9012-cdef-345678901234")
@@ -157,7 +180,7 @@ func TestEventParticipationLogServiceCreate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventParticipationLogService(tt.stub)
+			svc := NewEventParticipationLogService(tt.stub, &stubEventRepository{})
 
 			resp, err := svc.Create(context.Background(), eventID, profileID, tt.req)
 
@@ -185,4 +208,146 @@ func TestEventParticipationLogServiceCreate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEventParticipationLogService_GetLatestStatus(t *testing.T) {
+	// 固定値: eventID と profileID はパース済み uuid.UUID として使う。
+	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	profileID := uuid.MustParse("b2c3d4e5-f6a7-8901-bcde-f23456789012")
+	updatedAt := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name string
+		// eventStub の存在確認結果。
+		exists    bool
+		existsErr error
+		// logStub の GetLatest 結果。
+		latestLog model.EventParticipationLog
+		latestErr error
+		// 期待値。
+		wantAction        *string
+		wantParticipating bool
+		wantUpdatedAtNil  bool
+		wantNotFound      bool
+		wantErr           bool
+	}{
+		{
+			name:              "正常: 最新アクションが join → participating=true",
+			exists:            true,
+			latestLog:         model.EventParticipationLog{Action: "join", CreatedAt: updatedAt},
+			wantAction:        strPtr("join"),
+			wantParticipating: true,
+		},
+		{
+			name:              "正常: 最新アクションが leave → participating=false",
+			exists:            true,
+			latestLog:         model.EventParticipationLog{Action: "leave", CreatedAt: updatedAt},
+			wantAction:        strPtr("leave"),
+			wantParticipating: false,
+		},
+		{
+			name:              "正常: 履歴なし（sql.ErrNoRows）→ action=null, participating=false, updatedAt=null",
+			exists:            true,
+			latestErr:         fmt.Errorf("latest participation log: %w", sql.ErrNoRows),
+			wantAction:        nil,
+			wantParticipating: false,
+			wantUpdatedAtNil:  true,
+		},
+		{
+			name:         "異常: イベント不存在 → *NotFoundError",
+			exists:       false,
+			wantNotFound: true,
+		},
+		{
+			name:      "異常: Exists で予期しない repo エラー → そのまま伝播",
+			existsErr: errors.New("db connection lost"),
+			wantErr:   true,
+		},
+		{
+			name:      "異常: GetLatest で予期しない repo エラー → そのまま伝播",
+			exists:    true,
+			latestErr: errors.New("db connection lost"),
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventStub := &stubEventRepository{
+				exists:    tt.exists,
+				existsErr: tt.existsErr,
+			}
+			logStub := &stubEventParticipationLogRepository{
+				latestLog: tt.latestLog,
+				latestErr: tt.latestErr,
+			}
+			svc := newParticipationLogService(eventStub, logStub)
+
+			resp, err := svc.GetLatestStatus(context.Background(), eventID, profileID)
+
+			// 期待される型付きエラーの検証。
+			if tt.wantNotFound {
+				_ = assertNotFoundError(t, err)
+				return
+			}
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("エラーを期待したが nil だった")
+				}
+				// NotFoundError は別ケースで処理済みなので、
+				// ここではそれ以外のエラーであることも確認する。
+				var nfe *NotFoundError
+				if errors.As(err, &nfe) {
+					t.Fatalf("予期しない *NotFoundError が返った: %v", err)
+				}
+				return
+			}
+			assertNoErr(t, err)
+
+			// action の検証。
+			if tt.wantAction == nil {
+				if resp.Action != nil {
+					t.Errorf("Action = %v, want nil", *resp.Action)
+				}
+			} else {
+				if resp.Action == nil {
+					t.Errorf("Action = nil, want %q", *tt.wantAction)
+				} else if *resp.Action != *tt.wantAction {
+					t.Errorf("Action = %q, want %q", *resp.Action, *tt.wantAction)
+				}
+			}
+
+			// participating の検証。
+			if resp.Participating != tt.wantParticipating {
+				t.Errorf("Participating = %v, want %v", resp.Participating, tt.wantParticipating)
+			}
+
+			// updatedAt の検証。
+			if tt.wantUpdatedAtNil {
+				if resp.UpdatedAt != nil {
+					t.Errorf("UpdatedAt = %v, want nil", *resp.UpdatedAt)
+				}
+			} else {
+				// 履歴なし以外のケースでは updatedAt は非 nil を期待。
+				if resp.UpdatedAt == nil {
+					t.Errorf("UpdatedAt = nil, want non-nil")
+				}
+			}
+
+			// repo への引数伝播の検証（イベント不存在の場合は logRepo は呼ばれない）。
+			if !tt.wantNotFound {
+				if logStub.gotEventID != eventID {
+					t.Errorf("logRepo gotEventID = %v, want %v", logStub.gotEventID, eventID)
+				}
+				if logStub.gotProfileID != profileID {
+					t.Errorf("logRepo gotProfileID = %v, want %v", logStub.gotProfileID, profileID)
+				}
+			}
+		})
+	}
+}
+
+// strPtr は文字列リテラルのポインタを返すテストヘルパー。
+func strPtr(s string) *string {
+	return &s
 }

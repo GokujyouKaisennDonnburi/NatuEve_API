@@ -25,3 +25,4 @@
 | [0008](./0008-event-search-ilike-nfkc.md) | イベント検索は ILIKE 部分一致＋クエリ時 NFKC 正規化で実装する | Accepted |
 | [0008](./0008-event-owner-check-unification.md) | イベント所有者が必要な操作の認可フローを統一する | Accepted |
 | [0009](./0009-participation-log-event-not-found-status.md) | 参加状態ログ追加のイベント不存在は 404 で返す | Accepted |
+| [0010](./0010-uuid-parse-in-handler-layer.md) | UUID パースは handler 層に集約し、service 層は uuid.UUID を受け取る | Accepted |

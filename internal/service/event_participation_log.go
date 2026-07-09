@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -11,14 +12,19 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
-// EventParticipationLogService はイベント参加状態ログ追加のビジネスロジックを担当する。
+// EventParticipationLogService はイベント参加状態ログのビジネスロジックを担当する。
+// event_participation_logs テーブルへの追記・最新状態取得を行う。
 type EventParticipationLogService struct {
-	logRepo repository.EventParticipationLogRepository
+	logRepo   repository.EventParticipationLogRepository
+	eventRepo repository.EventRepository
 }
 
 // NewEventParticipationLogService は Service を生成する。
-func NewEventParticipationLogService(logRepo repository.EventParticipationLogRepository) *EventParticipationLogService {
-	return &EventParticipationLogService{logRepo: logRepo}
+func NewEventParticipationLogService(
+	logRepo repository.EventParticipationLogRepository,
+	eventRepo repository.EventRepository,
+) *EventParticipationLogService {
+	return &EventParticipationLogService{logRepo: logRepo, eventRepo: eventRepo}
 }
 
 // Create はイベント参加状態ログ(join/leave)を1件追記する。
@@ -56,5 +62,46 @@ func (s *EventParticipationLogService) Create(
 		ProfileID: log.ProfileID,
 		Action:    log.Action,
 		CreatedAt: log.CreatedAt,
+	}, nil
+}
+
+// GetLatestStatus は指定イベントに対する認証ユーザー自身の最新参加状態を返す。
+//
+// 主催者権限は不要（本人の参加状態のみを返す）。
+// eventID・profileID は呼び出し元（handler）でパース済みの uuid.UUID を受け取る。
+//
+// エラーポリシー:
+//   - イベント不存在 → *NotFoundError（404）
+//   - 履歴1件もなし（sql.ErrNoRows） → 空レスポンス（action=null, participating=false, updatedAt=null）
+//   - 上記以外の repo エラー → %w でラップして伝播（handler で 500）
+func (s *EventParticipationLogService) GetLatestStatus(
+	ctx context.Context,
+	eventID, profileID uuid.UUID,
+) (model.ParticipationStatusResponse, error) {
+
+	if err := requireEventExists(ctx, s.eventRepo, eventID); err != nil {
+		return model.ParticipationStatusResponse{}, err
+	}
+
+	log, err := s.logRepo.GetLatest(ctx, eventID, profileID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// 履歴なし = 未参加。200 OK で空レスポンスを返す。
+			return model.ParticipationStatusResponse{
+				Action:        nil,
+				Participating: false,
+				UpdatedAt:     nil,
+			}, nil
+		}
+		return model.ParticipationStatusResponse{}, fmt.Errorf("get latest participation status: %w", err)
+	}
+
+	action := log.Action
+	updatedAt := log.CreatedAt
+
+	return model.ParticipationStatusResponse{
+		Action:        &action,
+		Participating: action == "join",
+		UpdatedAt:     &updatedAt,
 	}, nil
 }

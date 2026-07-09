@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
@@ -51,6 +52,10 @@ type EventRepository interface {
 	// GetOwnerProfileID は指定した eventID のイベント投稿者 profile_id を返す。
 	// イベントが存在しない場合は sql.ErrNoRows を %w でラップして返す。
 	GetOwnerProfileID(ctx context.Context, eventID string) (string, error)
+	// Exists は指定した eventID のイベントが存在するかを返す。
+	// 存在しない場合は (false, nil)、それ以外のエラーは %w でラップして返す。
+	// eventID はパース済みの uuid.UUID を受け取り、正規化文字列でクエリする。
+	Exists(ctx context.Context, eventID uuid.UUID) (bool, error)
 }
 
 // eventPostgres は EventRepository の PostgreSQL 実装。
@@ -416,6 +421,22 @@ func (r *eventPostgres) GetOwnerProfileID(ctx context.Context, eventID string) (
 		return "", fmt.Errorf("get event owner profile_id: %w", err)
 	}
 	return profileID.String, nil
+}
+
+// Exists は指定 eventID のイベントが存在するかを返す。
+// eventID はパース済み uuid.UUID を受け取り、正規化文字列でクエリする
+// （uuid.Parse は受理するが Postgres が拒否する形式を弾くため）。
+func (r *eventPostgres) Exists(ctx context.Context, eventID uuid.UUID) (bool, error) {
+	const query = `SELECT 1 FROM events WHERE id = $1`
+
+	var one int
+	if err := r.db.QueryRowContext(ctx, query, eventID.String()).Scan(&one); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("check event exists: %w", err)
+	}
+	return true, nil
 }
 
 func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventResponse, error) {
