@@ -776,7 +776,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/internal_handler.createTagRequest"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateTagRequest"
                         }
                     }
                 ],
@@ -1086,6 +1086,17 @@ const docTemplate = `{
                     "description": "ReportID は作成されたレポートのID。",
                     "type": "string",
                     "example": "report_1234567890"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateTagRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
                 }
             }
         },
@@ -1970,17 +1981,6 @@ const docTemplate = `{
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorBody"
-                }
-            }
-        },
-        "internal_handler.createTagRequest": {
-            "type": "object",
-            "required": [
-                "name"
-            ],
-            "properties": {
-                "name": {
-                    "type": "string"
                 }
             }
         }

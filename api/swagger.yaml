@@ -149,6 +149,13 @@ definitions:
         example: report_1234567890
         type: string
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateTagRequest:
+    properties:
+      name:
+        type: string
+    required:
+    - name
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorBody:
     properties:
       code:
@@ -810,13 +817,6 @@ definitions:
       error:
         $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorBody'
     type: object
-  internal_handler.createTagRequest:
-    properties:
-      name:
-        type: string
-    required:
-    - name
-    type: object
 info:
   contact: {}
   description: NatuEve のバックエンド API
@@ -1329,7 +1329,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/internal_handler.createTagRequest'
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateTagRequest'
       produces:
       - application/json
       responses:
