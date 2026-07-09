@@ -92,6 +92,50 @@ participation-logs は認証は必須だが所有者/権限チェックを持た
   参加者本人が自分の状態を記録する操作であり、イベント所有者に限定する要件が無い。
   過剰な認可はユースケースを壊すため不採用。
 
+## レビューで確認した付随的な設計判断（#111 レビュー）
+
+本エンドポイントのレビューで挙がった 3 点について、以下を**意識的な判断として据え置く**。
+いずれも本 ADR の主決定（不存在は 404）とは独立するが、同一エンドポイントの設計事項として
+併せて記録する。
+
+### 1. `action` の検証はサーバ側の手動検証が唯一の防御である
+
+`model.CreateParticipationLogRequest` の `action` には `validate:"required,oneof=join leave"`
+タグが付いているが、**gin の `ShouldBindJSON` はこのタグを実行しない**。gin v1.12.0 の
+デフォルトバリデータは `binding/default_validator.go` で `SetTagName("binding")` を呼んでおり、
+検証対象は**タグ名 `binding` のみ**で、go-playground/validator 既定の `validate` タグは無視される。
+
+したがって `service.EventParticipationLogService.Create` の手動 action 検証は
+「多層防御」ではなく**唯一の入力検証**であり、外すと不正 action が bind を素通りして
+DB の `CHECK (action IN ('join','leave'))` 違反（→ 汎用エラー → 500）になる。
+`validate` タグはドキュメント兼手動検証の指針としての意味しか持たない
+（コードベース全体が同じ方針で、実検証は service 層で行う）。
+
+- **決定**: 検証は service 層の手動チェックに集約したまま据え置く。`validate` タグは
+  仕様の可視化用として残す。
+
+### 2. イベント存在チェックの TOCTOU レースは低リスクとして許容する
+
+repository の `Create` は `SELECT 1 FROM events` と `INSERT` を別ステートメントで実行する。
+両者の間でイベントが削除されると、`INSERT` が FK 違反（`23503`）となり、現状は 404 ではなく
+汎用エラー → **500** になる。
+
+- **決定**: 追記のみ・低頻度の操作であり実害が小さいため、現状の 2 ステートメント構成を許容する。
+- **将来の解消策**: `SELECT` を廃し単一 `INSERT` で FK 違反を捕捉して `ErrEventNotFound` に
+  変換すればレースフリーかつ簡潔になる。ただし本表は FK が 2 本（`event_id` / `profile_id`）
+  あるため、`23503` を一律 not_found にすると profile 側の違反まで 404 になる。正確に分けるには
+  `pgconn.PgError.ConstraintName` で event 側の制約かを判定する必要がある。
+
+### 3. レート制限は現時点で付けない
+
+`POST /events/{id}/join` は匿名で叩けるため IP ベースのレートリミッタ（`joinLimiter`）を
+付けているが、participation-logs は**認証必須・追記のみ**のため無制限で登録している。
+認証済みユーザーがログ行を量産できる余地はあるが、濫用の影響は限定的。
+
+- **決定**: 現時点ではレート制限を付けない。必要になった場合の類似策は IP 単位ではなく
+  **profile 単位のスロットリング**だが、これは既存にない新規インフラのため、実需が出てから
+  導入する。
+
 ## 関連コミット
 
 - 実装: `90a0b43 feat: イベント参加状態ログの model/repository 層を追加 #111`,
