@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -402,12 +403,16 @@ func (r *eventPostgres) Create(ctx context.Context, e *model.NewEvent) (model.Cr
 
 // GetOwnerProfileID は指定した eventID のイベント投稿者 profile_id を返す。
 // profile_id は nullable のため sql.NullString で受け取る。
-// 行が存在しない場合は sql.ErrNoRows を %w でラップして返す。
+// 行が存在しない場合は repository.ErrEventNotFound を %w でラップして返す。
+// 呼び出し側は errors.Is(err, repository.ErrEventNotFound) で判別できる。
 func (r *eventPostgres) GetOwnerProfileID(ctx context.Context, eventID string) (string, error) {
 	const query = `SELECT profile_id FROM events WHERE id = $1`
 
 	var profileID sql.NullString
 	if err := r.db.QueryRowContext(ctx, query, eventID).Scan(&profileID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+		}
 		return "", fmt.Errorf("get event owner profile_id: %w", err)
 	}
 	return profileID.String, nil

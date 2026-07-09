@@ -41,12 +41,13 @@ func (e *ConflictError) Error() string {
 
 // EventJoinService はイベント参加申込のビジネスロジックを担当する。
 type EventJoinService struct {
-	repo repository.EventJoinRepository
+	joinRepo  repository.EventJoinRepository
+	eventRepo repository.EventRepository
 }
 
 // NewEventJoinService は Service を生成する。
-func NewEventJoinService(repo repository.EventJoinRepository) *EventJoinService {
-	return &EventJoinService{repo: repo}
+func NewEventJoinService(joinRepo repository.EventJoinRepository, eventRepo repository.EventRepository) *EventJoinService {
+	return &EventJoinService{joinRepo: joinRepo, eventRepo: eventRepo}
 }
 
 // Join はイベント参加処理を行う。
@@ -75,7 +76,7 @@ func (s *EventJoinService) Join(
 		PartySize:   req.PartySize,
 	}
 
-	if err := s.repo.Join(ctx, member); err != nil {
+	if err := s.joinRepo.Join(ctx, member); err != nil {
 		switch {
 		case errors.Is(err, repository.ErrEventNotFound):
 			return model.JoinEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
@@ -101,6 +102,54 @@ func (s *EventJoinService) Join(
 		MailAddress: member.MailAddress,
 		PartySize:   member.PartySize,
 		CreatedAt:   member.CreatedAt,
+	}, nil
+}
+
+// ListMembers はイベント主催者が参加者一覧を取得する。
+//
+// 認可・バリデーションは requireEventOwner ヘルパーに集約。
+// エラーポリシー:
+//   - イベントID不正 or イベント不存在 → *ValidationError（400）
+//   - 主催者以外 or profileID 不正 → *ForbiddenError（403）
+//
+// 返却: created_at 昇順の参加者一覧。0件でも空配列で返す。
+func (s *EventJoinService) ListMembers(
+	ctx context.Context,
+	profileID, eventID string,
+) (model.EventMemberListResponse, error) {
+
+	parsedEventID, err := requireEventOwner(ctx, s.eventRepo, profileID, eventID)
+	if err != nil {
+		return model.EventMemberListResponse{}, err
+	}
+
+	members, err := s.joinRepo.ListMembers(ctx, parsedEventID)
+	if err != nil {
+		return model.EventMemberListResponse{}, fmt.Errorf("list members: %w", err)
+	}
+
+	respMembers := make([]model.EventMemberResponse, 0, len(members))
+	totalMembers := 0
+	for _, m := range members {
+		var respProfileID *uuid.UUID
+		if m.ProfileID.Valid {
+			v := m.ProfileID.UUID
+			respProfileID = &v
+		}
+		respMembers = append(respMembers, model.EventMemberResponse{
+			Username:    m.Username,
+			ProfileID:   respProfileID,
+			PartySize:   m.PartySize,
+			MailAddress: m.MailAddress,
+			CreatedAt:   m.CreatedAt,
+		})
+		totalMembers += m.PartySize
+	}
+
+	return model.EventMemberListResponse{
+		Members:      respMembers,
+		TotalCount:   len(respMembers),
+		TotalMembers: totalMembers,
 	}, nil
 }
 

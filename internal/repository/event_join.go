@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
@@ -39,7 +40,11 @@ type EventJoinRepository interface {
 	Join(ctx context.Context, member *model.EventMember) error
 
 	// ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
-	ListRecipients(ctx context.Context, eventID string) ([]model.EventRecipient, error)
+	ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error)
+
+	// ListMembers は指定 eventID の参加者一覧を作成日時の昇順で返す。
+	// 0件の場合は nil ではなく空スライスを返す（呼び出し元の totalCount 計算で安全側に倒すため）。
+	ListMembers(ctx context.Context, eventID uuid.UUID) ([]model.EventMember, error)
 }
 
 // eventJoinPostgres は PostgreSQL実装。
@@ -180,7 +185,7 @@ func (r *eventJoinPostgres) Join(
 }
 
 // ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
-func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID string) ([]model.EventRecipient, error) {
+func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error) {
 	// 参加登録順で返す（送信順を決定的にし、ログ・監査での追跡を容易にする）。
 	const query = `
 	SELECT mail_address
@@ -208,4 +213,44 @@ func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID string) 
 	}
 
 	return recipients, nil
+}
+
+// ListMembers は指定 eventID の参加者一覧を作成日時の昇順で返す。
+// profile_id は nullable なので uuid.NullUUID で受ける。
+// レコードが 0 件でも nil ではなく空スライスを返す。
+func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) ([]model.EventMember, error) {
+	const query = `
+	SELECT event_id, profile_id, username, mail_address, party_size, created_at
+	FROM event_members
+	WHERE event_id = $1
+	ORDER BY created_at
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("list members: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// 0 件でも空スライスを返す（呼び出し元の totalCount 計算で安全側に倒すため）。
+	members := []model.EventMember{}
+	for rows.Next() {
+		var m model.EventMember
+		if err := rows.Scan(
+			&m.EventID,
+			&m.ProfileID,
+			&m.Username,
+			&m.MailAddress,
+			&m.PartySize,
+			&m.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan member: %w", err)
+		}
+		members = append(members, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list members rows: %w", err)
+	}
+
+	return members, nil
 }

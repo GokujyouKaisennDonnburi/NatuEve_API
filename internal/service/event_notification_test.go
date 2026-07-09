@@ -2,12 +2,12 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
 // fakeMailer は Mailer のフェイク実装。テスト用。送信された emails を記録する。
@@ -113,7 +113,7 @@ func TestEventNotificationServiceSendBulk(t *testing.T) {
 			profileID: ownerID,
 			req:       validSendEventNotificationRequest(),
 			eventRepoStub: &stubEventRepository{
-				ownerProfileIDErr: fmt.Errorf("get owner: %w", sql.ErrNoRows),
+				ownerProfileIDErr: fmt.Errorf("event xxx: %w", repository.ErrEventNotFound),
 			},
 			joinRepoStub: &stubEventJoinRepository{recipients: recipients},
 			mailer:       &fakeMailer{},

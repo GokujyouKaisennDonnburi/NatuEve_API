@@ -51,3 +51,29 @@ type EventMember struct {
 	PartySize int
 	CreatedAt time.Time
 }
+
+// EventMemberResponse は参加者一覧取得エンドポイントの1参加者分の DTO。
+//
+//	@Description	参加者1人分の情報。profileId は匿名参加の場合 null。
+type EventMemberResponse struct {
+	// Username は参加者の表示名。
+	Username string `json:"username" example:"山田太郎"`
+	// ProfileID は参加者のプロフィールUUID。匿名参加の場合は null。
+	ProfileID *uuid.UUID `json:"profileId" example:"b2c3d4e5-f6a7-8901-bcde-f23456789012"`
+	// PartySize は代表者を含む参加人数。
+	PartySize int `json:"partySize" example:"1"`
+	// MailAddress は参加者のメールアドレス。
+	MailAddress string `json:"mailAddress" example:"yamada@example.com"`
+	// CreatedAt は参加申込日時(RFC3339)。
+	CreatedAt time.Time `json:"createdAt" example:"2026-07-01T12:00:00Z"`
+}
+
+// EventMemberListResponse は参加者一覧取得エンドポイントのレスポンス。
+type EventMemberListResponse struct {
+	// Members は参加者の一覧。0件の場合は空配列（null ではない）。
+	Members []EventMemberResponse `json:"members"`
+	// TotalCount は参加者総数（client の表示用）。
+	TotalCount int `json:"totalCount" example:"5"`
+	// TotalMembers は全参加者の partySize 合計（実際の総参加人数）。
+	TotalMembers int `json:"totalMembers" example:"8"`
+}

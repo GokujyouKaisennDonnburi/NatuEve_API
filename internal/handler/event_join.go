@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -120,4 +121,65 @@ func (h *EventHandler) Join(c *gin.Context) {
 
 	// 成功
 	c.JSON(http.StatusCreated, resp)
+}
+
+// ListMembers godoc
+//
+//	@Summary		イベント参加者一覧取得
+//	@Description	イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。
+//	@Description	profileId は匿名参加（ログインしていない）の場合 null。
+//	@Description	イベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。
+//	@Tags			event
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			id	path		string	true	"イベントID"
+//	@Success		200	{object}	model.EventMemberListResponse
+//	@Failure		400	{object}	model.ValidationErrorResponse
+//	@Failure		401	{object}	model.UnauthorizedErrorResponse
+//	@Failure		403	{object}	model.ForbiddenErrorResponse
+//	@Failure		500	{object}	model.InternalErrorResponse
+//	@Router			/api/v1/events/{id}/members [get]
+func (h *EventHandler) ListMembers(c *gin.Context) {
+	authUser, ok := middleware.AuthFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, model.NewErrorResponse("unauthorized", "認証が必要です"))
+		return
+	}
+
+	eventID := c.Param("id")
+
+	resp, err := h.joinSvc.ListMembers(c.Request.Context(), authUser.ID, eventID)
+	if err != nil {
+		var ve *service.ValidationError
+		if errors.As(err, &ve) {
+			c.JSON(
+				http.StatusBadRequest,
+				model.NewErrorResponse("invalid_request", ve.Message),
+			)
+			return
+		}
+
+		var fe *service.ForbiddenError
+		if errors.As(err, &fe) {
+			c.JSON(
+				http.StatusForbidden,
+				model.NewErrorResponse("forbidden", fe.Message),
+			)
+			return
+		}
+
+		// 想定外エラー（DB エラー等）は真因をログに残す。
+		// クライアントには詳細を返さないため、調査はこのログで行う。
+		slog.Error("参加者一覧取得に失敗しました",
+			slog.String("event_id", eventID),
+			slog.Any("error", err),
+		)
+		c.JSON(
+			http.StatusInternalServerError,
+			model.NewErrorResponse("internal_error", "参加者一覧の取得に失敗しました"),
+		)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }

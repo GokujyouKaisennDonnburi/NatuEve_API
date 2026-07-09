@@ -2,14 +2,10 @@ package service
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"strings"
-
-	"github.com/google/uuid"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
@@ -46,19 +42,9 @@ func (s *ReportCommandService) Create(ctx context.Context, profileID string, req
 
 	// 認可チェック: 対象イベントの投稿者のみレポートを投稿できる。
 	// キー昇格・INSERT より前に実施し、無駄なオブジェクト操作を避ける。
-	ownerID, err := s.eventRepo.GetOwnerProfileID(ctx, strings.TrimSpace(req.EventID))
-	if errors.Is(err, sql.ErrNoRows) {
-		return model.CreateReportResponse{}, &ValidationError{Message: "指定されたイベントが存在しません"}
-	}
-	if err != nil {
-		return model.CreateReportResponse{}, fmt.Errorf("get event owner: %w", err)
-	}
-	// UUID として正規化して比較する（大文字小文字・表記ゆれによる誤判定を避ける）。
-	// パースに失敗した場合は認可を通さない（fail-closed）。
-	ownerUID, ownerErr := uuid.Parse(ownerID)
-	profileUID, profileErr := uuid.Parse(profileID)
-	if ownerErr != nil || profileErr != nil || ownerUID != profileUID {
-		return model.CreateReportResponse{}, &ForbiddenError{Message: "このイベントにレポートを投稿する権限がありません"}
+	// 認可ロジックは requireEventOwner ヘルパーに集約（fail-closed 保証）。
+	if _, err := requireEventOwner(ctx, s.eventRepo, profileID, req.EventID); err != nil {
+		return model.CreateReportResponse{}, err
 	}
 
 	hasKeys := len(req.ImageObjectKeys) > 0 || len(req.PdfObjectKeys) > 0

@@ -2,12 +2,9 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/google/uuid"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
@@ -90,25 +87,12 @@ func (s *EventNotificationService) SendBulk(
 		return model.SendEventNotificationResponse{}, err
 	}
 
-	trimmedEventID := strings.TrimSpace(eventID)
-
-	// 認可チェック: イベント主催者のみ一斉送信できる。
-	ownerID, err := s.eventRepo.GetOwnerProfileID(ctx, trimmedEventID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return model.SendEventNotificationResponse{}, &ValidationError{Message: "指定されたイベントが存在しません"}
-	}
+	parsedEventID, err := requireEventOwner(ctx, s.eventRepo, profileID, eventID)
 	if err != nil {
-		return model.SendEventNotificationResponse{}, fmt.Errorf("get event owner: %w", err)
-	}
-	// UUID として正規化して比較する（大文字小文字・表記ゆれによる誤判定を避ける）。
-	// パースに失敗した場合は認可を通さない（fail-closed）。
-	ownerUID, ownerErr := uuid.Parse(ownerID)
-	profileUID, profileErr := uuid.Parse(profileID)
-	if ownerErr != nil || profileErr != nil || ownerUID != profileUID {
-		return model.SendEventNotificationResponse{}, &ForbiddenError{Message: "このイベントの参加者へ通知を送信する権限がありません"}
+		return model.SendEventNotificationResponse{}, err
 	}
 
-	recipients, err := s.joinRepo.ListRecipients(ctx, trimmedEventID)
+	recipients, err := s.joinRepo.ListRecipients(ctx, parsedEventID)
 	if err != nil {
 		return model.SendEventNotificationResponse{}, fmt.Errorf("list recipients: %w", err)
 	}
@@ -135,7 +119,7 @@ func (s *EventNotificationService) SendBulk(
 	}
 
 	return model.SendEventNotificationResponse{
-		EventID:        trimmedEventID,
+		EventID:        parsedEventID.String(),
 		RecipientCount: len(recipients),
 		SentCount:      len(recipients),
 		FailedCount:    0,
