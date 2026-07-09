@@ -84,6 +84,9 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	eventJoinRepo := repository.NewEventJoinRepository(sqlDB)
 	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo)
 
+	eventParticipationLogRepo := repository.NewEventParticipationLogRepository(sqlDB)
+	eventParticipationLogSvc := service.NewEventParticipationLogService(eventParticipationLogRepo, eventRepo)
+
 	tagRepo := repository.NewTagRepository(sqlDB)
 	tagSvc := service.NewTagService(tagRepo)
 
@@ -93,9 +96,6 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	reportRepo := repository.NewReportRepository(sqlDB)
 	reportCmdSvc := service.NewReportCommandService(reportRepo, eventRepo, store)
 	reportQuerySvc := service.NewReportQueryService(reportRepo, cfg.R2PublicBaseURL)
-
-	eventParticipationLogRepo := repository.NewEventParticipationLogRepository(sqlDB)
-	eventParticipationLogSvc := service.NewEventParticipationLogService(eventParticipationLogRepo, eventRepo)
 
 	eventHandler := handler.NewEventHandler(
 		eventQuerySvc,
@@ -149,6 +149,7 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 
 	v1.GET("/events/:id/members", eventHandler.ListMembers)
 	v1.GET("/events/:id/participation-logs", eventParticipationLogHandler.GetLatestStatus)
+	v1.POST("/events/:id/participation-logs", eventParticipationLogHandler.Create)
 
 	v1.POST("/reports", reportHandler.Create)
 

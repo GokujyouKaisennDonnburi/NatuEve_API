@@ -14,7 +14,7 @@ import (
 )
 
 // EventParticipationLogService はイベント参加状態ログのビジネスロジックを担当する。
-// event_participation_logs テーブルから「最新1件」を取得し、派生フラグを付けて返す。
+// event_participation_logs テーブルへの追記・最新状態取得を行う。
 type EventParticipationLogService struct {
 	logRepo   repository.EventParticipationLogRepository
 	eventRepo repository.EventRepository
@@ -26,6 +26,44 @@ func NewEventParticipationLogService(
 	eventRepo repository.EventRepository,
 ) *EventParticipationLogService {
 	return &EventParticipationLogService{logRepo: logRepo, eventRepo: eventRepo}
+}
+
+// Create はイベント参加状態ログ(join/leave)を1件追記する。
+//
+// リクエストの validate タグは bind 時に強制されないため、
+// action の値は本メソッドで手動検証する（service が信頼境界）。
+func (s *EventParticipationLogService) Create(
+	ctx context.Context,
+	eventID uuid.UUID,
+	profileID uuid.UUID,
+	req model.CreateParticipationLogRequest,
+) (model.ParticipationLogResponse, error) {
+
+	// バリデーション: action は join または leave のみ許可する。
+	if req.Action != "join" && req.Action != "leave" {
+		return model.ParticipationLogResponse{}, &ValidationError{Message: "参加状態は join または leave を指定してください"}
+	}
+
+	log := &model.EventParticipationLog{
+		EventID:   eventID,
+		ProfileID: profileID,
+		Action:    req.Action,
+	}
+
+	if err := s.logRepo.Create(ctx, log); err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return model.ParticipationLogResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
+		}
+		return model.ParticipationLogResponse{}, fmt.Errorf("create participation log: %w", err)
+	}
+
+	return model.ParticipationLogResponse{
+		ID:        log.ID,
+		EventID:   log.EventID,
+		ProfileID: log.ProfileID,
+		Action:    log.Action,
+		CreatedAt: log.CreatedAt,
+	}, nil
 }
 
 // GetLatestStatus は指定イベントに対する認証ユーザー自身の最新参加状態を返す。
