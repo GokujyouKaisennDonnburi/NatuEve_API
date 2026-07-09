@@ -25,3 +25,8 @@ type TagResponse struct {
 	// NormalizedName は重複確認用タグ名。
 	NormalizedName string `json:"normalized_name" example:"外来生物"`
 }
+
+// CreateTagRequest はタグ作成リクエスト DTO。
+type CreateTagRequest struct {
+	Name string `json:"name" binding:"required"`
+}

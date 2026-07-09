@@ -46,10 +46,6 @@ func (h *TagHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-type createTagRequest struct {
-	Name string `json:"name" binding:"required"`
-}
-
 // Create はタグ作成API。
 //
 // @Summary タグ作成
@@ -57,7 +53,7 @@ type createTagRequest struct {
 // @Tags tag
 // @Accept json
 // @Produce json
-// @Param request body createTagRequest true "タグ作成"
+// @Param request body model.CreateTagRequest true "タグ作成"
 // @Success 201 {object} model.TagResponse
 // @Failure 400 {object} model.ErrorResponse "入力エラー"
 // @Failure 409 {object} model.ErrorResponse "タグ重複"
@@ -66,7 +62,7 @@ type createTagRequest struct {
 func (h *TagHandler) Create(
 	c *gin.Context,
 ) {
-	var req createTagRequest
+	var req model.CreateTagRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(
