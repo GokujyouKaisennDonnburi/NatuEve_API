@@ -759,6 +759,10 @@ definitions:
         description: Name はタグ名。
         example: 外来生物
         type: string
+      normalized_name:
+        description: NormalizedName は重複確認用タグ名。
+        example: 外来生物
+        type: string
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorBody:
     properties:

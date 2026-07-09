@@ -1904,6 +1904,11 @@ const docTemplate = `{
                     "description": "Name はタグ名。",
                     "type": "string",
                     "example": "外来生物"
+                },
+                "normalized_name": {
+                    "description": "NormalizedName は重複確認用タグ名。",
+                    "type": "string",
+                    "example": "外来生物"
                 }
             }
         },
