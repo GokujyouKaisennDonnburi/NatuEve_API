@@ -65,22 +65,24 @@ func (s *TagService) Create(
 	name string,
 ) (model.TagResponse, error) {
 
-	name = norm.NFKC.String(name)
 	name = strings.TrimSpace(name)
-	name = strings.ToLower(name)
 
 	if name == "" {
 		return model.TagResponse{}, ErrEmptyTagName
 	}
 
+	normalizedName := norm.NFKC.String(name)
+	normalizedName = strings.ToLower(normalizedName)
+
 	if utf8.RuneCountInString(name) > maxTagNameLength {
 		return model.TagResponse{}, ErrTagNameTooLong
 	}
-
 	tag, err := s.repo.Create(
 		ctx,
 		name,
+		normalizedName,
 	)
+
 	if err != nil {
 		if errors.Is(err, repository.ErrDuplicateTag) {
 			return model.TagResponse{}, ErrTagAlreadyExists

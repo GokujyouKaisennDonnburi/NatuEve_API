@@ -19,7 +19,7 @@ type TagRepository interface {
 	// List はタグ一覧を取得する。
 	List(ctx context.Context) ([]model.Tag, error)
 	// Create はタグを作成する。
-	Create(ctx context.Context, name string) (model.Tag, error)
+	Create(ctx context.Context, name string, normalizedName string) (model.Tag, error)
 }
 
 // tagPostgres は TagRepository の PostgreSQL 実装。
@@ -75,9 +75,10 @@ func (r *tagPostgres) List(
 
 const createTagQuery = `
 INSERT INTO tags (
-	name
+	name,
+	normalized_name
 )
-VALUES ($1)
+VALUES ($1, $2)
 RETURNING
 	id,
 	name
@@ -86,6 +87,7 @@ RETURNING
 func (r *tagPostgres) Create(
 	ctx context.Context,
 	name string,
+	normalizedName string,
 ) (model.Tag, error) {
 
 	var tag model.Tag
@@ -94,6 +96,7 @@ func (r *tagPostgres) Create(
 		ctx,
 		createTagQuery,
 		name,
+		normalizedName,
 	).Scan(
 		&tag.ID,
 		&tag.Name,

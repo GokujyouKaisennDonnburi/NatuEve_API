@@ -13,10 +13,11 @@ import (
 
 // stubTagRepository は TagRepository のテスト用スタブ。
 type stubTagRepository struct {
-	tags       []model.Tag
-	created    model.Tag
-	createname string
-	err        error
+	tags           []model.Tag
+	created        model.Tag
+	name           string
+	normalizedName string
+	err            error
 }
 
 func (s *stubTagRepository) List(
@@ -32,8 +33,10 @@ func (s *stubTagRepository) List(
 func (s *stubTagRepository) Create(
 	_ context.Context,
 	name string,
+	normalizedName string,
 ) (model.Tag, error) {
-	s.createname = name
+	s.name = name
+	s.normalizedName = normalizedName
 
 	if s.err != nil {
 		return model.Tag{}, s.err
@@ -191,6 +194,7 @@ func TestTagServiceCreate(t *testing.T) {
 		check   func(
 			t *testing.T,
 			resp model.TagResponse,
+			repo *stubTagRepository,
 		)
 	}{
 		{
@@ -208,6 +212,7 @@ func TestTagServiceCreate(t *testing.T) {
 			check: func(
 				t *testing.T,
 				resp model.TagResponse,
+				_ *stubTagRepository,
 			) {
 				t.Helper()
 
@@ -240,7 +245,11 @@ func TestTagServiceCreate(t *testing.T) {
 
 			input: "  外来生物  ",
 
-			check: func(t *testing.T, resp model.TagResponse) {
+			check: func(
+				t *testing.T,
+				resp model.TagResponse,
+				_ *stubTagRepository,
+			) {
 				t.Helper()
 
 				if resp.Name != "外来生物" {
@@ -250,22 +259,58 @@ func TestTagServiceCreate(t *testing.T) {
 		},
 
 		{
-			name: "正常: 英字を小文字へ正規化",
+			name: "正常: 英字タグは入力文字列を保持する",
 
 			repo: &stubTagRepository{
 				created: model.Tag{
 					ID:   tagID,
-					Name: "bird",
+					Name: "Bird",
 				},
 			},
 
 			input: "Bird",
 
-			check: func(t *testing.T, resp model.TagResponse) {
-				t.Helper()
+			check: func(
+				t *testing.T,
+				resp model.TagResponse,
+				_ *stubTagRepository,
+			) {
+				if resp.Name != "Bird" {
+					t.Errorf(
+						"Name: got %s want Bird",
+						resp.Name,
+					)
+				}
+			},
+		},
 
-				if resp.Name != "bird" {
-					t.Errorf("Name: got %s want bird", resp.Name)
+		{
+			name: "正常: 正規化キーは小文字化される",
+
+			repo: &stubTagRepository{
+				created: model.Tag{
+					ID:   tagID,
+					Name: "Bird",
+				},
+			},
+
+			input: "Bird",
+
+			check: func(
+				t *testing.T,
+				resp model.TagResponse,
+				repo *stubTagRepository,
+			) {
+				if repo.name != "Bird" {
+					t.Errorf("name: got %q want %q", repo.name, "Bird")
+				}
+
+				if repo.normalizedName != "bird" {
+					t.Errorf("normalizedName: got %q want %q", repo.normalizedName, "bird")
+				}
+
+				if resp.Name != "Bird" {
+					t.Errorf("response name: got %q want %q", resp.Name, "Bird")
 				}
 			},
 		},
@@ -345,7 +390,7 @@ func TestTagServiceCreate(t *testing.T) {
 			}
 
 			if tt.check != nil {
-				tt.check(t, resp)
+				tt.check(t, resp, tt.repo)
 			}
 		})
 	}
