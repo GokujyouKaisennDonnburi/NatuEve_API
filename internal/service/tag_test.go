@@ -3,17 +3,20 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
-	"github.com/google/uuid"
-
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
+	"github.com/google/uuid"
 )
 
 // stubTagRepository は TagRepository のテスト用スタブ。
 type stubTagRepository struct {
-	tags []model.Tag
-	err  error
+	tags       []model.Tag
+	created    model.Tag
+	createname string
+	err        error
 }
 
 func (s *stubTagRepository) List(
@@ -24,6 +27,19 @@ func (s *stubTagRepository) List(
 	}
 
 	return s.tags, nil
+}
+
+func (s *stubTagRepository) Create(
+	_ context.Context,
+	name string,
+) (model.Tag, error) {
+	s.createname = name
+
+	if s.err != nil {
+		return model.Tag{}, s.err
+	}
+
+	return s.created, nil
 }
 
 func TestTagServiceList(t *testing.T) {
@@ -157,6 +173,179 @@ func TestTagServiceList(t *testing.T) {
 					t,
 					resp,
 				)
+			}
+		})
+	}
+}
+
+func TestTagServiceCreate(t *testing.T) {
+	tagID := uuid.MustParse(
+		"b2c3d4e5-f6a7-8901-bcde-f23456789012",
+	)
+
+	tests := []struct {
+		name    string
+		repo    *stubTagRepository
+		input   string
+		wantErr bool
+		check   func(
+			t *testing.T,
+			resp model.TagResponse,
+		)
+	}{
+		{
+			name: "正常: タグ作成",
+
+			repo: &stubTagRepository{
+				created: model.Tag{
+					ID:   tagID,
+					Name: "外来生物",
+				},
+			},
+
+			input: "外来生物",
+
+			check: func(
+				t *testing.T,
+				resp model.TagResponse,
+			) {
+				t.Helper()
+
+				if resp.ID != tagID.String() {
+					t.Errorf(
+						"ID: got %s want %s",
+						resp.ID,
+						tagID.String(),
+					)
+				}
+
+				if resp.Name != "外来生物" {
+					t.Errorf(
+						"Name: got %s want 外来生物",
+						resp.Name,
+					)
+				}
+			},
+		},
+
+		{
+			name: "正常: 前後の空白を除去",
+
+			repo: &stubTagRepository{
+				created: model.Tag{
+					ID:   tagID,
+					Name: "外来生物",
+				},
+			},
+
+			input: "  外来生物  ",
+
+			check: func(t *testing.T, resp model.TagResponse) {
+				t.Helper()
+
+				if resp.Name != "外来生物" {
+					t.Errorf("Name: got %s want 外来生物", resp.Name)
+				}
+			},
+		},
+
+		{
+			name: "正常: 英字を小文字へ正規化",
+
+			repo: &stubTagRepository{
+				created: model.Tag{
+					ID:   tagID,
+					Name: "bird",
+				},
+			},
+
+			input: "Bird",
+
+			check: func(t *testing.T, resp model.TagResponse) {
+				t.Helper()
+
+				if resp.Name != "bird" {
+					t.Errorf("Name: got %s want bird", resp.Name)
+				}
+			},
+		},
+
+		{
+			name: "異常: Repositoryエラー",
+
+			repo: &stubTagRepository{
+				err: repository.ErrDuplicateTag,
+			},
+
+			input: "外来生物",
+
+			wantErr: true,
+		},
+
+		{
+			name: "異常: タグ名が空",
+
+			repo: &stubTagRepository{},
+
+			input: "",
+
+			wantErr: true,
+		},
+
+		{
+			name: "異常: タグ名が空白のみ",
+
+			repo: &stubTagRepository{},
+
+			input: "    ",
+
+			wantErr: true,
+		},
+
+		{
+			name: "異常: タグ名が長すぎる",
+
+			repo: &stubTagRepository{},
+
+			input: strings.Repeat("あ", 31),
+
+			wantErr: true,
+		},
+
+		{
+			name: "異常: タグ重複",
+
+			repo: &stubTagRepository{
+				err: repository.ErrDuplicateTag,
+			},
+
+			input: "外来生物",
+
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewTagService(tt.repo)
+
+			resp, err := svc.Create(
+				context.Background(),
+				tt.input,
+			)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("errorを期待したがnil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if tt.check != nil {
+				tt.check(t, resp)
 			}
 		})
 	}
