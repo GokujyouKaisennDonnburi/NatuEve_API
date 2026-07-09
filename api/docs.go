@@ -1096,7 +1096,10 @@ const docTemplate = `{
             ],
             "properties": {
                 "name": {
-                    "type": "string"
+                    "description": "Name はタグ名。",
+                    "type": "string",
+                    "maxLength": 30,
+                    "example": "外来生物"
                 }
             }
         },
