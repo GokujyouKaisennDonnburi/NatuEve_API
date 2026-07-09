@@ -16,8 +16,8 @@ import (
 // EventParticipationLogService はイベント参加状態ログのビジネスロジックを担当する。
 // event_participation_logs テーブルから「最新1件」を取得し、派生フラグを付けて返す。
 type EventParticipationLogService struct {
-	logRepo    repository.EventParticipationLogRepository
-	eventRepo  repository.EventRepository
+	logRepo   repository.EventParticipationLogRepository
+	eventRepo repository.EventRepository
 }
 
 // NewEventParticipationLogService は Service を生成する。
