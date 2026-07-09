@@ -22,8 +22,6 @@ type TagResponse struct {
 	ID string `json:"id" example:"b2c3d4e5-f6a7-8901-bcde-f23456789012"`
 	// Name はタグ名。
 	Name string `json:"name" example:"外来生物"`
-	// NormalizedName は重複確認用タグ名。
-	NormalizedName string `json:"normalized_name" example:"外来生物"`
 }
 
 // CreateTagRequest はタグ作成リクエスト DTO。

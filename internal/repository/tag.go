@@ -59,6 +59,7 @@ func (r *tagPostgres) List(
 		if err := rows.Scan(
 			&tag.ID,
 			&tag.Name,
+			&tag.NormalizedName,
 		); err != nil {
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
@@ -100,6 +101,7 @@ func (r *tagPostgres) Create(
 	).Scan(
 		&tag.ID,
 		&tag.Name,
+		&tag.NormalizedName,
 	)
 
 	if err != nil {
