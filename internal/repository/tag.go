@@ -106,7 +106,8 @@ func (r *tagPostgres) Create(
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) &&
 			pgErr.Code == "23505" &&
-			pgErr.ConstraintName == "tags_name_key" {
+			(pgErr.ConstraintName == "tags_name_key" ||
+				pgErr.ConstraintName == "tags_normalized_name_key") {
 			return model.Tag{}, ErrDuplicateTag
 		}
 		return model.Tag{}, fmt.Errorf(
