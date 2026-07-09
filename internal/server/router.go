@@ -84,6 +84,9 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	eventJoinRepo := repository.NewEventJoinRepository(sqlDB)
 	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo)
 
+	participationLogRepo := repository.NewEventParticipationLogRepository(sqlDB)
+	participationLogSvc := service.NewEventParticipationLogService(participationLogRepo)
+
 	tagRepo := repository.NewTagRepository(sqlDB)
 	tagSvc := service.NewTagService(tagRepo)
 
@@ -103,6 +106,7 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	tagHandler := handler.NewTagHandler(tagSvc)
 	userHandler := handler.NewUserHandler(profileSvc)
 	reportHandler := handler.NewReportHandler(reportCmdSvc, reportQuerySvc)
+	participationLogHandler := handler.NewEventParticipationLogHandler(participationLogSvc)
 
 	v1Public := r.Group("/api/v1")
 	v1Public.GET("/events", eventHandler.List)
@@ -144,6 +148,8 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	v1.POST("/events", eventHandler.Create)
 
 	v1.GET("/events/:id/members", eventHandler.ListMembers)
+
+	v1.POST("/events/:id/participation-logs", participationLogHandler.Create)
 
 	v1.POST("/reports", reportHandler.Create)
 
