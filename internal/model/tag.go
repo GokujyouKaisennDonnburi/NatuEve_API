@@ -28,5 +28,6 @@ type TagResponse struct {
 
 // CreateTagRequest はタグ作成リクエスト DTO。
 type CreateTagRequest struct {
-	Name string `json:"name" binding:"required"`
+	// Name はタグ名。
+	Name string `json:"name" binding:"required,max=30" example:"外来生物"`
 }
