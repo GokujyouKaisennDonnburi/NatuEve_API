@@ -123,6 +123,76 @@ func (h *EventHandler) Join(c *gin.Context) {
 	c.JSON(http.StatusCreated, resp)
 }
 
+// Leave はイベント参加キャンセル API。
+//
+//	@Summary		イベント参加キャンセル
+//	@Description	認証必須。ログイン参加者が自身の参加を取り消す。
+//	@Description	参加行を削除し、参加状態ログへ action=leave を1件追記する。
+//	@Description	匿名参加（profileId=null）は本 API の対象外。
+//	@Description	そのイベントに参加していない場合は 404 not_found を返す。
+//	@Tags			event
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			id	path		string	true	"イベントID"
+//	@Success		200	{object}	model.LeaveEventResponse
+//	@Failure		400	{object}	model.ValidationErrorResponse
+//	@Failure		401	{object}	model.UnauthorizedErrorResponse
+//	@Failure		404	{object}	model.NotFoundErrorResponse	"not_found: イベント不存在 または 未参加"
+//	@Failure		500	{object}	model.InternalErrorResponse
+//	@Router			/api/v1/events/{id}/leave [post]
+func (h *EventHandler) Leave(c *gin.Context) {
+
+	// パスパラメータからイベントID取得
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			model.NewErrorResponse("invalid_request", "イベントIDが不正です"),
+		)
+		return
+	}
+
+	// 認証必須。RequireAuth ミドルウェア配下だが、防御的に確認する。
+	authUser, ok := middleware.AuthFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, model.NewErrorResponse("unauthorized", "認証が必要です"))
+		return
+	}
+	profileID, err := uuid.Parse(authUser.ID)
+	if err != nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			model.NewErrorResponse("unauthorized", "ユーザーIDが不正です"),
+		)
+		return
+	}
+
+	resp, err := h.joinSvc.Leave(c.Request.Context(), eventID, profileID)
+	if err != nil {
+		var nfe *service.NotFoundError
+		if errors.As(err, &nfe) {
+			c.JSON(
+				http.StatusNotFound,
+				model.NewErrorResponse("not_found", nfe.Message),
+			)
+			return
+		}
+
+		// 想定外エラー（DB エラー等）は真因をログに残す。
+		slog.Error("イベント参加キャンセルに失敗しました",
+			slog.String("event_id", eventID.String()),
+			slog.Any("error", err),
+		)
+		c.JSON(
+			http.StatusInternalServerError,
+			model.NewErrorResponse("internal_error", "参加キャンセルに失敗しました"),
+		)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
 // ListMembers godoc
 //
 //	@Summary		イベント参加者一覧取得

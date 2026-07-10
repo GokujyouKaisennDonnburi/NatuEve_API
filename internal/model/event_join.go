@@ -34,6 +34,20 @@ type JoinEventResponse struct {
 	CreatedAt time.Time `json:"createdAt" example:"2023-01-01T12:00:00Z"`
 }
 
+// LeaveEventResponse は参加キャンセル完了時に返すレスポンス。
+//
+//	@Description	参加キャンセルの結果。追記された参加状態ログ（action=leave）1件分の内容を返す。
+type LeaveEventResponse struct {
+	// EventID はキャンセルしたイベントのUUID。
+	EventID uuid.UUID `json:"eventId" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	// ProfileID はキャンセルしたユーザーのUUID。leave は認証必須のため常に値が入る。
+	ProfileID uuid.UUID `json:"profileId" example:"b2c3d4e5-f6a7-8901-bcde-f23456789012"`
+	// Action は参加状態ログのアクション。常に "leave"。
+	Action string `json:"action" example:"leave"`
+	// CreatedAt は参加状態ログ（leave）の記録日時。
+	CreatedAt time.Time `json:"createdAt" example:"2026-07-01T12:00:00Z"`
+}
+
 // EventRecipient はイベント参加者への一斉送信の宛先1件分を表すモデル。
 // Repository 層で event_members から SELECT する際に使用する。
 type EventRecipient struct {

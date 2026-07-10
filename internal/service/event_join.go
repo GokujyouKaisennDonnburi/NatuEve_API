@@ -107,6 +107,35 @@ func (s *EventJoinService) Join(
 	}, nil
 }
 
+// Leave はログイン参加者のイベント参加を取り消す。
+//
+// 参加行の削除と参加状態ログ（action='leave'）の追記は repository が1トランザクションで
+// 原子的に行い、結果は sentinel エラーで返るためここで HTTP 向けエラーに変換する。
+// leave は認証必須のため profileID は常に有効値。匿名参加はこの経路の対象外。
+func (s *EventJoinService) Leave(
+	ctx context.Context,
+	eventID, profileID uuid.UUID,
+) (model.LeaveEventResponse, error) {
+
+	createdAt, err := s.joinRepo.Leave(ctx, eventID, profileID)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrEventNotFound):
+			return model.LeaveEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
+		case errors.Is(err, repository.ErrNotJoined):
+			return model.LeaveEventResponse{}, &NotFoundError{Message: "このイベントに参加していません"}
+		}
+		return model.LeaveEventResponse{}, fmt.Errorf("leave event: %w", err)
+	}
+
+	return model.LeaveEventResponse{
+		EventID:   eventID,
+		ProfileID: profileID,
+		Action:    "leave",
+		CreatedAt: createdAt,
+	}, nil
+}
+
 // ListMembers はイベント主催者が参加者一覧を取得する。
 //
 // 認可・バリデーションは requireEventOwner ヘルパーに集約。

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -24,6 +25,9 @@ var ErrEventCapacityFull = errors.New("event capacity full")
 // ErrEventCancelled は参加対象のイベントが取りやめになっている場合に返されるエラー。
 var ErrEventCancelled = errors.New("event cancelled")
 
+// ErrNotJoined は参加キャンセル時に、そのイベントに参加していない場合に返されるエラー。
+var ErrNotJoined = errors.New("not joined")
+
 // pgUniqueViolationCode は PostgreSQL の unique_violation エラーコード。
 const pgUniqueViolationCode = "23505"
 
@@ -36,11 +40,25 @@ type EventJoinRepository interface {
 	//
 	// イベント行を FOR UPDATE でロックして存在確認・重複確認・定員確認・INSERT を
 	// 原子的に行うため、並行リクエストでも定員超過・重複登録は発生しない。
+	// ログイン参加（member.ProfileID が Valid）の場合は、同一トランザクション内で
+	// event_participation_logs に action='join' を1件追記する。匿名参加（profile_id NULL）は
+	// ログ対象外（event_participation_logs.profile_id が NOT NULL のため）。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
 	//   - ErrAlreadyJoined: 同一 mail_address（大文字小文字無視）またはログイン時は同一 profile_id で参加済み
 	//   - ErrEventCapacityFull: 定員超過（定員 NULL / 0 は定員なし）
 	Join(ctx context.Context, member *model.EventMember) error
+
+	// Leave はログイン参加者のイベント参加を1トランザクションで取り消す。
+	//
+	// event_members から (event_id, profile_id) 一致行を DELETE し、同一トランザクション内で
+	// event_participation_logs に action='leave' を1件追記する。参加取消とログ追記を原子的に行い、
+	// 片方だけ成功する不整合を防ぐ。成功時は追記した leave ログの created_at を返す。
+	// 匿名参加（profile_id NULL）は profile_id で識別できず、本メソッドの対象外。
+	// 失敗時は次の sentinel エラーを %w でラップして返す:
+	//   - ErrEventNotFound: イベントが存在しない
+	//   - ErrNotJoined: そのイベントに参加していない（削除対象行なし）
+	Leave(ctx context.Context, eventID, profileID uuid.UUID) (time.Time, error)
 
 	// ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
 	ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error)
@@ -186,11 +204,108 @@ func (r *eventJoinPostgres) Join(
 		return fmt.Errorf("join event: %w", err)
 	}
 
+	// ログイン参加時のみ、参加状態ログに join を追記する（同一トランザクション内で原子的に）。
+	// event_participation_logs.profile_id は NOT NULL のため、匿名参加（profile_id NULL）は
+	// ログ記録の対象外とする。参加登録とログ追記を1トランザクションにまとめることで、
+	// 片方だけ成功する不整合を防ぐ。
+	if member.ProfileID.Valid {
+		const insertParticipationLog = `
+		INSERT INTO event_participation_logs(
+			event_id,
+			profile_id,
+			action
+		)
+		VALUES($1, $2, 'join')
+		`
+
+		if _, err := tx.ExecContext(
+			ctx,
+			insertParticipationLog,
+			member.EventID,
+			member.ProfileID.UUID,
+		); err != nil {
+			return fmt.Errorf("insert participation log: %w", err)
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return nil
+}
+
+// Leave はログイン参加者のイベント参加を取り消す。
+// event_members から (event_id, profile_id) 一致行を DELETE し、同一トランザクション内で
+// event_participation_logs に action='leave' を1件追記して、その created_at を返す。
+func (r *eventJoinPostgres) Leave(
+	ctx context.Context,
+	eventID, profileID uuid.UUID,
+) (time.Time, error) {
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// 参加行を削除する。ログイン参加者は1イベントにつき高々1行のため、
+	// (event_id, profile_id) で一意に対象を特定できる。
+	const deleteMember = `
+	DELETE FROM event_members
+	WHERE event_id = $1
+	AND profile_id = $2
+	`
+
+	res, err := tx.ExecContext(ctx, deleteMember, eventID, profileID)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("delete member: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("rows affected: %w", err)
+	}
+
+	// 削除対象が無い場合、イベント不存在と未参加を区別してエラーを返す。
+	if affected == 0 {
+		const existsEvent = `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)`
+		var exists bool
+		if err := tx.QueryRowContext(ctx, existsEvent, eventID).Scan(&exists); err != nil {
+			return time.Time{}, fmt.Errorf("exists event: %w", err)
+		}
+		if !exists {
+			return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+		}
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrNotJoined)
+	}
+
+	// 参加取消と同時に、参加状態ログへ leave を追記する（同一トランザクション内で原子的に）。
+	// leave は認証必須のため profile_id は常に非 NULL で、NOT NULL 制約を満たす。
+	const insertParticipationLog = `
+	INSERT INTO event_participation_logs(
+		event_id,
+		profile_id,
+		action
+	)
+	VALUES($1, $2, 'leave')
+	RETURNING created_at
+	`
+
+	var createdAt time.Time
+	if err := tx.QueryRowContext(
+		ctx,
+		insertParticipationLog,
+		eventID,
+		profileID,
+	).Scan(&createdAt); err != nil {
+		return time.Time{}, fmt.Errorf("insert participation log: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return time.Time{}, fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return createdAt, nil
 }
 
 // ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。

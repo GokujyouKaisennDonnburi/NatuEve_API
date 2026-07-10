@@ -514,6 +514,26 @@ definitions:
         example: 山田太郎
         type: string
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.LeaveEventResponse:
+    description: 参加キャンセルの結果。追記された参加状態ログ（action=leave）1件分の内容を返す。
+    properties:
+      action:
+        description: Action は参加状態ログのアクション。常に "leave"。
+        example: leave
+        type: string
+      createdAt:
+        description: CreatedAt は参加状態ログ（leave）の記録日時。
+        example: "2026-07-01T12:00:00Z"
+        type: string
+      eventId:
+        description: EventID はキャンセルしたイベントのUUID。
+        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        type: string
+      profileId:
+        description: ProfileID はキャンセルしたユーザーのUUID。leave は認証必須のため常に値が入る。
+        example: b2c3d4e5-f6a7-8901-bcde-f23456789012
+        type: string
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorBody:
     properties:
       code:
@@ -1071,6 +1091,47 @@ paths:
       security:
       - BearerAuth: []
       summary: イベント参加
+      tags:
+      - event
+  /api/v1/events/{id}/leave:
+    post:
+      description: |-
+        認証必須。ログイン参加者が自身の参加を取り消す。
+        参加行を削除し、参加状態ログへ action=leave を1件追記する。
+        匿名参加（profileId=null）は本 API の対象外。
+        そのイベントに参加していない場合は 404 not_found を返す。
+      parameters:
+      - description: イベントID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.LeaveEventResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
+        "404":
+          description: 'not_found: イベント不存在 または 未参加'
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: イベント参加キャンセル
       tags:
       - event
   /api/v1/events/{id}/members:

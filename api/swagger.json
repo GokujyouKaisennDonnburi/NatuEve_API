@@ -321,6 +321,64 @@
                 }
             }
         },
+        "/api/v1/events/{id}/leave": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "認証必須。ログイン参加者が自身の参加を取り消す。\n参加行を削除し、参加状態ログへ action=leave を1件追記する。\n匿名参加（profileId=null）は本 API の対象外。\nそのイベントに参加していない場合は 404 not_found を返す。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event"
+                ],
+                "summary": "イベント参加キャンセル",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "イベントID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.LeaveEventResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "not_found: イベント不存在 または 未参加",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/events/{id}/members": {
             "get": {
                 "security": [
@@ -1665,6 +1723,32 @@
                     "description": "Username は参加するユーザーの表示名。",
                     "type": "string",
                     "example": "山田太郎"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.LeaveEventResponse": {
+            "description": "参加キャンセルの結果。追記された参加状態ログ（action=leave）1件分の内容を返す。",
+            "type": "object",
+            "properties": {
+                "action": {
+                    "description": "Action は参加状態ログのアクション。常に \"leave\"。",
+                    "type": "string",
+                    "example": "leave"
+                },
+                "createdAt": {
+                    "description": "CreatedAt は参加状態ログ（leave）の記録日時。",
+                    "type": "string",
+                    "example": "2026-07-01T12:00:00Z"
+                },
+                "eventId": {
+                    "description": "EventID はキャンセルしたイベントのUUID。",
+                    "type": "string",
+                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                },
+                "profileId": {
+                    "description": "ProfileID はキャンセルしたユーザーのUUID。leave は認証必須のため常に値が入る。",
+                    "type": "string",
+                    "example": "b2c3d4e5-f6a7-8901-bcde-f23456789012"
                 }
             }
         },
