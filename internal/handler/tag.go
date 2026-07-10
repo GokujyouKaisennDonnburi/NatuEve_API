@@ -54,9 +54,11 @@ func (h *TagHandler) List(c *gin.Context) {
 // @Tags tag
 // @Accept json
 // @Produce json
+// @Security BearerAuth
 // @Param request body model.CreateTagRequest true "タグ作成"
 // @Success 201 {object} model.TagResponse
 // @Failure 400 {object} model.ErrorResponse "入力エラー"
+// @Failure 401 {object} model.UnauthorizedErrorResponse "未認証"
 // @Failure 409 {object} model.ErrorResponse "タグ重複"
 // @Failure 500 {object} model.InternalErrorResponse "サーバーエラー"
 // @Router /api/v1/tags [post]
