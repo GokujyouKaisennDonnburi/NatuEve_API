@@ -418,7 +418,10 @@ func (r *eventPostgres) Create(ctx context.Context, e *model.NewEvent) (model.Cr
 		}
 	}
 
-	// event_tags テーブルへ INSERT する。既に紐づいている組み合わせは無視する。
+	// event_tags テーブルへ INSERT する。
+	// ON CONFLICT DO NOTHING は防御的措置。create パスでは event を直前に新規 INSERT しており、
+	// TagIDs は service 層で正準形へ正規化・重複除去済みのため PK 衝突は通常起きないが、
+	// 想定外の重複でトランザクション全体を巻き戻さないための保険として付ける。
 	const insertTag = `
 		INSERT INTO event_tags (event_id, tag_id)
 		VALUES ($1, $2)
@@ -426,9 +429,11 @@ func (r *eventPostgres) Create(ctx context.Context, e *model.NewEvent) (model.Cr
 
 	for _, tagID := range e.TagIDs {
 		if _, err := tx.ExecContext(ctx, insertTag, resp.ID, tagID); err != nil {
-			// FK 違反(23503)は存在しないタグID → ErrTagNotFound
+			// tag_id の FK 違反(23503)は存在しないタグID → ErrTagNotFound。
+			// event_id は直前に INSERT 済みのため、ここで失敗し得る FK は tag_id 側のみ。
+			// 将来 FK が増えても誤検知しないよう制約名(event_tags_tag_id_fkey)で識別する。
 			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+			if errors.As(err, &pgErr) && pgErr.Code == "23503" && pgErr.ConstraintName == "event_tags_tag_id_fkey" {
 				return model.CreateEventResponse{}, fmt.Errorf("insert event tag %s: %w", tagID, ErrTagNotFound)
 			}
 			return model.CreateEventResponse{}, fmt.Errorf("insert event tag: %w", err)

@@ -420,9 +420,13 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:       "異常: repository が ErrTagNotFound を返す",
-			req:        validRequest(),
-			stubErr:    fmt.Errorf("insert event tag %s: %w", "tag-id", repository.ErrTagNotFound),
+			name: "異常: repository が ErrTagNotFound を返す",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.TagIDs = []string{"a1b2c3d4-e5f6-7890-abcd-ef1234567890"}
+				return r
+			}(),
+			stubErr:    fmt.Errorf("insert event tag %s: %w", "a1b2c3d4-e5f6-7890-abcd-ef1234567890", repository.ErrTagNotFound),
 			wantValErr: true,
 		},
 	}
