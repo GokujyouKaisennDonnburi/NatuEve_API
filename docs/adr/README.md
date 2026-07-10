@@ -28,3 +28,4 @@
 | [0010](./0010-uuid-parse-in-handler-layer.md) | UUID パースは handler 層に集約し、service 層は uuid.UUID を受け取る | Accepted |
 | [0011](./0011-event-leave-authenticated-only.md) | イベント参加キャンセルはログイン参加者に限定する | Accepted |
 | [0012](./0012-event-cancellation.md) | イベントキャンセル（開催取りやめ）の状態管理と API 設計 | Accepted |
+| [0013](./0013-event-tag-association-on-create.md) | イベント投稿時のタグ紐づけ設計 | Accepted |
