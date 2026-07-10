@@ -149,6 +149,32 @@ definitions:
         example: report_1234567890
         type: string
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateTagRequest:
+    properties:
+      name:
+        description: Name はタグ名。
+        example: 外来生物
+        maxLength: 30
+        type: string
+    required:
+    - name
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorBody:
+    properties:
+      code:
+        description: Code は機械可読なエラーコード。
+        example: internal_error
+        type: string
+      message:
+        description: Message は人間向けのエラーメッセージ。
+        example: サーバー内部でエラーが発生しました
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorBody'
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCostInput:
     properties:
       category:
@@ -1352,6 +1378,39 @@ paths:
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
       summary: タグ一覧取得
+      tags:
+      - tag
+    post:
+      consumes:
+      - application/json
+      description: 新しいタグを登録する。
+      parameters:
+      - description: タグ作成
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateTagRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagResponse'
+        "400":
+          description: 入力エラー
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse'
+        "409":
+          description: タグ重複
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse'
+        "500":
+          description: サーバーエラー
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      summary: タグ作成
       tags:
       - tag
   /api/v1/uploads/presign:
