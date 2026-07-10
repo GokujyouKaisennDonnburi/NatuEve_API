@@ -140,7 +140,7 @@ const docTemplate = `{
         },
         "/api/v1/events/{id}": {
             "get": {
-                "description": "指定されたイベントIDの詳細情報を取得する",
+                "description": "指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。",
                 "produces": [
                     "application/json"
                 ],
@@ -168,6 +168,67 @@ const docTemplate = `{
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/events/{id}/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "イベント主催者がイベントを開催取りやめにする。主催者のみ実行可能。\n既にキャンセル済みの場合も冪等に成功する。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event"
+                ],
+                "summary": "イベントの取りやめ（キャンセル）",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "イベントID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse"
                         }
                     },
                     "500": {
@@ -920,6 +981,21 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventResponse": {
+            "type": "object",
+            "properties": {
+                "cancelledAt": {
+                    "description": "CancelledAt はキャンセル日時(RFC3339)。",
+                    "type": "string",
+                    "example": "2026-06-25T10:00:00Z"
+                },
+                "id": {
+                    "description": "ID はキャンセルしたイベントの UUID。",
+                    "type": "string",
+                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                }
+            }
+        },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest": {
             "description": "イベント投稿に必要な情報。",
             "type": "object",
@@ -1293,6 +1369,10 @@ const docTemplate = `{
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventResponse": {
             "type": "object",
             "properties": {
+                "cancelledAt": {
+                    "description": "CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。",
+                    "type": "string"
+                },
                 "capacity": {
                     "type": "integer"
                 },
@@ -1380,6 +1460,11 @@ const docTemplate = `{
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventSummary": {
             "type": "object",
             "properties": {
+                "cancelledAt": {
+                    "description": "CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。",
+                    "type": "string",
+                    "example": "2026-06-25T10:00:00Z"
+                },
                 "createdAt": {
                     "description": "CreatedAt はレコード作成日時(RFC3339)。",
                     "type": "string",
