@@ -457,7 +457,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証必須。ログインユーザーの参加状態(join/leave)を追記ログとして記録する。状態検証はせず追記のみ。",
+                "description": "イベント参加/キャンセルは別APIへ移行したため、本エンドポイントは現在無効。\n呼び出すと 410 Gone を返す。実装はサーバ内に温存しており、将来再有効化する可能性がある。",
                 "consumes": [
                     "application/json"
                 ],
@@ -467,7 +467,8 @@
                 "tags": [
                     "event"
                 ],
-                "summary": "イベント参加状態ログ追加",
+                "summary": "イベント参加状態ログ追加（廃止予定・現在無効）",
+                "deprecated": true,
                 "parameters": [
                     {
                         "type": "string",
@@ -487,40 +488,10 @@
                     }
                 ],
                 "responses": {
-                    "201": {
-                        "description": "Created",
+                    "410": {
+                        "description": "Gone",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipationLogResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
-                        }
-                    },
-                    "404": {
-                        "description": "Not Found",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
-                        }
-                    },
-                    "413": {
-                        "description": "Request Entity Too Large",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.GoneErrorResponse"
                         }
                     }
                 }
@@ -1378,6 +1349,29 @@
                 }
             }
         },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.GoneErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は機械可読なエラーコード。",
+                    "type": "string",
+                    "example": "gone"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "このエンドポイントは現在無効です。イベント参加/キャンセルは別APIを利用してください"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.GoneErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.GoneErrorBody"
+                }
+            }
+        },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.HealthResponse": {
             "type": "object",
             "properties": {
@@ -1522,36 +1516,6 @@
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorBody"
-                }
-            }
-        },
-        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipationLogResponse": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "description": "Action は記録した参加状態。",
-                    "type": "string",
-                    "example": "join"
-                },
-                "createdAt": {
-                    "description": "CreatedAt は記録日時。",
-                    "type": "string",
-                    "example": "2026-07-01T12:00:00Z"
-                },
-                "eventId": {
-                    "description": "EventID は対象イベントのUUID。",
-                    "type": "string",
-                    "example": "b2c3d4e5-f6a7-8901-bcde-f23456789012"
-                },
-                "id": {
-                    "description": "ID は作成された参加状態ログのUUID。",
-                    "type": "string",
-                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-                },
-                "profileId": {
-                    "description": "ProfileID は記録したユーザーのUUID。",
-                    "type": "string",
-                    "example": "c3d4e5f6-a7b8-9012-cdef-345678901234"
                 }
             }
         },

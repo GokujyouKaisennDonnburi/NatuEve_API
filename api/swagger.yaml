@@ -358,6 +358,22 @@ definitions:
       error:
         $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorBody'
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.GoneErrorBody:
+    properties:
+      code:
+        description: Code は機械可読なエラーコード。
+        example: gone
+        type: string
+      message:
+        description: Message は人間向けのエラーメッセージ。
+        example: このエンドポイントは現在無効です。イベント参加/キャンセルは別APIを利用してください
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.GoneErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.GoneErrorBody'
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.HealthResponse:
     properties:
       status:
@@ -469,29 +485,6 @@ definitions:
     properties:
       error:
         $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorBody'
-    type: object
-  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipationLogResponse:
-    properties:
-      action:
-        description: Action は記録した参加状態。
-        example: join
-        type: string
-      createdAt:
-        description: CreatedAt は記録日時。
-        example: "2026-07-01T12:00:00Z"
-        type: string
-      eventId:
-        description: EventID は対象イベントのUUID。
-        example: b2c3d4e5-f6a7-8901-bcde-f23456789012
-        type: string
-      id:
-        description: ID は作成された参加状態ログのUUID。
-        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
-        type: string
-      profileId:
-        description: ProfileID は記録したユーザーのUUID。
-        example: c3d4e5f6-a7b8-9012-cdef-345678901234
-        type: string
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipationStatusResponse:
     description: 認証ユーザー自身の最新の参加状態。履歴が1件もない場合は action=null, participating=false, updatedAt=null。
@@ -1128,7 +1121,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: 認証必須。ログインユーザーの参加状態(join/leave)を追記ログとして記録する。状態検証はせず追記のみ。
+      deprecated: true
+      description: |-
+        イベント参加/キャンセルは別APIへ移行したため、本エンドポイントは現在無効。
+        呼び出すと 410 Gone を返す。実装はサーバ内に温存しており、将来再有効化する可能性がある。
       parameters:
       - description: イベントID
         in: path
@@ -1144,33 +1140,13 @@ paths:
       produces:
       - application/json
       responses:
-        "201":
-          description: Created
+        "410":
+          description: Gone
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipationLogResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
-        "404":
-          description: Not Found
-          schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
-        "413":
-          description: Request Entity Too Large
-          schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.GoneErrorResponse'
       security:
       - BearerAuth: []
-      summary: イベント参加状態ログ追加
+      summary: イベント参加状態ログ追加（廃止予定・現在無効）
       tags:
       - event
   /api/v1/events/{id}/report:
