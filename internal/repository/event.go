@@ -531,6 +531,7 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 	e.PdfObjectKeys = []string{}
 	e.ImageFilenames = []string{}
 	e.PdfFilenames = []string{}
+	e.Tags = []model.TagResponse{}
 
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&e.ID,
@@ -669,6 +670,30 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 		}
 		e.PdfObjectKeys = append(e.PdfObjectKeys, key)
 		e.PdfFilenames = append(e.PdfFilenames, filename)
+	}
+
+	// tags
+	const tagQuery = `
+		SELECT 	t.id, t.name
+		FROM 	event_tags et
+		JOIN 	tags t ON t.id = et.tag_id
+		WHERE 	et.event_id = $1
+		ORDER BY t.name ASC`
+
+	tagRows, err := r.db.QueryContext(ctx, tagQuery, id)
+	if err != nil {
+		return nil, fmt.Errorf("get tags: %w", err)
+	}
+	defer func() {
+		_ = tagRows.Close()
+	}()
+
+	for tagRows.Next() {
+		var tag model.TagResponse
+		if err := tagRows.Scan(&tag.ID, &tag.Name); err != nil {
+			return nil, fmt.Errorf("scan tag: %w", err)
+		}
+		e.Tags = append(e.Tags, tag)
 	}
 
 	return &e, nil
