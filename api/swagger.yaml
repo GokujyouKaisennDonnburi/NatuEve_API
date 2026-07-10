@@ -1498,6 +1498,10 @@ paths:
           description: 入力エラー
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ErrorResponse'
+        "401":
+          description: 未認証
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
         "409":
           description: タグ重複
           schema:
@@ -1506,6 +1510,8 @@ paths:
           description: サーバーエラー
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      security:
+      - BearerAuth: []
       summary: タグ作成
       tags:
       - tag
