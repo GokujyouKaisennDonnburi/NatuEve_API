@@ -7,6 +7,7 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 )
 
 // TagHandler はタグに関するHTTPハンドラを担当する。
@@ -65,11 +66,38 @@ func (h *TagHandler) Create(
 	var req model.CreateTagRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		var validationErrs validator.ValidationErrors
+
+		if errors.As(err, &validationErrs) {
+			for _, fieldErr := range validationErrs {
+				switch fieldErr.Tag() {
+				case "required":
+					c.JSON(
+						http.StatusBadRequest,
+						model.NewErrorResponse(
+							"invalid_request",
+							"タグ名を入力してください",
+						),
+					)
+					return
+
+				case "max":
+					c.JSON(
+						http.StatusBadRequest,
+						model.NewErrorResponse(
+							"invalid_request",
+							"タグ名は30文字以内で入力してください",
+						),
+					)
+					return
+				}
+			}
+		}
 		c.JSON(
 			http.StatusBadRequest,
 			model.NewErrorResponse(
 				"invalid_request",
-				"タグ名を入力してください",
+				"入力内容が不正です",
 			),
 		)
 		return
