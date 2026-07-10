@@ -613,7 +613,6 @@ func TestEventCommandServiceCreate_StoreNilWithKeys(t *testing.T) {
 	_ = assertValidationError(t, err)
 }
 
-// assertForbiddenError はテストヘルパー: err が *ForbiddenError であることを確認する。
 func TestEventCommandServiceCancel(t *testing.T) {
 	eventUID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 	ownerUID := uuid.MustParse("b2c3d4e5-f6a8-8901-bcde-f23456789013")
@@ -632,13 +631,6 @@ func TestEventCommandServiceCancel(t *testing.T) {
 	}{
 		{
 			name:            "正常: 主催者がキャンセル",
-			profileID:       ownerUID.String(),
-			eventID:         eventUID.String(),
-			repo:            &stubEventRepository{ownerProfileID: ownerUID.String(), cancelResult: cancelledAt},
-			wantCancelledAt: cancelledAt,
-		},
-		{
-			name:            "正常: 既にキャンセル済みでも冪等に成功",
 			profileID:       ownerUID.String(),
 			eventID:         eventUID.String(),
 			repo:            &stubEventRepository{ownerProfileID: ownerUID.String(), cancelResult: cancelledAt},
