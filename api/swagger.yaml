@@ -1,5 +1,16 @@
 basePath: /
 definitions:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventResponse:
+    properties:
+      cancelledAt:
+        description: CancelledAt はキャンセル日時(RFC3339)。
+        example: "2026-06-25T10:00:00Z"
+        type: string
+      id:
+        description: ID はキャンセルしたイベントの UUID。
+        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        type: string
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest:
     description: イベント投稿に必要な情報。
     properties:
@@ -276,6 +287,9 @@ definitions:
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventResponse:
     properties:
+      cancelledAt:
+        description: CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。
+        type: string
       capacity:
         type: integer
       costs:
@@ -339,6 +353,10 @@ definitions:
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventSummary:
     properties:
+      cancelledAt:
+        description: CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。
+        example: "2026-06-25T10:00:00Z"
+        type: string
       createdAt:
         description: CreatedAt はレコード作成日時(RFC3339)。
         example: "2026-06-22T12:00:00Z"
@@ -946,7 +964,7 @@ paths:
       - event
   /api/v1/events/{id}:
     get:
-      description: 指定されたイベントIDの詳細情報を取得する
+      description: 指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。
       parameters:
       - description: イベントID
         in: path
@@ -969,6 +987,47 @@ paths:
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
       summary: イベント詳細取得
+      tags:
+      - event
+  /api/v1/events/{id}/cancel:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        イベント主催者がイベントを開催取りやめにする。主催者のみ実行可能。
+        既にキャンセル済みの場合も冪等に成功する。
+      parameters:
+      - description: イベントID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: イベントの取りやめ（キャンセル）
       tags:
       - event
   /api/v1/events/{id}/join:

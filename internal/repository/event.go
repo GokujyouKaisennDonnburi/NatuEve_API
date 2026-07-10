@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"golang.org/x/text/unicode/norm"
@@ -56,6 +57,10 @@ type EventRepository interface {
 	// 存在しない場合は (false, nil)、それ以外のエラーは %w でラップして返す。
 	// eventID はパース済みの uuid.UUID を受け取り、正規化文字列でクエリする。
 	Exists(ctx context.Context, eventID uuid.UUID) (bool, error)
+	// Cancel は指定したイベントを取りやめ状態にする。
+	// 既にキャンセル済みの場合も冪等に成功する。
+	// イベントが存在しない場合は ErrEventNotFound を %w でラップして返す。
+	Cancel(ctx context.Context, eventID uuid.UUID) (cancelledAt time.Time, err error)
 }
 
 // eventPostgres は EventRepository の PostgreSQL 実装。
@@ -72,28 +77,28 @@ func NewEventRepository(db *sql.DB) EventRepository {
 // ユーザー入力を直接 SQL に埋め込まず、ホワイトリストから固定文字列を選ぶ。
 var listSummariesQueries = map[string]string{
 	"event_date:asc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
 		       p.id, p.display_name, p.avatar_url
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
 		ORDER BY e.event_date ASC, e.id
 		LIMIT $1 OFFSET $2`,
 	"event_date:desc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
 		       p.id, p.display_name, p.avatar_url
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
 		ORDER BY e.event_date DESC, e.id
 		LIMIT $1 OFFSET $2`,
 	"created_at:asc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
 		       p.id, p.display_name, p.avatar_url
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
 		ORDER BY e.created_at ASC, e.id
 		LIMIT $1 OFFSET $2`,
 	"created_at:desc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
 		       p.id, p.display_name, p.avatar_url
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
@@ -124,6 +129,7 @@ func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, l
 		var (
 			location    sql.NullString
 			profileID   sql.NullString
+			cancelledAt sql.NullTime
 			pID         sql.NullString
 			displayName sql.NullString
 			avatarURL   sql.NullString
@@ -134,6 +140,7 @@ func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, l
 			&s.EventDate,
 			&location,
 			&profileID,
+			&cancelledAt,
 			&s.CreatedAt,
 			&pID,
 			&displayName,
@@ -143,6 +150,9 @@ func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, l
 		}
 		s.Location = location.String
 		s.ProfileID = profileID.String
+		if cancelledAt.Valid {
+			s.CancelledAt = &cancelledAt.Time
+		}
 		s.Profile = model.ProfileSummary{
 			ID:          pID.String,
 			DisplayName: displayName.String,
@@ -247,7 +257,7 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, 
 	// 一切文字列連結せず args 経由でのみ渡すため SQL インジェクションは発生しない。
 	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
 	query := fmt.Sprintf(`
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.created_at,
+		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
 		       p.id, p.display_name, p.avatar_url
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
@@ -268,6 +278,7 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, 
 		var (
 			location    sql.NullString
 			profileID   sql.NullString
+			cancelledAt sql.NullTime
 			pID         sql.NullString
 			displayName sql.NullString
 			avatarURL   sql.NullString
@@ -278,6 +289,7 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, 
 			&s.EventDate,
 			&location,
 			&profileID,
+			&cancelledAt,
 			&s.CreatedAt,
 			&pID,
 			&displayName,
@@ -287,6 +299,9 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, 
 		}
 		s.Location = location.String
 		s.ProfileID = profileID.String
+		if cancelledAt.Valid {
+			s.CancelledAt = &cancelledAt.Time
+		}
 		s.Profile = model.ProfileSummary{
 			ID:          pID.String,
 			DisplayName: displayName.String,
@@ -439,10 +454,31 @@ func (r *eventPostgres) Exists(ctx context.Context, eventID uuid.UUID) (bool, er
 	return true, nil
 }
 
+// Cancel は指定したイベントを取りやめ状態にする。
+// 既にキャンセル済みの場合も冪等に成功する。
+// イベントが存在しない場合は ErrEventNotFound を %w でラップして返す。
+func (r *eventPostgres) Cancel(ctx context.Context, eventID uuid.UUID) (time.Time, error) {
+	const query = `
+		UPDATE events
+		SET cancelled_at = COALESCE(cancelled_at, now()),
+		    updated_at = now()
+		WHERE id = $1
+		RETURNING cancelled_at`
+
+	var cancelledAt time.Time
+	if err := r.db.QueryRowContext(ctx, query, eventID.String()).Scan(&cancelledAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+		}
+		return time.Time{}, fmt.Errorf("cancel event: %w", err)
+	}
+	return cancelledAt, nil
+}
+
 func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventResponse, error) {
 	const query = `
 		SELECT		e.id, e.title, e.description, e.location, e.event_date,
-					e.capacity, e.external_url, e.created_at, e.updated_at,
+					e.capacity, e.external_url, e.cancelled_at, e.created_at, e.updated_at,
 					p.id, p.display_name, p.avatar_url
 		FROM 		events e
 		LEFT JOIN  	profiles p ON p.id = e.profile_id
@@ -457,6 +493,7 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 		externalURL  sql.NullString
 		avatarURL    sql.NullString
 		capacityNull sql.NullInt32
+		cancelledAt  sql.NullTime
 		pID          sql.NullString
 		displayName  sql.NullString
 	)
@@ -477,6 +514,7 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 		&e.EventDate,
 		&capacityNull,
 		&externalURL,
+		&cancelledAt,
 		&e.CreatedAt,
 		&e.UpdatedAt,
 		&pID,
@@ -503,6 +541,9 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 	}
 	if capacityNull.Valid {
 		e.Capacity = int(capacityNull.Int32)
+	}
+	if cancelledAt.Valid {
+		e.CancelledAt = &cancelledAt.Time
 	}
 	if pID.Valid {
 		p.ID = pID.String

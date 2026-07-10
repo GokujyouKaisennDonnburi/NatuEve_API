@@ -27,3 +27,4 @@
 | [0009](./0009-participation-log-event-not-found-status.md) | 参加状態ログ追加のイベント不存在は 404 で返す | Accepted |
 | [0010](./0010-uuid-parse-in-handler-layer.md) | UUID パースは handler 層に集約し、service 層は uuid.UUID を受け取る | Accepted |
 | [0011](./0011-event-leave-authenticated-only.md) | イベント参加キャンセルはログイン参加者に限定する | Accepted |
+| [0012](./0012-event-cancellation.md) | イベントキャンセル（開催取りやめ）の状態管理と API 設計 | Accepted |

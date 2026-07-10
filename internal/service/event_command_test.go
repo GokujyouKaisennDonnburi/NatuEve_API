@@ -3,13 +3,17 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
 // assertNoErr はテストヘルパー: エラーが nil でなければ fatal する。
@@ -607,4 +611,88 @@ func TestEventCommandServiceCreate_StoreNilWithKeys(t *testing.T) {
 
 	_, err := svc.Create(context.Background(), testProfileID, req)
 	_ = assertValidationError(t, err)
+}
+
+func TestEventCommandServiceCancel(t *testing.T) {
+	eventUID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	ownerUID := uuid.MustParse("b2c3d4e5-f6a8-8901-bcde-f23456789013")
+	otherUID := uuid.MustParse("c3d4e5f6-a7b8-9012-cdef-345678901234")
+	cancelledAt := time.Date(2026, 6, 25, 10, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name             string
+		profileID        string
+		eventID          string
+		repo             *stubEventRepository
+		wantForbiddenErr bool
+		wantValErr       bool
+		wantErr          bool
+		wantCancelledAt  time.Time
+	}{
+		{
+			name:            "正常: 主催者がキャンセル",
+			profileID:       ownerUID.String(),
+			eventID:         eventUID.String(),
+			repo:            &stubEventRepository{ownerProfileID: ownerUID.String(), cancelResult: cancelledAt},
+			wantCancelledAt: cancelledAt,
+		},
+		{
+			name:             "異常: 主催者以外 → ForbiddenError",
+			profileID:        otherUID.String(),
+			eventID:          eventUID.String(),
+			repo:             &stubEventRepository{ownerProfileID: ownerUID.String()},
+			wantForbiddenErr: true,
+		},
+		{
+			name:       "異常: eventID が不正な形式 → ValidationError",
+			profileID:  ownerUID.String(),
+			eventID:    "not-a-uuid",
+			repo:       &stubEventRepository{ownerProfileID: ownerUID.String()},
+			wantValErr: true,
+		},
+		{
+			name:       "異常: イベントが存在しない → ValidationError",
+			profileID:  ownerUID.String(),
+			eventID:    eventUID.String(),
+			repo:       &stubEventRepository{ownerProfileIDErr: fmt.Errorf("event %s: %w", eventUID, repository.ErrEventNotFound)},
+			wantValErr: true,
+		},
+		{
+			name:      "異常: repo.Cancel が想定外のエラー → エラー伝播",
+			profileID: ownerUID.String(),
+			eventID:   eventUID.String(),
+			repo:      &stubEventRepository{ownerProfileID: ownerUID.String(), cancelErr: errors.New("db error")},
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewEventCommandService(tt.repo, nil)
+
+			resp, err := svc.Cancel(context.Background(), tt.profileID, tt.eventID)
+
+			switch {
+			case tt.wantForbiddenErr:
+				_ = assertForbiddenError(t, err)
+				return
+			case tt.wantValErr:
+				_ = assertValidationError(t, err)
+				return
+			case tt.wantErr:
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				return
+			}
+
+			assertNoErr(t, err)
+			if resp.ID != tt.eventID {
+				t.Errorf("ID: got %q, want %q", resp.ID, tt.eventID)
+			}
+			if !resp.CancelledAt.Equal(tt.wantCancelledAt) {
+				t.Errorf("CancelledAt: got %v, want %v", resp.CancelledAt, tt.wantCancelledAt)
+			}
+		})
+	}
 }

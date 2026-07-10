@@ -88,6 +88,8 @@ type EventSummary struct {
 	Location string `json:"location" example:"東京都新宿御苑"`
 	// EventDate はイベント開催日時(RFC3339)。
 	EventDate time.Time `json:"eventDate" example:"2026-07-01T10:00:00Z"`
+	// CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。
+	CancelledAt *time.Time `json:"cancelledAt,omitempty" example:"2026-06-25T10:00:00Z"`
 	// CreatedAt はレコード作成日時(RFC3339)。
 	CreatedAt time.Time `json:"createdAt" example:"2026-06-22T12:00:00Z"`
 	// ProfileSummary は投稿者プロフィールのサマリー情報。
@@ -134,6 +136,8 @@ type EventResponse struct {
 	PdfUrls   []string  `json:"pdfUrls"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。
+	CancelledAt *time.Time `json:"cancelledAt,omitempty"`
 }
 
 // EventCostResponse はイベント費用のレスポンス DTO。
@@ -146,4 +150,12 @@ type EventCostResponse struct {
 type EventItemResponse struct {
 	Item       string `json:"item"`
 	IsRequired bool   `json:"isRequired"`
+}
+
+// CancelEventResponse はイベントキャンセルエンドポイントのレスポンス DTO。
+type CancelEventResponse struct {
+	// ID はキャンセルしたイベントの UUID。
+	ID string `json:"id" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	// CancelledAt はキャンセル日時(RFC3339)。
+	CancelledAt time.Time `json:"cancelledAt" example:"2026-06-25T10:00:00Z"`
 }

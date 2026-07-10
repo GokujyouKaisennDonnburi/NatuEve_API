@@ -84,6 +84,8 @@ func (s *EventJoinService) Join(
 			return model.JoinEventResponse{}, &ConflictError{Code: "already_joined", Message: "既に参加しています"}
 		case errors.Is(err, repository.ErrEventCapacityFull):
 			return model.JoinEventResponse{}, &ConflictError{Code: "capacity_full", Message: "定員に達しています"}
+		case errors.Is(err, repository.ErrEventCancelled):
+			return model.JoinEventResponse{}, &ConflictError{Code: "event_cancelled", Message: "このイベントはキャンセルされているため参加できません"}
 		}
 		return model.JoinEventResponse{}, fmt.Errorf("join event: %w", err)
 	}

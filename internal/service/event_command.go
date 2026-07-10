@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -48,6 +49,30 @@ type EventCommandService struct {
 // store は nil でも可（未設定時はキーあり → ValidationError）。
 func NewEventCommandService(repo repository.EventRepository, store ObjectStore) *EventCommandService {
 	return &EventCommandService{repo: repo, store: store}
+}
+
+// Cancel はイベント主催者がイベントを取りやめ状態にする。
+//
+// 認可エラーは *ForbiddenError、イベントID不正/不存在は *ValidationError として返す。
+// 既にキャンセル済みの場合も冪等に成功する（cancelled_at を返す）。
+func (s *EventCommandService) Cancel(ctx context.Context, profileID, eventID string) (model.CancelEventResponse, error) {
+	parsedEventID, err := requireEventOwner(ctx, s.repo, profileID, eventID)
+	if err != nil {
+		return model.CancelEventResponse{}, err
+	}
+
+	cancelledAt, err := s.repo.Cancel(ctx, parsedEventID)
+	if err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return model.CancelEventResponse{}, &ValidationError{Message: "指定されたイベントが存在しません"}
+		}
+		return model.CancelEventResponse{}, fmt.Errorf("cancel event: %w", err)
+	}
+
+	return model.CancelEventResponse{
+		ID:          parsedEventID.String(),
+		CancelledAt: cancelledAt,
+	}, nil
 }
 
 // Create は検証・整形・キー昇格を行ったうえでイベントを登録し、レスポンスを返す。
