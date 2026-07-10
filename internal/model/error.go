@@ -113,6 +113,19 @@ type JoinConflictErrorBody struct {
 	Message string `json:"message" example:"既に参加しています"`
 }
 
+// GoneErrorResponse は廃止済み・無効化エンドポイントのエラー(HTTP 410)のドキュメント用レスポンス型。
+type GoneErrorResponse struct {
+	Error GoneErrorBody `json:"error"`
+}
+
+// GoneErrorBody は GoneErrorResponse のエラー本体。
+type GoneErrorBody struct {
+	// Code は機械可読なエラーコード。
+	Code string `json:"code" example:"gone"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"このエンドポイントは現在無効です。イベント参加/キャンセルは別APIを利用してください"`
+}
+
 // RequestTooLargeErrorResponse はリクエストボディ超過エラー(HTTP 413)のドキュメント用レスポンス型。
 type RequestTooLargeErrorResponse struct {
 	Error RequestTooLargeErrorBody `json:"error"`

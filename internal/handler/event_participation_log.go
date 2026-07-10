@@ -94,24 +94,36 @@ func (h *EventParticipationLogHandler) GetLatestStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// Create はイベント参加状態ログ追加 API。
+// participationLogCreateEnabled は本エンドポイントの有効/無効を切り替えるフラグ。
+// イベント参加/キャンセルは別APIへ移行したため現在は false（呼び出すと 410 を返す）。
+// 実装は将来の再有効化に備え、以降のコードとして温存する。const ではなく var なのは、
+// const true にすると無効時に本体が到達不能コードになり govet(unreachable) で lint が落ちるため。
+var participationLogCreateEnabled = false
+
+// Create はイベント参加状態ログ追加 API（現在は無効）。
 //
-//	@Summary		イベント参加状態ログ追加
-//	@Description	認証必須。ログインユーザーの参加状態(join/leave)を追記ログとして記録する。状態検証はせず追記のみ。
+//	@Summary		イベント参加状態ログ追加（廃止予定・現在無効）
+//	@Description	イベント参加/キャンセルは別APIへ移行したため、本エンドポイントは現在無効。
+//	@Description	呼び出すと 410 Gone を返す。実装はサーバ内に温存しており、将来再有効化する可能性がある。
 //	@Tags			event
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			id		path		string								true	"イベントID"
-//	@Param			body	body		model.CreateParticipationLogRequest	true	"参加状態"
-//	@Success		201		{object}	model.ParticipationLogResponse
-//	@Failure		400		{object}	model.ValidationErrorResponse
-//	@Failure		401		{object}	model.UnauthorizedErrorResponse
-//	@Failure		404		{object}	model.NotFoundErrorResponse
-//	@Failure		413		{object}	model.RequestTooLargeErrorResponse
-//	@Failure		500		{object}	model.InternalErrorResponse
+//	@Deprecated
+//	@Param			id		path	string								true	"イベントID"
+//	@Param			body	body	model.CreateParticipationLogRequest	true	"参加状態"
+//	@Failure		410		{object}	model.GoneErrorResponse
 //	@Router			/api/v1/events/{id}/participation-logs [post]
 func (h *EventParticipationLogHandler) Create(c *gin.Context) {
+	// イベント参加/キャンセルは別APIへ移行したため、本エンドポイントは現在無効。
+	// 以降の実装は温存するが、フラグが false の間は 410 Gone を返して即時 return する。
+	if !participationLogCreateEnabled {
+		c.JSON(
+			http.StatusGone,
+			model.NewErrorResponse("gone", "このエンドポイントは現在無効です。イベント参加/キャンセルは別APIを利用してください"),
+		)
+		return
+	}
 
 	// パスパラメータからイベントID取得
 	eventID, err := uuid.Parse(c.Param("id"))
