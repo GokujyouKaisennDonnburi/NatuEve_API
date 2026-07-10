@@ -47,6 +47,9 @@ type stubEventRepository struct {
 	// Exists 用: 返却値。
 	exists    bool
 	existsErr error
+	// Cancel 用: 返却値・エラー。
+	cancelResult time.Time
+	cancelErr    error
 }
 
 func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
@@ -90,6 +93,10 @@ func (s *stubEventRepository) GetByID(_ context.Context, _ string) (*model.Event
 
 func (s *stubEventRepository) Exists(_ context.Context, _ uuid.UUID) (bool, error) {
 	return s.exists, s.existsErr
+}
+
+func (s *stubEventRepository) Cancel(_ context.Context, _ uuid.UUID) (time.Time, error) {
+	return s.cancelResult, s.cancelErr
 }
 
 // makeHelper はテストヘルパー共通処理を担う。

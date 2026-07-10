@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -127,6 +128,60 @@ func (h *EventHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, resp)
 }
 
+// Cancel godoc
+//
+//	@Summary		イベントの取りやめ（キャンセル）
+//	@Description	イベント主催者がイベントを開催取りやめにする。主催者のみ実行可能。
+//	@Description	既にキャンセル済みの場合も冪等に成功する。
+//	@Tags			event
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			id	path	string	true	"イベントID"
+//	@Success		200	{object}	model.CancelEventResponse
+//	@Failure		400	{object}	model.ValidationErrorResponse
+//	@Failure		401	{object}	model.UnauthorizedErrorResponse
+//	@Failure		403	{object}	model.ForbiddenErrorResponse
+//	@Failure		500	{object}	model.InternalErrorResponse
+//	@Router			/api/v1/events/{id}/cancel [post]
+func (h *EventHandler) Cancel(c *gin.Context) {
+	authUser, ok := middleware.AuthFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, model.NewErrorResponse("unauthorized", "認証が必要です"))
+		return
+	}
+
+	eventID := c.Param("id")
+	if eventID == "" {
+		c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", "id is required"))
+		return
+	}
+
+	resp, err := h.cmdSvc.Cancel(c.Request.Context(), authUser.ID, eventID)
+	if err != nil {
+		var ve *service.ValidationError
+		if errors.As(err, &ve) {
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			return
+		}
+
+		var fe *service.ForbiddenError
+		if errors.As(err, &fe) {
+			c.JSON(http.StatusForbidden, model.NewErrorResponse("forbidden", fe.Message))
+			return
+		}
+
+		slog.Error("イベントのキャンセルに失敗しました",
+			slog.String("event_id", eventID),
+			slog.Any("error", err),
+		)
+		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "イベントのキャンセルに失敗しました"))
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
 // queryInt はクエリパラメータを int に変換する。変換できない場合は defaultVal を返す。
 func queryInt(c *gin.Context, key string, defaultVal int) int {
 	raw := c.Query(key)
@@ -143,7 +198,7 @@ func queryInt(c *gin.Context, key string, defaultVal int) int {
 // GetByID godoc
 //
 //	@Summary		イベント詳細取得
-//	@Description	指定されたイベントIDの詳細情報を取得する
+//	@Description	指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。
 //	@Tags			event
 //	@Produce		json
 //	@Param			id	path	string	true	"イベントID"

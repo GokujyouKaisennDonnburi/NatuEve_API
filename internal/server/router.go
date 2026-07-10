@@ -149,6 +149,7 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) error {
 	v1.POST("/tags", tagHandler.Create)
 
 	v1.GET("/events/:id/members", eventHandler.ListMembers)
+	v1.POST("/events/:id/cancel", eventHandler.Cancel)
 	v1.GET("/events/:id/participation-logs", eventParticipationLogHandler.GetLatestStatus)
 	v1.POST("/events/:id/participation-logs", eventParticipationLogHandler.Create)
 

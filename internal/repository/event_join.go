@@ -21,6 +21,9 @@ var ErrAlreadyJoined = errors.New("already joined")
 // ErrEventCapacityFull は定員超過で参加できない場合に返されるエラー。
 var ErrEventCapacityFull = errors.New("event capacity full")
 
+// ErrEventCancelled は参加対象のイベントが取りやめになっている場合に返されるエラー。
+var ErrEventCancelled = errors.New("event cancelled")
+
 // pgUniqueViolationCode は PostgreSQL の unique_violation エラーコード。
 const pgUniqueViolationCode = "23505"
 
@@ -72,22 +75,28 @@ func (r *eventJoinPostgres) Join(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// イベント行をロックして存在確認と定員取得を同時に行う。
+	// イベント行をロックして存在確認・キャンセル状態確認・定員取得を同時に行う。
 	// 同一イベントへの並行 join はこのロックで直列化される。
 	const lockEvent = `
-	SELECT capacity
+	SELECT capacity, cancelled_at
 	FROM events
 	WHERE id = $1
 	FOR UPDATE
 	`
 
-	var capacity sql.NullInt32
-	err = tx.QueryRowContext(ctx, lockEvent, member.EventID).Scan(&capacity)
+	var (
+		capacity    sql.NullInt32
+		cancelledAt sql.NullTime
+	)
+	err = tx.QueryRowContext(ctx, lockEvent, member.EventID).Scan(&capacity, &cancelledAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("event %s: %w", member.EventID, ErrEventNotFound)
 	}
 	if err != nil {
 		return fmt.Errorf("lock event: %w", err)
+	}
+	if cancelledAt.Valid {
+		return fmt.Errorf("event %s: %w", member.EventID, ErrEventCancelled)
 	}
 
 	// 重複確認（同一 mail_address またはログイン時は同一 profile_id）。

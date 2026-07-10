@@ -338,6 +338,14 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			wantConflictCode: "capacity_full",
 		},
 		{
+			name:             "異常: イベントがキャンセル済み（ConflictError）",
+			stub:             &stubEventJoinRepository{joinErr: repository.ErrEventCancelled},
+			profileID:        loggedInProfileID,
+			req:              validReq,
+			wantConflict:     true,
+			wantConflictCode: "event_cancelled",
+		},
+		{
 			name:      "異常: PartySizeが0",
 			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: loggedInProfileID,
