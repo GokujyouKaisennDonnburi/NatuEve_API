@@ -47,6 +47,8 @@ type CreateEventRequest struct {
 	ImageFilenames []string `json:"imageFilenames,omitempty" validate:"omitempty,dive,max=255"`
 	// PdfFilenames はPDFの元ファイル名一覧（任意）。指定時は PdfObjectKeys と同数・同順。
 	PdfFilenames []string `json:"pdfFilenames,omitempty" validate:"omitempty,dive,max=255"`
+	// TagIDs は紐づけるタグの UUID 一覧（任意）。
+	TagIDs []string `json:"tagIds,omitempty" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890" validate:"omitempty,dive"`
 }
 
 // NewEvent は検証済みのイベントドメイン型。repository 層に渡す。
@@ -66,6 +68,8 @@ type NewEvent struct {
 	ImageFilenames []string
 	// PdfFilenames は PdfObjectKeys と同順の元ファイル名（未指定は空文字）。
 	PdfFilenames []string
+	// TagIDs は紐づけるタグの UUID 一覧（trim・重複除去済み）。
+	TagIDs []string
 }
 
 // CreateEventResponse はイベント投稿エンドポイントのレスポンス DTO。

@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
@@ -120,6 +122,9 @@ func (s *EventCommandService) Create(ctx context.Context, profileID string, req 
 					slog.Warn("補償削除に失敗しました", slog.String("key", key), slog.Any("error", delErr))
 				}
 			}
+		}
+		if errors.Is(err, repository.ErrTagNotFound) {
+			return model.CreateEventResponse{}, &ValidationError{Message: "指定されたタグが存在しません"}
 		}
 		return model.CreateEventResponse{}, fmt.Errorf("create event: %w", err)
 	}
@@ -250,6 +255,17 @@ func validateCreateEventRequest(req model.CreateEventRequest) error {
 		return &ValidationError{Message: "PDFファイル名の数がPDFオブジェクトキーの数と一致しません"}
 	}
 
+	// TagIDs（任意）: 各要素は空文字不可（trim 後）・有効な UUID 形式であること。
+	for i, tagID := range req.TagIDs {
+		v := strings.TrimSpace(tagID)
+		if v == "" {
+			return &ValidationError{Message: fmt.Sprintf("タグID[%d]が空です", i)}
+		}
+		if _, err := uuid.Parse(v); err != nil {
+			return &ValidationError{Message: fmt.Sprintf("タグID[%d]の形式が不正です", i)}
+		}
+	}
+
 	return nil
 }
 
@@ -273,6 +289,9 @@ func buildNewEvent(profileID string, req model.CreateEventRequest) *model.NewEve
 		}
 	}
 
+	// TagIDs: trim した値で重複除去（順序保持）して詰め替える。
+	tagIDs := dedupeTagIDs(req.TagIDs)
+
 	// ImageObjectKeys / PdfObjectKeys は呼び出し元が昇格済みキーをセットするため空で初期化。
 	return &model.NewEvent{
 		ProfileID:       profileID,
@@ -286,5 +305,24 @@ func buildNewEvent(profileID string, req model.CreateEventRequest) *model.NewEve
 		Items:           items,
 		ImageObjectKeys: nil,
 		PdfObjectKeys:   nil,
+		TagIDs:          tagIDs,
 	}
+}
+
+// dedupeTagIDs は tagIDs の各要素を trim したうえで、順序を保持しつつ重複を除去する。
+func dedupeTagIDs(tagIDs []string) []string {
+	if len(tagIDs) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(tagIDs))
+	result := make([]string, 0, len(tagIDs))
+	for _, tagID := range tagIDs {
+		v := strings.TrimSpace(tagID)
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		result = append(result, v)
+	}
+	return result
 }
