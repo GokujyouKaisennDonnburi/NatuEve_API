@@ -20,6 +20,11 @@ type stubEventJoinRepository struct {
 	joinErr       error
 	// 呼び出し時に Join へ渡された引数を記録する。
 	gotMember *model.EventMember
+	// Leave 返却値・引数記録。
+	leaveCreatedAt    time.Time
+	leaveErr          error
+	gotLeaveEventID   uuid.UUID
+	gotLeaveProfileID uuid.UUID
 	// ListRecipients 返却値。
 	recipients        []model.EventRecipient
 	listRecipientsErr error
@@ -36,6 +41,15 @@ func (s *stubEventJoinRepository) Join(_ context.Context, member *model.EventMem
 	}
 	member.CreatedAt = s.joinCreatedAt
 	return nil
+}
+
+func (s *stubEventJoinRepository) Leave(_ context.Context, eventID, profileID uuid.UUID) (time.Time, error) {
+	s.gotLeaveEventID = eventID
+	s.gotLeaveProfileID = profileID
+	if s.leaveErr != nil {
+		return time.Time{}, s.leaveErr
+	}
+	return s.leaveCreatedAt, nil
 }
 
 func (s *stubEventJoinRepository) ListRecipients(_ context.Context, _ uuid.UUID) ([]model.EventRecipient, error) {
@@ -402,6 +416,96 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			}
 			if tt.checkMember != nil {
 				tt.checkMember(t, tt.stub)
+			}
+		})
+	}
+}
+
+func TestEventJoinServiceLeave(t *testing.T) {
+	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	profileID := uuid.MustParse("b2c3d4e5-f6a7-8901-bcde-f23456789012")
+	createdAt := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name         string
+		stub         *stubEventJoinRepository
+		wantNotFound bool
+		wantErr      bool
+		checkResp    func(t *testing.T, resp model.LeaveEventResponse)
+	}{
+		{
+			name: "正常: 参加取消 - レスポンスの全フィールドが正しく返る",
+			stub: &stubEventJoinRepository{leaveCreatedAt: createdAt},
+			checkResp: func(t *testing.T, resp model.LeaveEventResponse) {
+				t.Helper()
+				if resp.EventID != eventID {
+					t.Errorf("EventID: got %v, want %v", resp.EventID, eventID)
+				}
+				if resp.ProfileID != profileID {
+					t.Errorf("ProfileID: got %v, want %v", resp.ProfileID, profileID)
+				}
+				if resp.Action != "leave" {
+					t.Errorf("Action: got %q, want %q", resp.Action, "leave")
+				}
+				if !resp.CreatedAt.Equal(createdAt) {
+					t.Errorf("CreatedAt: got %v, want %v", resp.CreatedAt, createdAt)
+				}
+			},
+		},
+		{
+			name:         "異常: イベントが存在しない（NotFoundError）",
+			stub:         &stubEventJoinRepository{leaveErr: repository.ErrEventNotFound},
+			wantNotFound: true,
+		},
+		{
+			name:         "異常: 未参加（NotFoundError）",
+			stub:         &stubEventJoinRepository{leaveErr: repository.ErrNotJoined},
+			wantNotFound: true,
+		},
+		{
+			name:         "異常: sentinel をラップ済みでも NotFoundError に変換される",
+			stub:         &stubEventJoinRepository{leaveErr: fmtWrap(repository.ErrNotJoined)},
+			wantNotFound: true,
+		},
+		{
+			name:    "異常: repo.Leave が想定外のエラーを返す",
+			stub:    &stubEventJoinRepository{leaveErr: errors.New("db error")},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
+
+			resp, err := svc.Leave(context.Background(), eventID, profileID)
+
+			switch {
+			case tt.wantNotFound:
+				_ = assertNotFoundError(t, err)
+				return
+			case tt.wantErr:
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				var nfe *NotFoundError
+				if errors.As(err, &nfe) {
+					t.Errorf("想定外エラーが NotFoundError として伝播: %v", err)
+				}
+				return
+			}
+
+			assertNoErr(t, err)
+
+			// service が repo に正しい引数を渡していることを確認する。
+			if tt.stub.gotLeaveEventID != eventID {
+				t.Errorf("gotLeaveEventID: got %v, want %v", tt.stub.gotLeaveEventID, eventID)
+			}
+			if tt.stub.gotLeaveProfileID != profileID {
+				t.Errorf("gotLeaveProfileID: got %v, want %v", tt.stub.gotLeaveProfileID, profileID)
+			}
+			if tt.checkResp != nil {
+				tt.checkResp(t, resp)
 			}
 		})
 	}

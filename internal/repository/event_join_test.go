@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -82,4 +83,86 @@ func TestEventJoinPostgres_Join_WritesParticipationLog(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEventJoinPostgres_Leave_DeletesMemberAndWritesLog は Leave が参加行を削除し、
+// 参加状態ログへ leave を追記すること、および未参加・イベント不存在時に
+// 対応する sentinel エラーを返すことを検証する。
+func TestEventJoinPostgres_Leave_DeletesMemberAndWritesLog(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+
+	t.Run("正常: 参加行を削除し leave ログを1件追記する", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		profileID := insertTestProfile(t, db)
+
+		// 事前にログイン参加させる（join ログが1件記録される）。
+		member := &model.EventMember{
+			EventID:     eventID,
+			ProfileID:   uuid.NullUUID{UUID: profileID, Valid: true},
+			Username:    "参加者",
+			MailAddress: uuid.NewString() + "@example.com",
+			PartySize:   1,
+		}
+		if err := repo.Join(context.Background(), member); err != nil {
+			t.Fatalf("Join() returned error: %v", err)
+		}
+
+		createdAt, err := repo.Leave(context.Background(), eventID, profileID)
+		if err != nil {
+			t.Fatalf("Leave() returned error: %v", err)
+		}
+		if createdAt.IsZero() {
+			t.Error("Leave() returned zero createdAt, want non-zero")
+		}
+
+		// 参加行が削除されていることを確認する。
+		const countMembers = `
+		SELECT COUNT(*)
+		FROM event_members
+		WHERE event_id = $1 AND profile_id = $2
+		`
+		var memberCount int
+		if err := db.QueryRowContext(context.Background(), countMembers, eventID, profileID).Scan(&memberCount); err != nil {
+			t.Fatalf("count members: %v", err)
+		}
+		if memberCount != 0 {
+			t.Errorf("member count = %d, want 0", memberCount)
+		}
+
+		// leave ログが1件追記されていることを確認する（join と合わせて計2件）。
+		const countLeaveLog = `
+		SELECT COUNT(*)
+		FROM event_participation_logs
+		WHERE event_id = $1 AND profile_id = $2 AND action = 'leave'
+		`
+		var leaveCount int
+		if err := db.QueryRowContext(context.Background(), countLeaveLog, eventID, profileID).Scan(&leaveCount); err != nil {
+			t.Fatalf("count leave logs: %v", err)
+		}
+		if leaveCount != 1 {
+			t.Errorf("leave log count = %d, want 1", leaveCount)
+		}
+	})
+
+	t.Run("異常: 未参加なら ErrNotJoined を返す", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		profileID := insertTestProfile(t, db)
+
+		_, err := repo.Leave(context.Background(), eventID, profileID)
+		if !errors.Is(err, ErrNotJoined) {
+			t.Errorf("Leave() error = %v, want ErrNotJoined", err)
+		}
+	})
+
+	t.Run("異常: イベント不存在なら ErrEventNotFound を返す", func(t *testing.T) {
+		profileID := insertTestProfile(t, db)
+
+		_, err := repo.Leave(context.Background(), uuid.New(), profileID)
+		if !errors.Is(err, ErrEventNotFound) {
+			t.Errorf("Leave() error = %v, want ErrEventNotFound", err)
+		}
+	})
 }
