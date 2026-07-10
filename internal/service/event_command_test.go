@@ -394,6 +394,26 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 			},
 		},
 		{
+			// urn:uuid: 形式は uuid.Parse を通過するが Postgres の uuid 型は拒否する。
+			// 正準形へ正規化して伝播することを検証する（DB 書き込みでの 500 回避）。
+			name: "正常: urn:uuid や大文字表記が正準形に正規化・重複除去される",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.TagIDs = []string{
+					"urn:uuid:a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+					"A1B2C3D4-E5F6-7890-ABCD-EF1234567890",
+				}
+				return r
+			}(),
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				want := []string{"a1b2c3d4-e5f6-7890-abcd-ef1234567890"}
+				if !reflect.DeepEqual(e.TagIDs, want) {
+					t.Errorf("TagIDs: got %v, want %v", e.TagIDs, want)
+				}
+			},
+		},
+		{
 			name:    "異常: repository の Create がエラーを返す",
 			req:     validRequest(),
 			stubErr: errors.New("db error"),

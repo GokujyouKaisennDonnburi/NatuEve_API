@@ -309,7 +309,13 @@ func buildNewEvent(profileID string, req model.CreateEventRequest) *model.NewEve
 	}
 }
 
-// dedupeTagIDs は tagIDs の各要素を trim したうえで、順序を保持しつつ重複を除去する。
+// dedupeTagIDs は tagIDs を UUID 正準形（小文字ハイフン区切り）へ正規化したうえで、
+// 順序を保持しつつ重複を除去する。
+//
+// uuid.Parse は urn:uuid: 接頭辞・ブレース {…}・ハイフンなし32桁も受理するが、
+// PostgreSQL の uuid 型は urn:uuid: 形式を拒否する（22P02）。正準形へ揃えることで、
+// 検証を通過した値が DB 書き込みで 500 になる事象を防ぎ、dedupe も表記ゆれ（大文字小文字・
+// 接頭辞）に依存せず安定させる（ADR-0010 の「UUID を正規化して扱う」方針と整合）。
 func dedupeTagIDs(tagIDs []string) []string {
 	if len(tagIDs) == 0 {
 		return nil
@@ -318,6 +324,11 @@ func dedupeTagIDs(tagIDs []string) []string {
 	result := make([]string, 0, len(tagIDs))
 	for _, tagID := range tagIDs {
 		v := strings.TrimSpace(tagID)
+		// validateCreateEventRequest で検証済みのため Parse は成功する前提。
+		// 万一失敗しても trim 値でフォールバックする（呼び出し順の変化に対する保険）。
+		if parsed, err := uuid.Parse(v); err == nil {
+			v = parsed.String()
+		}
 		if _, ok := seen[v]; ok {
 			continue
 		}
