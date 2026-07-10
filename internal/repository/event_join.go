@@ -33,6 +33,9 @@ type EventJoinRepository interface {
 	//
 	// イベント行を FOR UPDATE でロックして存在確認・重複確認・定員確認・INSERT を
 	// 原子的に行うため、並行リクエストでも定員超過・重複登録は発生しない。
+	// ログイン参加（member.ProfileID が Valid）の場合は、同一トランザクション内で
+	// event_participation_logs に action='join' を1件追記する。匿名参加（profile_id NULL）は
+	// ログ対象外（event_participation_logs.profile_id が NOT NULL のため）。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
 	//   - ErrAlreadyJoined: 同一 mail_address（大文字小文字無視）またはログイン時は同一 profile_id で参加済み
@@ -175,6 +178,30 @@ func (r *eventJoinPostgres) Join(
 			return fmt.Errorf("event %s: %w", member.EventID, ErrAlreadyJoined)
 		}
 		return fmt.Errorf("join event: %w", err)
+	}
+
+	// ログイン参加時のみ、参加状態ログに join を追記する（同一トランザクション内で原子的に）。
+	// event_participation_logs.profile_id は NOT NULL のため、匿名参加（profile_id NULL）は
+	// ログ記録の対象外とする。参加登録とログ追記を1トランザクションにまとめることで、
+	// 片方だけ成功する不整合を防ぐ。
+	if member.ProfileID.Valid {
+		const insertParticipationLog = `
+		INSERT INTO event_participation_logs(
+			event_id,
+			profile_id,
+			action
+		)
+		VALUES($1, $2, 'join')
+		`
+
+		if _, err := tx.ExecContext(
+			ctx,
+			insertParticipationLog,
+			member.EventID,
+			member.ProfileID.UUID,
+		); err != nil {
+			return fmt.Errorf("insert participation log: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
