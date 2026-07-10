@@ -1,9 +1,16 @@
 package repository
 
 import (
+	"context"
+	"database/sql"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
+
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
 // TestEscapeLike は escapeLike が ILIKE のワイルドカード(% _)と
@@ -186,4 +193,83 @@ func TestBuildSearchWhere(t *testing.T) {
 			}
 		})
 	}
+}
+
+// insertTestTag はテスト用の tags 行を1件作成する。
+// name は tags.name/normalized_name の UNIQUE 制約（かつ VARCHAR(30)）を避けるため、
+// prefix に短い一意サフィックスを付けた名前を採番して使う。ソート順の検証で prefix
+// 同士の大小関係が変わらないよう、サフィックスは末尾に付与する。返り値は実際に保存した名前。
+func insertTestTag(t *testing.T, db *sql.DB, prefix string) (uuid.UUID, string) {
+	t.Helper()
+
+	id := uuid.New()
+	name := fmt.Sprintf("%s-%s", prefix, uuid.NewString()[:8])
+	const insertTag = `
+	INSERT INTO tags(id, name, normalized_name)
+	VALUES($1, $2, $3)
+	`
+	if _, err := db.ExecContext(context.Background(), insertTag, id, name, name); err != nil {
+		t.Fatalf("insert test tag: %v", err)
+	}
+	return id, name
+}
+
+// linkEventTag はテスト用に event_tags 行を1件作成する。
+func linkEventTag(t *testing.T, db *sql.DB, eventID, tagID uuid.UUID) {
+	t.Helper()
+
+	const insertEventTag = `
+	INSERT INTO event_tags(event_id, tag_id)
+	VALUES($1, $2)
+	`
+	if _, err := db.ExecContext(context.Background(), insertEventTag, eventID, tagID); err != nil {
+		t.Fatalf("insert test event_tag: %v", err)
+	}
+}
+
+// TestEventPostgres_GetByID_Tags は GetByID が紐づくタグを name 昇順で返すこと、
+// タグが0件のイベントでは Tags が nil ではなく空スライスになることを検証する。
+func TestEventPostgres_GetByID_Tags(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+
+	t.Run("複数タグを紐づけたイベントは name 昇順で返す", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, profileID)
+
+		tagBID, tagBName := insertTestTag(t, db, "外来生物")
+		tagAID, tagAName := insertTestTag(t, db, "きのこ")
+		linkEventTag(t, db, eventID, tagBID)
+		linkEventTag(t, db, eventID, tagAID)
+
+		got, err := repo.GetByID(context.Background(), eventID.String())
+		if err != nil {
+			t.Fatalf("GetByID() returned error: %v", err)
+		}
+
+		want := []model.TagResponse{
+			{ID: tagAID.String(), Name: tagAName},
+			{ID: tagBID.String(), Name: tagBName},
+		}
+		if !reflect.DeepEqual(got.Tags, want) {
+			t.Errorf("Tags = %#v, want %#v", got.Tags, want)
+		}
+	})
+
+	t.Run("タグ0件のイベントは空スライスを返す", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, profileID)
+
+		got, err := repo.GetByID(context.Background(), eventID.String())
+		if err != nil {
+			t.Fatalf("GetByID() returned error: %v", err)
+		}
+
+		if got.Tags == nil {
+			t.Error("Tags = nil, want empty slice")
+		}
+		if len(got.Tags) != 0 {
+			t.Errorf("Tags = %#v, want empty", got.Tags)
+		}
+	})
 }
