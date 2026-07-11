@@ -1528,6 +1528,13 @@ const docTemplate = `{
                 "profile": {
                     "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileSummary"
                 },
+                "tags": {
+                    "description": "Tags は紐づくタグの一覧（name 昇順）。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagResponse"
+                    }
+                },
                 "title": {
                     "type": "string"
                 },

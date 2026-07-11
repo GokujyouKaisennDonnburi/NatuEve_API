@@ -137,9 +137,11 @@ type EventResponse struct {
 	ImageUrls []string `json:"imageUrls"`
 	// PdfUrls は PdfObjectKeys に対応する表示用の完全URL。
 	// 公開ベースURL（R2_PUBLIC_BASE_URL）未設定時は空配列。
-	PdfUrls   []string  `json:"pdfUrls"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	PdfUrls []string `json:"pdfUrls"`
+	// Tags は紐づくタグの一覧（name 昇順）。
+	Tags      []TagResponse `json:"tags"`
+	CreatedAt time.Time     `json:"createdAt"`
+	UpdatedAt time.Time     `json:"updatedAt"`
 	// CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。
 	CancelledAt *time.Time `json:"cancelledAt,omitempty"`
 }
