@@ -48,6 +48,11 @@ func run() error {
 
 	cfg := config.Load()
 
+	// SIGINT / SIGTERM を受け取るためのコンテキスト。通知送信ワーカーにも同じ ctx を渡し、
+	// シャットダウンシグナルで自然に停止させる。
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	// DATABASE_URL があれば DB へ接続する(未設定なら DB なしで起動)。
 	// ルーター構築まで接続を生かすため、スコープを run() 全体に広げる。
 	var sqlDB *sql.DB
@@ -69,9 +74,15 @@ func run() error {
 		}
 	}
 
-	r, err := server.NewRouter(cfg, sqlDB)
+	r, notificationWorker, err := server.NewRouter(cfg, sqlDB)
 	if err != nil {
 		return fmt.Errorf("build router: %w", err)
+	}
+
+	// イベントキャンセル通知の送信ワーカー（Resend 設定が揃っている場合のみ非 nil）を
+	// 起動する。ctx のキャンセルで自然に停止する。
+	if notificationWorker != nil {
+		go notificationWorker.Run(ctx)
 	}
 
 	srv := &http.Server{
@@ -80,10 +91,6 @@ func run() error {
 		// ヘッダ読み取りに時間制限を設ける（Slowloris 攻撃対策）。
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-
-	// SIGINT / SIGTERM を受け取るためのコンテキスト。
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 
 	// サーバーを別 goroutine で起動し、起動失敗はチャネルで受け取る。
 	errCh := make(chan error, 1)

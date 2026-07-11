@@ -10,6 +10,7 @@ import (
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/middleware"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
 )
 
@@ -132,17 +133,22 @@ func (h *EventHandler) Create(c *gin.Context) {
 //
 //	@Summary		イベントの取りやめ（キャンセル）
 //	@Description	イベント主催者がイベントを開催取りやめにする。主催者のみ実行可能。
-//	@Description	既にキャンセル済みの場合も冪等に成功する。
+//	@Description	非冪等: 参加者へ送る通知メールの件名・本文を必須で受け取り、
+//	@Description	キャンセル確定と同一トランザクションで通知を outbox に予約する
+//	@Description	（バックグラウンドワーカーが個別送信する）。既にキャンセル済みの
+//	@Description	イベントに対する呼び出しは 409 を返す。
 //	@Tags			event
 //	@Accept			json
 //	@Produce		json
 //	@Security		BearerAuth
-//	@Param			id	path	string	true	"イベントID"
-//	@Success		200	{object}	model.CancelEventResponse
-//	@Failure		400	{object}	model.ValidationErrorResponse
-//	@Failure		401	{object}	model.UnauthorizedErrorResponse
-//	@Failure		403	{object}	model.ForbiddenErrorResponse
-//	@Failure		500	{object}	model.InternalErrorResponse
+//	@Param			id		path		string					true	"イベントID"
+//	@Param			body	body		model.CancelEventRequest	true	"キャンセル通知リクエスト"
+//	@Success		200		{object}	model.CancelEventResponse
+//	@Failure		400		{object}	model.ValidationErrorResponse
+//	@Failure		401		{object}	model.UnauthorizedErrorResponse
+//	@Failure		403		{object}	model.ForbiddenErrorResponse
+//	@Failure		409		{object}	model.ConflictErrorResponse	"already_cancelled: このイベントは既にキャンセルされています"
+//	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/cancel [post]
 func (h *EventHandler) Cancel(c *gin.Context) {
 	authUser, ok := middleware.AuthFromContext(c)
@@ -157,7 +163,12 @@ func (h *EventHandler) Cancel(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.cmdSvc.Cancel(c.Request.Context(), authUser.ID, eventID)
+	var req model.CancelEventRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	resp, err := h.cmdSvc.Cancel(c.Request.Context(), authUser.ID, eventID, req)
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
@@ -168,6 +179,11 @@ func (h *EventHandler) Cancel(c *gin.Context) {
 		var fe *service.ForbiddenError
 		if errors.As(err, &fe) {
 			c.JSON(http.StatusForbidden, model.NewErrorResponse("forbidden", fe.Message))
+			return
+		}
+
+		if errors.Is(err, repository.ErrEventAlreadyCancelled) {
+			c.JSON(http.StatusConflict, model.NewErrorResponse("already_cancelled", "このイベントは既にキャンセルされています"))
 			return
 		}
 
