@@ -29,3 +29,4 @@
 | [0011](./0011-event-leave-authenticated-only.md) | イベント参加キャンセルはログイン参加者に限定する | Accepted |
 | [0012](./0012-event-cancellation.md) | イベントキャンセル（開催取りやめ）の状態管理と API 設計 | Accepted |
 | [0013](./0013-event-tag-association-on-create.md) | イベント投稿時のタグ紐づけ設計 | Accepted |
+| [0014](./0014-event-tag-exposure-on-detail.md) | イベント詳細レスポンスでのタグ公開設計 | Accepted |
