@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
@@ -120,6 +122,9 @@ func (s *EventCommandService) Create(ctx context.Context, profileID string, req 
 					slog.Warn("補償削除に失敗しました", slog.String("key", key), slog.Any("error", delErr))
 				}
 			}
+		}
+		if errors.Is(err, repository.ErrTagNotFound) {
+			return model.CreateEventResponse{}, &ValidationError{Message: "指定されたタグが存在しません"}
 		}
 		return model.CreateEventResponse{}, fmt.Errorf("create event: %w", err)
 	}
@@ -250,6 +255,17 @@ func validateCreateEventRequest(req model.CreateEventRequest) error {
 		return &ValidationError{Message: "PDFファイル名の数がPDFオブジェクトキーの数と一致しません"}
 	}
 
+	// TagIDs（任意）: 各要素は空文字不可（trim 後）・有効な UUID 形式であること。
+	for i, tagID := range req.TagIDs {
+		v := strings.TrimSpace(tagID)
+		if v == "" {
+			return &ValidationError{Message: fmt.Sprintf("タグID[%d]が空です", i)}
+		}
+		if _, err := uuid.Parse(v); err != nil {
+			return &ValidationError{Message: fmt.Sprintf("タグID[%d]の形式が不正です", i)}
+		}
+	}
+
 	return nil
 }
 
@@ -273,6 +289,9 @@ func buildNewEvent(profileID string, req model.CreateEventRequest) *model.NewEve
 		}
 	}
 
+	// TagIDs: trim した値で重複除去（順序保持）して詰め替える。
+	tagIDs := dedupeTagIDs(req.TagIDs)
+
 	// ImageObjectKeys / PdfObjectKeys は呼び出し元が昇格済みキーをセットするため空で初期化。
 	return &model.NewEvent{
 		ProfileID:       profileID,
@@ -286,5 +305,35 @@ func buildNewEvent(profileID string, req model.CreateEventRequest) *model.NewEve
 		Items:           items,
 		ImageObjectKeys: nil,
 		PdfObjectKeys:   nil,
+		TagIDs:          tagIDs,
 	}
+}
+
+// dedupeTagIDs は tagIDs を UUID 正準形（小文字ハイフン区切り）へ正規化したうえで、
+// 順序を保持しつつ重複を除去する。
+//
+// uuid.Parse は urn:uuid: 接頭辞・ブレース {…}・ハイフンなし32桁も受理するが、
+// PostgreSQL の uuid 型は urn:uuid: 形式を拒否する（22P02）。正準形へ揃えることで、
+// 検証を通過した値が DB 書き込みで 500 になる事象を防ぎ、dedupe も表記ゆれ（大文字小文字・
+// 接頭辞）に依存せず安定させる（ADR-0010 の「UUID を正規化して扱う」方針と整合）。
+func dedupeTagIDs(tagIDs []string) []string {
+	if len(tagIDs) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(tagIDs))
+	result := make([]string, 0, len(tagIDs))
+	for _, tagID := range tagIDs {
+		v := strings.TrimSpace(tagID)
+		// validateCreateEventRequest で検証済みのため Parse は成功する前提。
+		// 万一失敗しても trim 値でフォールバックする（呼び出し順の変化に対する保険）。
+		if parsed, err := uuid.Parse(v); err == nil {
+			v = parsed.String()
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		result = append(result, v)
+	}
+	return result
 }

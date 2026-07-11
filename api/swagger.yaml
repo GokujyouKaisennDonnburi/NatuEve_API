@@ -71,6 +71,13 @@ definitions:
         items:
           type: string
         type: array
+      tagIds:
+        description: TagIDs は紐づけるタグの UUID 一覧（任意）。
+        example:
+        - a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        items:
+          type: string
+        type: array
       title:
         description: Title はイベントタイトル（必須・255文字以内）。
         example: サクラ観察会
