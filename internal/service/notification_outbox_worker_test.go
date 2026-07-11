@@ -20,6 +20,9 @@ type fakeOutboxRepo struct {
 	sentIDs     []uuid.UUID
 	retryCalls  []outboxRetryCall
 	failedCalls []outboxFailedCall
+
+	// lastMarkSentCtxErr は直近の MarkSent 呼び出し時点での ctx.Err() を記録する。
+	lastMarkSentCtxErr error
 }
 
 type outboxRetryCall struct {
@@ -37,8 +40,12 @@ func (f *fakeOutboxRepo) ListDue(_ context.Context, _ time.Time, _ int) ([]model
 	return f.dueItems, f.listDueErr
 }
 
-func (f *fakeOutboxRepo) MarkSent(_ context.Context, id uuid.UUID) error {
+func (f *fakeOutboxRepo) MarkSent(ctx context.Context, id uuid.UUID) error {
 	f.sentIDs = append(f.sentIDs, id)
+	// シャットダウン挙動のテスト用に、呼び出し時点の ctx の状態を記録する。
+	// 実 DB 実装ではキャンセル済み ctx を渡すとクエリが失敗するため、
+	// MarkSent がキャンセルされていない ctx（markCtx）で呼ばれたことを検証できる。
+	f.lastMarkSentCtxErr = ctx.Err()
 	return nil
 }
 
@@ -232,6 +239,74 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 
 		if len(outboxRepo.sentIDs) != 2 {
 			t.Fatalf("sentIDs = %v, want 2件とも sent", outboxRepo.sentIDs)
+		}
+	})
+}
+
+// cancelingMailer は SendBatch の実行中に外部から渡された cancel を呼び出す
+// テスト用フェイク。「SendBatch 成功後始末（MarkSent）が、SendBatch 実行中に
+// ctx がキャンセルされても完了する」ことを検証するために使う。
+type cancelingMailer struct {
+	cancel    context.CancelFunc
+	sendErr   error
+	callCount int
+}
+
+func (m *cancelingMailer) SendBatch(_ context.Context, _ []Email) error {
+	m.callCount++
+	// SIGTERM がちょうど送信処理中に届いたことを模す。
+	m.cancel()
+	return m.sendErr
+}
+
+func TestNotificationOutboxWorker_Shutdown(t *testing.T) {
+	eventID := uuid.New()
+	recipients := []model.EventRecipient{
+		{MailAddress: "yamada@example.com"},
+	}
+
+	t.Run("processDue はキャンセル済み ctx では新しい行の処理に着手しない", func(t *testing.T) {
+		item := model.EventNotificationOutbox{ID: uuid.New(), EventID: eventID}
+		outboxRepo := &fakeOutboxRepo{dueItems: []model.EventNotificationOutbox{item}}
+		joinRepo := &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{eventID: recipients}}
+		mailer := &workerFakeMailer{}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // シャットダウン中を模す
+
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, mailer)
+		w.processDue(ctx)
+
+		if mailer.callCount != 0 {
+			t.Errorf("SendBatch call count = %d, want 0（キャンセル済み ctx では新規着手しない）", mailer.callCount)
+		}
+		if len(outboxRepo.sentIDs) != 0 {
+			t.Errorf("sentIDs = %v, want 空（新規着手しない）", outboxRepo.sentIDs)
+		}
+	})
+
+	t.Run("SendBatch 成功後に ctx がキャンセルされても MarkSent は完了する", func(t *testing.T) {
+		item := model.EventNotificationOutbox{ID: uuid.New(), EventID: eventID}
+		outboxRepo := &fakeOutboxRepo{}
+		joinRepo := &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{eventID: recipients}}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		mailer := &cancelingMailer{cancel: cancel} // SendBatch 実行中に ctx をキャンセルするが成功を返す
+
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, mailer)
+		w.processOne(ctx, item)
+
+		if mailer.callCount != 1 {
+			t.Fatalf("SendBatch call count = %d, want 1", mailer.callCount)
+		}
+		if ctx.Err() == nil {
+			t.Fatal("前提条件: SendBatch 実行中に ctx がキャンセルされているはず")
+		}
+		if len(outboxRepo.sentIDs) != 1 || outboxRepo.sentIDs[0] != item.ID {
+			t.Fatalf("sentIDs = %v, want [%v]（親 ctx がキャンセルされていても MarkSent は呼ばれるべき）", outboxRepo.sentIDs, item.ID)
+		}
+		if outboxRepo.lastMarkSentCtxErr != nil {
+			t.Errorf("MarkSent に渡された ctx.Err() = %v, want nil（WithoutCancel でキャンセルの影響を受けないこと）", outboxRepo.lastMarkSentCtxErr)
 		}
 	})
 }
