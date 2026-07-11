@@ -186,7 +186,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "イベント主催者がイベントを開催取りやめにする。主催者のみ実行可能。\n既にキャンセル済みの場合も冪等に成功する。",
+                "description": "イベント主催者がイベントを開催取りやめにする。主催者のみ実行可能。\n非冪等: 参加者へ送る通知メールの件名・本文を必須で受け取り、\nキャンセル確定と同一トランザクションで通知を outbox に予約する\n（バックグラウンドワーカーが個別送信する）。既にキャンセル済みの\nイベントに対する呼び出しは 409 を返す。",
                 "consumes": [
                     "application/json"
                 ],
@@ -204,6 +204,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "キャンセル通知リクエスト",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventRequest"
+                        }
                     }
                 ],
                 "responses": {
@@ -229,6 +238,12 @@ const docTemplate = `{
                         "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "already_cancelled: このイベントは既にキャンセルされています",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse"
                         }
                     },
                     "500": {
@@ -1050,6 +1065,28 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventRequest": {
+            "description": "イベント取りやめ確定時に参加者へ送る通知の件名・本文。同一トランザクションで outbox に予約され、バックグラウンドワーカーが参加者へ個別送信する。",
+            "type": "object",
+            "required": [
+                "body",
+                "subject"
+            ],
+            "properties": {
+                "body": {
+                    "description": "Body は参加者へ送る通知メールの本文（必須・10,000文字以内）。",
+                    "type": "string",
+                    "maxLength": 10000,
+                    "example": "台風接近に伴い、安全のため本イベントは中止とさせていただきます。"
+                },
+                "subject": {
+                    "description": "Subject は参加者へ送る通知メールの件名（必須・255文字以内）。",
+                    "type": "string",
+                    "maxLength": 255,
+                    "example": "【重要】イベント開催中止のお知らせ"
+                }
+            }
+        },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventResponse": {
             "type": "object",
             "properties": {
@@ -1062,6 +1099,29 @@ const docTemplate = `{
                     "description": "ID はキャンセルしたイベントの UUID。",
                     "type": "string",
                     "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は機械可読なエラーコード。",
+                    "type": "string",
+                    "example": "conflict"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "既に参加しています"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody"
                 }
             }
         },
