@@ -269,7 +269,7 @@ func TestGetSizeExceededViaFake(t *testing.T) {
 
 	validKey := "natueve/tmp/test-profile/uuid.jpg"
 	repoStub := &stubEventRepository{}
-	svc := NewEventCommandService(repoStub, store)
+	svc := NewEventCommandService(repoStub, store, nil)
 
 	req := validRequest()
 	req.ImageObjectKeys = []string{validKey}
