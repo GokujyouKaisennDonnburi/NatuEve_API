@@ -202,7 +202,7 @@ func (r *eventPostgres) attachTagsToSummaries(ctx context.Context, summaries []m
 		FROM event_tags et
 		JOIN tags t ON t.id = et.tag_id
 		WHERE et.event_id IN (%s)
-		ORDER BY et.event_id, t.name ASC`, strings.Join(placeholders, ", "))
+		ORDER BY t.name ASC`, strings.Join(placeholders, ", "))
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
