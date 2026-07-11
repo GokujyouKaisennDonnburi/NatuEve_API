@@ -98,6 +98,8 @@ type EventSummary struct {
 	CreatedAt time.Time `json:"createdAt" example:"2026-06-22T12:00:00Z"`
 	// ProfileSummary は投稿者プロフィールのサマリー情報。
 	Profile ProfileSummary `json:"profile"`
+	// Tags は紐づくタグの一覧（name 昇順）。タグが無い場合は省略される。
+	Tags []TagResponse `json:"tags,omitempty"`
 }
 
 // EventListResponse はイベント一覧取得エンドポイントのレスポンス型。

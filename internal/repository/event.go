@@ -172,7 +172,61 @@ func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, l
 	if summaries == nil {
 		summaries = []model.EventSummary{}
 	}
+	if err := r.attachTagsToSummaries(ctx, summaries); err != nil {
+		return nil, err
+	}
 	return summaries, nil
+}
+
+// attachTagsToSummaries は summaries に紐づくタグを1クエリで一括取得し、
+// 各 summary の Tags フィールドに割り当てる（N+1 回避）。
+// タグが無いイベントは Tags を nil のままにし、JSON では omitempty で省略させる。
+func (r *eventPostgres) attachTagsToSummaries(ctx context.Context, summaries []model.EventSummary) error {
+	// 空スライスだと WHERE IN () が構文エラーになるため早期 return する（この判定は消さない）。
+	if len(summaries) == 0 {
+		return nil
+	}
+
+	placeholders := make([]string, len(summaries))
+	args := make([]any, len(summaries))
+	for i, s := range summaries {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = s.ID
+	}
+
+	// G201: 埋め込むのは summaries の件数ぶんのプレースホルダ番号($N)のみ。
+	// event_id の実値は args 経由でのみ渡すため SQL インジェクションは発生しない。
+	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
+	query := fmt.Sprintf(`
+		SELECT et.event_id, t.id, t.name
+		FROM event_tags et
+		JOIN tags t ON t.id = et.tag_id
+		WHERE et.event_id IN (%s)
+		ORDER BY t.name ASC`, strings.Join(placeholders, ", "))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("list event tags: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	tagsByEvent := make(map[string][]model.TagResponse)
+	for rows.Next() {
+		var eventID string
+		var tag model.TagResponse
+		if err := rows.Scan(&eventID, &tag.ID, &tag.Name); err != nil {
+			return fmt.Errorf("scan event tag: %w", err)
+		}
+		tagsByEvent[eventID] = append(tagsByEvent[eventID], tag)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate event tags: %w", err)
+	}
+
+	for i := range summaries {
+		summaries[i].Tags = tagsByEvent[summaries[i].ID]
+	}
+	return nil
 }
 
 // CountSummaries は events テーブルの全件数を返す。
@@ -320,6 +374,9 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, 
 	// レコードが 0 件でも nil ではなく空スライスを返す。
 	if summaries == nil {
 		summaries = []model.EventSummary{}
+	}
+	if err := r.attachTagsToSummaries(ctx, summaries); err != nil {
+		return nil, err
 	}
 	return summaries, nil
 }

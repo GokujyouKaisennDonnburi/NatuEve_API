@@ -273,3 +273,114 @@ func TestEventPostgres_GetByID_Tags(t *testing.T) {
 		}
 	})
 }
+
+// findSummaryByID は summaries から id に一致する要素を返す。
+// 見つかった場合は ok が true になる。
+func findSummaryByID(summaries []model.EventSummary, id string) (summary model.EventSummary, ok bool) {
+	for _, s := range summaries {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return model.EventSummary{}, false
+}
+
+// TestEventPostgres_ListSummaries_Tags は ListSummaries が attachTagsToSummaries 経由で
+// 紐づくタグを name 昇順で返すこと、タグの無いイベントでは Tags が nil
+// (JSON では omitempty で省略) になることを検証する。
+func TestEventPostgres_ListSummaries_Tags(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+
+	taggedEventID := insertTestEvent(t, db, profileID)
+	tagBID, tagBName := insertTestTag(t, db, "外来生物")
+	tagAID, tagAName := insertTestTag(t, db, "きのこ")
+	linkEventTag(t, db, taggedEventID, tagBID)
+	linkEventTag(t, db, taggedEventID, tagAID)
+
+	untaggedEventID := insertTestEvent(t, db, profileID)
+
+	// 既存データを含む全件を確実に取得できるよう、件数を数えてから limit に使う。
+	total, err := repo.CountSummaries(context.Background())
+	if err != nil {
+		t.Fatalf("CountSummaries() returned error: %v", err)
+	}
+
+	got, err := repo.ListSummaries(context.Background(), "created_at", "desc", total+10, 0)
+	if err != nil {
+		t.Fatalf("ListSummaries() returned error: %v", err)
+	}
+
+	taggedSummary, ok := findSummaryByID(got, taggedEventID.String())
+	if !ok {
+		t.Fatalf("ListSummaries() result does not contain event %s", taggedEventID)
+	}
+	wantTags := []model.TagResponse{
+		{ID: tagAID.String(), Name: tagAName},
+		{ID: tagBID.String(), Name: tagBName},
+	}
+	if !reflect.DeepEqual(taggedSummary.Tags, wantTags) {
+		t.Errorf("Tags = %#v, want %#v", taggedSummary.Tags, wantTags)
+	}
+
+	untaggedSummary, ok := findSummaryByID(got, untaggedEventID.String())
+	if !ok {
+		t.Fatalf("ListSummaries() result does not contain event %s", untaggedEventID)
+	}
+	if untaggedSummary.Tags != nil {
+		t.Errorf("Tags = %#v, want nil", untaggedSummary.Tags)
+	}
+}
+
+// TestEventPostgres_SearchSummaries_Tags は SearchSummaries が attachTagsToSummaries 経由で
+// 紐づくタグを name 昇順で返すこと、タグの無いイベントでは Tags が nil
+// (JSON では omitempty で省略) になることを検証する。
+func TestEventPostgres_SearchSummaries_Tags(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+
+	taggedEventID := insertTestEvent(t, db, profileID)
+	tagBID, tagBName := insertTestTag(t, db, "外来生物")
+	tagAID, tagAName := insertTestTag(t, db, "きのこ")
+	linkEventTag(t, db, taggedEventID, tagBID)
+	linkEventTag(t, db, taggedEventID, tagAID)
+
+	untaggedEventID := insertTestEvent(t, db, profileID)
+
+	// insertTestEvent は title を固定値で作成するため、その語をキーワードに検索する。
+	// 既存データを含む一致件数を数えてから limit に使う。
+	keywords := []string{"テストイベント"}
+	total, err := repo.CountSearchSummaries(context.Background(), keywords)
+	if err != nil {
+		t.Fatalf("CountSearchSummaries() returned error: %v", err)
+	}
+
+	got, err := repo.SearchSummaries(context.Background(), keywords, "created_at", "desc", total+10, 0)
+	if err != nil {
+		t.Fatalf("SearchSummaries() returned error: %v", err)
+	}
+
+	taggedSummary, ok := findSummaryByID(got, taggedEventID.String())
+	if !ok {
+		t.Fatalf("SearchSummaries() result does not contain event %s", taggedEventID)
+	}
+	wantTags := []model.TagResponse{
+		{ID: tagAID.String(), Name: tagAName},
+		{ID: tagBID.String(), Name: tagBName},
+	}
+	if !reflect.DeepEqual(taggedSummary.Tags, wantTags) {
+		t.Errorf("Tags = %#v, want %#v", taggedSummary.Tags, wantTags)
+	}
+
+	untaggedSummary, ok := findSummaryByID(got, untaggedEventID.String())
+	if !ok {
+		t.Fatalf("SearchSummaries() result does not contain event %s", untaggedEventID)
+	}
+	if untaggedSummary.Tags != nil {
+		t.Errorf("Tags = %#v, want nil", untaggedSummary.Tags)
+	}
+}

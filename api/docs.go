@@ -1584,6 +1584,13 @@ const docTemplate = `{
                     "type": "string",
                     "example": "d290f1ee-6c54-4b01-90e6-d701748f0851"
                 },
+                "tags": {
+                    "description": "Tags は紐づくタグの一覧（name 昇順）。タグが無い場合は省略される。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagResponse"
+                    }
+                },
                 "title": {
                     "description": "Title はイベントタイトル。",
                     "type": "string",

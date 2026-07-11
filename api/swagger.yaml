@@ -393,6 +393,11 @@ definitions:
         description: ProfileID は投稿者のプロフィール ID(UUID)。
         example: d290f1ee-6c54-4b01-90e6-d701748f0851
         type: string
+      tags:
+        description: Tags は紐づくタグの一覧（name 昇順）。タグが無い場合は省略される。
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagResponse'
+        type: array
       title:
         description: Title はイベントタイトル。
         example: サクラ観察会
