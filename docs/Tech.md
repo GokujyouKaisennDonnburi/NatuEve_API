@@ -6,6 +6,16 @@ Go (Gin) 製。Web / モバイルから呼び出される API サーバー。
 
 SupabaseAuth（Supabase が発行する JWT を JWKS で検証する想定。実装は今後）
 
+### バックグラウンドワーカー（通知送信）
+
+イベントキャンセル通知は Transactional Outbox（`event_notification_outbox` テーブル）経由で、
+API サーバー内のワーカー goroutine が送信する（詳細は [ADR-0016](./adr/0016-event-cancel-notification-outbox.md)）。
+
+> **運用上の前提: API サーバーは単一インスタンスで動かすこと。**
+> ワーカーの outbox 取得は `FOR UPDATE SKIP LOCKED` による claim を行っていないため、
+> 複数インスタンスへ横展開すると同じ通知を複数のワーカーが処理し、二重送信になる。
+> 将来 AWS（App Runner / ECS 等）へ移行してスケールアウトする場合は、claim 方式の見直しが必要。
+
 
 ## 開発者向け 環境構築
 
