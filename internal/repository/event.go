@@ -62,6 +62,9 @@ type EventRepository interface {
 	// GetOwnerProfileID は指定した eventID のイベント投稿者 profile_id を返す。
 	// イベントが存在しない場合は sql.ErrNoRows を %w でラップして返す。
 	GetOwnerProfileID(ctx context.Context, eventID string) (string, error)
+	// GetTitle は指定した eventID のイベントタイトルを返す。
+	// イベントが存在しない場合は ErrEventNotFound を %w でラップして返す。
+	GetTitle(ctx context.Context, eventID string) (string, error)
 	// Exists は指定した eventID のイベントが存在するかを返す。
 	// 存在しない場合は (false, nil)、それ以外のエラーは %w でラップして返す。
 	// eventID はパース済みの uuid.UUID を受け取り、正規化文字列でクエリする。
@@ -528,6 +531,22 @@ func (r *eventPostgres) GetOwnerProfileID(ctx context.Context, eventID string) (
 		return "", fmt.Errorf("get event owner profile_id: %w", err)
 	}
 	return profileID.String, nil
+}
+
+// GetTitle は指定した eventID のイベントタイトルを返す。
+// 行が存在しない場合は repository.ErrEventNotFound を %w でラップして返す。
+// 呼び出し側は errors.Is(err, repository.ErrEventNotFound) で判別できる。
+func (r *eventPostgres) GetTitle(ctx context.Context, eventID string) (string, error) {
+	const query = `SELECT title FROM events WHERE id = $1`
+
+	var title string
+	if err := r.db.QueryRowContext(ctx, query, eventID).Scan(&title); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+		}
+		return "", fmt.Errorf("get event title: %w", err)
+	}
+	return title, nil
 }
 
 // Exists は指定 eventID のイベントが存在するかを返す。

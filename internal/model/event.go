@@ -164,11 +164,14 @@ type EventItemResponse struct {
 //
 //	@Description	イベント取りやめ確定時に参加者へ送る通知の件名・本文。同一トランザクションで
 //	@Description	outbox に予約され、バックグラウンドワーカーが参加者へ個別送信する。
+//	@Description	件名・本文はいずれも任意で、省略（空文字）時はサーバーが既定文面を補って予約する。
 type CancelEventRequest struct {
-	// Subject は参加者へ送る通知メールの件名（必須・255文字以内）。
-	Subject string `json:"subject" example:"【重要】イベント開催中止のお知らせ" validate:"required,max=255"`
-	// Body は参加者へ送る通知メールの本文（必須・10,000文字以内）。
-	Body string `json:"body" example:"台風接近に伴い、安全のため本イベントは中止とさせていただきます。" validate:"required,max=10000"`
+	// Subject は参加者へ送る通知メールの件名（任意・255文字以内）。
+	// 省略（空文字）時はサーバーが既定文面を補う。
+	Subject string `json:"subject" example:"【重要】イベント開催中止のお知らせ" validate:"max=255"`
+	// Body は参加者へ送る通知メールの本文（任意・10,000文字以内）。
+	// 省略（空文字）時はサーバーが既定文面を補う。
+	Body string `json:"body" example:"台風接近に伴い、安全のため本イベントは中止とさせていただきます。" validate:"max=10000"`
 }
 
 // CancelEventResponse はイベントキャンセルエンドポイントのレスポンス DTO。
