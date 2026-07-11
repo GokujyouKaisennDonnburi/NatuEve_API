@@ -603,6 +603,9 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 		}
 		e.Costs = append(e.Costs, c)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate costs: %w", err)
+	}
 
 	// items
 	const itemQuery = `
@@ -624,6 +627,9 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 			return nil, fmt.Errorf("scan item: %w", err)
 		}
 		e.Items = append(e.Items, i)
+	}
+	if err := itemRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate items: %w", err)
 	}
 
 	// images（objectkey と filename を同順で取得する）
@@ -648,6 +654,9 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 		e.ImageObjectKeys = append(e.ImageObjectKeys, key)
 		e.ImageFilenames = append(e.ImageFilenames, filename)
 	}
+	if err := imageRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate images: %w", err)
+	}
 
 	// pdfs（objectkey と filename を同順で取得する）
 	const pdfQuery = `
@@ -670,6 +679,9 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 		}
 		e.PdfObjectKeys = append(e.PdfObjectKeys, key)
 		e.PdfFilenames = append(e.PdfFilenames, filename)
+	}
+	if err := pdfRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pdfs: %w", err)
 	}
 
 	// tags
@@ -694,6 +706,9 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 			return nil, fmt.Errorf("scan tag: %w", err)
 		}
 		e.Tags = append(e.Tags, tag)
+	}
+	if err := tagRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tags: %w", err)
 	}
 
 	return &e, nil
