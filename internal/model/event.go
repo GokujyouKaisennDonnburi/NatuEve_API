@@ -160,6 +160,17 @@ type EventItemResponse struct {
 	IsRequired bool   `json:"isRequired"`
 }
 
+// CancelEventRequest はイベントキャンセルエンドポイントのリクエストボディ DTO。
+//
+//	@Description	イベント取りやめ確定時に参加者へ送る通知の件名・本文。同一トランザクションで
+//	@Description	outbox に予約され、バックグラウンドワーカーが参加者へ個別送信する。
+type CancelEventRequest struct {
+	// Subject は参加者へ送る通知メールの件名（必須・255文字以内）。
+	Subject string `json:"subject" example:"【重要】イベント開催中止のお知らせ" validate:"required,max=255"`
+	// Body は参加者へ送る通知メールの本文（必須・10,000文字以内）。
+	Body string `json:"body" example:"台風接近に伴い、安全のため本イベントは中止とさせていただきます。" validate:"required,max=10000"`
+}
+
 // CancelEventResponse はイベントキャンセルエンドポイントのレスポンス DTO。
 type CancelEventResponse struct {
 	// ID はキャンセルしたイベントの UUID。

@@ -18,6 +18,11 @@ import (
 // ErrTagNotFound は紐づけ対象のタグが存在しない場合に返されるエラー。
 var ErrTagNotFound = errors.New("tag not found")
 
+// ErrEventAlreadyCancelled は既にキャンセル済みのイベントを再度キャンセルしようとした
+// 場合に返されるエラー。CancelWithNotification は非冪等（毎回リクエストごとに参加者への
+// 通知文面を受け取り outbox に予約する）のため、2回目以降の呼び出しは失敗として扱う。
+var ErrEventAlreadyCancelled = errors.New("event already cancelled")
+
 // nullInt32 は 0 を NULL として扱う（未設定を表す）。
 // capacity は定員数であり int32 の範囲内であることが仕様上保証されているため変換する。
 func nullInt32(n int) sql.NullInt32 {
@@ -61,10 +66,14 @@ type EventRepository interface {
 	// 存在しない場合は (false, nil)、それ以外のエラーは %w でラップして返す。
 	// eventID はパース済みの uuid.UUID を受け取り、正規化文字列でクエリする。
 	Exists(ctx context.Context, eventID uuid.UUID) (bool, error)
-	// Cancel は指定したイベントを取りやめ状態にする。
-	// 既にキャンセル済みの場合も冪等に成功する。
+	// CancelWithNotification は指定したイベントを取りやめ状態にし、同一トランザクション内で
+	// 参加者への通知メール（subject/body）を event_notification_outbox に1件予約する
+	// （Transactional Outbox パターン）。イベントのキャンセル確定と通知予約を原子的に行う。
+	//
+	// 非冪等: 既にキャンセル済みのイベントに対して呼び出した場合は
+	// ErrEventAlreadyCancelled を %w でラップして返し、outbox への予約も行わない。
 	// イベントが存在しない場合は ErrEventNotFound を %w でラップして返す。
-	Cancel(ctx context.Context, eventID uuid.UUID) (cancelledAt time.Time, err error)
+	CancelWithNotification(ctx context.Context, eventID uuid.UUID, subject, body string) (cancelledAt time.Time, err error)
 }
 
 // eventPostgres は EventRepository の PostgreSQL 実装。
@@ -537,23 +546,55 @@ func (r *eventPostgres) Exists(ctx context.Context, eventID uuid.UUID) (bool, er
 	return true, nil
 }
 
-// Cancel は指定したイベントを取りやめ状態にする。
-// 既にキャンセル済みの場合も冪等に成功する。
-// イベントが存在しない場合は ErrEventNotFound を %w でラップして返す。
-func (r *eventPostgres) Cancel(ctx context.Context, eventID uuid.UUID) (time.Time, error) {
-	const query = `
+// CancelWithNotification は指定したイベントを取りやめ状態にし、同一トランザクション内で
+// 参加者への通知メールを event_notification_outbox に1件予約する。
+//
+// 非冪等: cancelled_at が NULL の行のみを UPDATE 対象にすることで、既にキャンセル済みの
+// イベントに対する2回目以降の呼び出しを検出する。UPDATE が0行の場合、イベント自体の
+// 存在有無を再確認し、存在しなければ ErrEventNotFound、存在すれば（＝既にキャンセル済み）
+// ErrEventAlreadyCancelled を返す。
+func (r *eventPostgres) CancelWithNotification(ctx context.Context, eventID uuid.UUID, subject, body string) (time.Time, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	const updateQuery = `
 		UPDATE events
-		SET cancelled_at = COALESCE(cancelled_at, now()),
+		SET cancelled_at = now(),
 		    updated_at = now()
-		WHERE id = $1
+		WHERE id = $1 AND cancelled_at IS NULL
 		RETURNING cancelled_at`
 
 	var cancelledAt time.Time
-	if err := r.db.QueryRowContext(ctx, query, eventID.String()).Scan(&cancelledAt); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+	err = tx.QueryRowContext(ctx, updateQuery, eventID.String()).Scan(&cancelledAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		// UPDATE が0行 → イベントが存在しないか、既にキャンセル済みのいずれか。
+		const selectQuery = `SELECT cancelled_at FROM events WHERE id = $1`
+		var existingCancelledAt sql.NullTime
+		selectErr := tx.QueryRowContext(ctx, selectQuery, eventID.String()).Scan(&existingCancelledAt)
+		if errors.Is(selectErr, sql.ErrNoRows) {
 			return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
 		}
+		if selectErr != nil {
+			return time.Time{}, fmt.Errorf("check event cancelled: %w", selectErr)
+		}
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventAlreadyCancelled)
+	}
+	if err != nil {
 		return time.Time{}, fmt.Errorf("cancel event: %w", err)
+	}
+
+	const insertOutbox = `
+		INSERT INTO event_notification_outbox (event_id, subject, body)
+		VALUES ($1, $2, $3)`
+	if _, err := tx.ExecContext(ctx, insertOutbox, eventID.String(), subject, body); err != nil {
+		return time.Time{}, fmt.Errorf("insert notification outbox: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return time.Time{}, fmt.Errorf("commit transaction: %w", err)
 	}
 	return cancelledAt, nil
 }

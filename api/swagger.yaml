@@ -1,5 +1,22 @@
 basePath: /
 definitions:
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventRequest:
+    description: イベント取りやめ確定時に参加者へ送る通知の件名・本文。同一トランザクションで outbox に予約され、バックグラウンドワーカーが参加者へ個別送信する。
+    properties:
+      body:
+        description: Body は参加者へ送る通知メールの本文（必須・10,000文字以内）。
+        example: 台風接近に伴い、安全のため本イベントは中止とさせていただきます。
+        maxLength: 10000
+        type: string
+      subject:
+        description: Subject は参加者へ送る通知メールの件名（必須・255文字以内）。
+        example: 【重要】イベント開催中止のお知らせ
+        maxLength: 255
+        type: string
+    required:
+    - body
+    - subject
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventResponse:
     properties:
       cancelledAt:
@@ -10,6 +27,22 @@ definitions:
         description: ID はキャンセルしたイベントの UUID。
         example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
         type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody:
+    properties:
+      code:
+        description: Code は機械可読なエラーコード。
+        example: conflict
+        type: string
+      message:
+        description: Message は人間向けのエラーメッセージ。
+        example: 既に参加しています
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody'
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest:
     description: イベント投稿に必要な情報。
@@ -1012,13 +1045,22 @@ paths:
       - application/json
       description: |-
         イベント主催者がイベントを開催取りやめにする。主催者のみ実行可能。
-        既にキャンセル済みの場合も冪等に成功する。
+        非冪等: 参加者へ送る通知メールの件名・本文を必須で受け取り、
+        キャンセル確定と同一トランザクションで通知を outbox に予約する
+        （バックグラウンドワーカーが個別送信する）。既にキャンセル済みの
+        イベントに対する呼び出しは 409 を返す。
       parameters:
       - description: イベントID
         in: path
         name: id
         required: true
         type: string
+      - description: キャンセル通知リクエスト
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventRequest'
       produces:
       - application/json
       responses:
@@ -1038,6 +1080,10 @@ paths:
           description: Forbidden
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ForbiddenErrorResponse'
+        "409":
+          description: 'already_cancelled: このイベントは既にキャンセルされています'
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorResponse'
         "500":
           description: Internal Server Error
           schema:

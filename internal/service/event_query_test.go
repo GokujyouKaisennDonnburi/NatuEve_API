@@ -47,9 +47,11 @@ type stubEventRepository struct {
 	// Exists 用: 返却値。
 	exists    bool
 	existsErr error
-	// Cancel 用: 返却値・エラー。
-	cancelResult time.Time
-	cancelErr    error
+	// CancelWithNotification 用: 返却値・エラー・受け取った引数の記録。
+	cancelResult     time.Time
+	cancelErr        error
+	gotCancelSubject string
+	gotCancelBody    string
 }
 
 func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
@@ -95,7 +97,9 @@ func (s *stubEventRepository) Exists(_ context.Context, _ uuid.UUID) (bool, erro
 	return s.exists, s.existsErr
 }
 
-func (s *stubEventRepository) Cancel(_ context.Context, _ uuid.UUID) (time.Time, error) {
+func (s *stubEventRepository) CancelWithNotification(_ context.Context, _ uuid.UUID, subject, body string) (time.Time, error) {
+	s.gotCancelSubject = subject
+	s.gotCancelBody = body
 	return s.cancelResult, s.cancelErr
 }
 

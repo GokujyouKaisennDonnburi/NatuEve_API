@@ -82,7 +82,7 @@ func (s *EventNotificationService) SendBulk(
 	profileID, eventID string,
 	req model.SendEventNotificationRequest,
 ) (model.SendEventNotificationResponse, error) {
-	subject, body, err := validateSendEventNotificationRequest(req)
+	subject, body, err := validateNotificationContent(req.Subject, req.Body)
 	if err != nil {
 		return model.SendEventNotificationResponse{}, err
 	}
@@ -126,10 +126,13 @@ func (s *EventNotificationService) SendBulk(
 	}, nil
 }
 
-// validateSendEventNotificationRequest はリクエストを検証し、trim 済みの subject/body を返す。
+// validateNotificationContent は通知メールの件名・本文を検証し、trim 済みの値を返す。
 // 問題があれば *ValidationError を返す。
-func validateSendEventNotificationRequest(req model.SendEventNotificationRequest) (subject, body string, err error) {
-	subject = strings.TrimSpace(req.Subject)
+//
+// イベント参加者への一斉送信（SendBulk）とイベントキャンセル通知（EventCommandService.Cancel）
+// の両方から呼ばれる共通ロジック。検証仕様・エラーメッセージはどちらの呼び出しでも同一。
+func validateNotificationContent(rawSubject, rawBody string) (subject, body string, err error) {
+	subject = strings.TrimSpace(rawSubject)
 	if subject == "" {
 		return "", "", &ValidationError{Message: "件名は必須です"}
 	}
@@ -137,7 +140,7 @@ func validateSendEventNotificationRequest(req model.SendEventNotificationRequest
 		return "", "", &ValidationError{Message: fmt.Sprintf("件名は%d文字以内で入力してください", notificationSubjectMaxLen)}
 	}
 
-	body = strings.TrimSpace(req.Body)
+	body = strings.TrimSpace(rawBody)
 	if body == "" {
 		return "", "", &ValidationError{Message: "本文は必須です"}
 	}

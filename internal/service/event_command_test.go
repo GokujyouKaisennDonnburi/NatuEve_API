@@ -437,7 +437,7 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 				createResult: dummyResp,
 				createErr:    tt.stubErr,
 			}
-			svc := NewEventCommandService(stub, nil)
+			svc := NewEventCommandService(stub, nil, nil)
 
 			got, err := svc.Create(context.Background(), profileID, tt.req)
 
@@ -523,7 +523,7 @@ func TestEventCommandServiceCreate_OwnershipCheck(t *testing.T) {
 			repoStub := &stubEventRepository{
 				createResult: dummyResp,
 			}
-			svc := NewEventCommandService(repoStub, store)
+			svc := NewEventCommandService(repoStub, store, nil)
 
 			req := validRequest()
 			req.ImageObjectKeys = []string{tt.imageObjectKey}
@@ -570,7 +570,7 @@ func TestEventCommandServiceCreate_SizeLimit(t *testing.T) {
 				getData:         jpegData,
 			}
 			repoStub := &stubEventRepository{createResult: dummyResp}
-			svc := NewEventCommandService(repoStub, store)
+			svc := NewEventCommandService(repoStub, store, nil)
 
 			req := validRequest()
 			req.ImageObjectKeys = []string{validKey}
@@ -598,7 +598,7 @@ func TestEventCommandServiceCreate_MagicNumberMismatch(t *testing.T) {
 		getData:         pngData,
 	}
 	repoStub := &stubEventRepository{createResult: dummyResp}
-	svc := NewEventCommandService(repoStub, store)
+	svc := NewEventCommandService(repoStub, store, nil)
 
 	req := validRequest()
 	req.ImageObjectKeys = []string{validKey}
@@ -618,7 +618,7 @@ func TestEventCommandServiceCreate_EXIFStrip(t *testing.T) {
 		getData:         jpegData,
 	}
 	repoStub := &stubEventRepository{createResult: dummyResp}
-	svc := NewEventCommandService(repoStub, store)
+	svc := NewEventCommandService(repoStub, store, nil)
 
 	req := validRequest()
 	req.ImageObjectKeys = []string{validKey}
@@ -650,7 +650,7 @@ func TestEventCommandServiceCreate_CompensationDelete(t *testing.T) {
 	repoStub := &stubEventRepository{
 		createErr: errors.New("db error"),
 	}
-	svc := NewEventCommandService(repoStub, store)
+	svc := NewEventCommandService(repoStub, store, nil)
 
 	req := validRequest()
 	req.ImageObjectKeys = []string{validKey}
@@ -675,13 +675,21 @@ func TestEventCommandServiceCreate_CompensationDelete(t *testing.T) {
 func TestEventCommandServiceCreate_StoreNilWithKeys(t *testing.T) {
 	repoStub := &stubEventRepository{}
 	// store=nil のまま画像キーを渡す → ValidationError
-	svc := NewEventCommandService(repoStub, nil)
+	svc := NewEventCommandService(repoStub, nil, nil)
 
 	req := validRequest()
 	req.ImageObjectKeys = []string{"natueve/tmp/" + testProfileID + "/uuid.jpg"}
 
 	_, err := svc.Create(context.Background(), testProfileID, req)
 	_ = assertValidationError(t, err)
+}
+
+// validCancelEventRequest は正常系テスト用の最小限の有効なキャンセルリクエスト。
+func validCancelEventRequest() model.CancelEventRequest {
+	return model.CancelEventRequest{
+		Subject: "【重要】イベント開催中止のお知らせ",
+		Body:    "台風接近に伴い、安全のため本イベントは中止とさせていただきます。",
+	}
 }
 
 func TestEventCommandServiceCancel(t *testing.T) {
@@ -694,23 +702,46 @@ func TestEventCommandServiceCancel(t *testing.T) {
 		name             string
 		profileID        string
 		eventID          string
+		req              model.CancelEventRequest
 		repo             *stubEventRepository
 		wantForbiddenErr bool
 		wantValErr       bool
 		wantErr          bool
+		wantErrIs        error
 		wantCancelledAt  time.Time
 	}{
 		{
 			name:            "正常: 主催者がキャンセル",
 			profileID:       ownerUID.String(),
 			eventID:         eventUID.String(),
+			req:             validCancelEventRequest(),
 			repo:            &stubEventRepository{ownerProfileID: ownerUID.String(), cancelResult: cancelledAt},
 			wantCancelledAt: cancelledAt,
+		},
+		{
+			name:       "異常: subject が空の場合 ValidationError",
+			profileID:  ownerUID.String(),
+			eventID:    eventUID.String(),
+			req:        model.CancelEventRequest{Subject: "", Body: "本文"},
+			repo:       &stubEventRepository{ownerProfileID: ownerUID.String(), cancelResult: cancelledAt},
+			wantValErr: true,
+		},
+		{
+			name:      "異常: body が上限文字数を超える場合 ValidationError",
+			profileID: ownerUID.String(),
+			eventID:   eventUID.String(),
+			req: model.CancelEventRequest{
+				Subject: "件名",
+				Body:    strings.Repeat("あ", 10001),
+			},
+			repo:       &stubEventRepository{ownerProfileID: ownerUID.String(), cancelResult: cancelledAt},
+			wantValErr: true,
 		},
 		{
 			name:             "異常: 主催者以外 → ForbiddenError",
 			profileID:        otherUID.String(),
 			eventID:          eventUID.String(),
+			req:              validCancelEventRequest(),
 			repo:             &stubEventRepository{ownerProfileID: ownerUID.String()},
 			wantForbiddenErr: true,
 		},
@@ -718,6 +749,7 @@ func TestEventCommandServiceCancel(t *testing.T) {
 			name:       "異常: eventID が不正な形式 → ValidationError",
 			profileID:  ownerUID.String(),
 			eventID:    "not-a-uuid",
+			req:        validCancelEventRequest(),
 			repo:       &stubEventRepository{ownerProfileID: ownerUID.String()},
 			wantValErr: true,
 		},
@@ -725,13 +757,27 @@ func TestEventCommandServiceCancel(t *testing.T) {
 			name:       "異常: イベントが存在しない → ValidationError",
 			profileID:  ownerUID.String(),
 			eventID:    eventUID.String(),
+			req:        validCancelEventRequest(),
 			repo:       &stubEventRepository{ownerProfileIDErr: fmt.Errorf("event %s: %w", eventUID, repository.ErrEventNotFound)},
 			wantValErr: true,
 		},
 		{
-			name:      "異常: repo.Cancel が想定外のエラー → エラー伝播",
+			name:      "異常: 既にキャンセル済み → ErrEventAlreadyCancelled",
 			profileID: ownerUID.String(),
 			eventID:   eventUID.String(),
+			req:       validCancelEventRequest(),
+			repo: &stubEventRepository{
+				ownerProfileID: ownerUID.String(),
+				cancelErr:      fmt.Errorf("event %s: %w", eventUID, repository.ErrEventAlreadyCancelled),
+			},
+			wantErr:   true,
+			wantErrIs: repository.ErrEventAlreadyCancelled,
+		},
+		{
+			name:      "異常: repo.CancelWithNotification が想定外のエラー → エラー伝播",
+			profileID: ownerUID.String(),
+			eventID:   eventUID.String(),
+			req:       validCancelEventRequest(),
 			repo:      &stubEventRepository{ownerProfileID: ownerUID.String(), cancelErr: errors.New("db error")},
 			wantErr:   true,
 		},
@@ -739,20 +785,33 @@ func TestEventCommandServiceCancel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventCommandService(tt.repo, nil)
+			var wakeCalled bool
+			svc := NewEventCommandService(tt.repo, nil, func() { wakeCalled = true })
 
-			resp, err := svc.Cancel(context.Background(), tt.profileID, tt.eventID)
+			resp, err := svc.Cancel(context.Background(), tt.profileID, tt.eventID, tt.req)
 
 			switch {
 			case tt.wantForbiddenErr:
 				_ = assertForbiddenError(t, err)
+				if wakeCalled {
+					t.Error("エラー時に wake が呼ばれるべきではない")
+				}
 				return
 			case tt.wantValErr:
 				_ = assertValidationError(t, err)
+				if wakeCalled {
+					t.Error("エラー時に wake が呼ばれるべきではない")
+				}
 				return
 			case tt.wantErr:
 				if err == nil {
 					t.Fatal("エラーを期待したが nil だった")
+				}
+				if tt.wantErrIs != nil && !errors.Is(err, tt.wantErrIs) {
+					t.Errorf("errors.Is(err, %v) = false, err = %v", tt.wantErrIs, err)
+				}
+				if wakeCalled {
+					t.Error("エラー時に wake が呼ばれるべきではない")
 				}
 				return
 			}
@@ -763,6 +822,9 @@ func TestEventCommandServiceCancel(t *testing.T) {
 			}
 			if !resp.CancelledAt.Equal(tt.wantCancelledAt) {
 				t.Errorf("CancelledAt: got %v, want %v", resp.CancelledAt, tt.wantCancelledAt)
+			}
+			if !wakeCalled {
+				t.Error("正常系では wake が呼ばれるべき")
 			}
 		})
 	}
