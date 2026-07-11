@@ -101,6 +101,9 @@ func (s *EventCommandService) Cancel(ctx context.Context, profileID, eventID str
 			}
 			return model.CancelEventResponse{}, fmt.Errorf("resolve default cancel body: %w", err)
 		}
+		// title は投稿時検証と events.title の VARCHAR(255) で 255 文字以内に
+		// 制限されるため、既定本文（接頭辞 + title）は notificationBodyMaxLen
+		// (10,000) を超えない。よって補完後の本文長の再検証は不要。
 		body = defaultCancelBodyPrefix + title
 	}
 
