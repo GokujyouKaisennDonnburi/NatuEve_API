@@ -81,8 +81,17 @@ func run() error {
 
 	// イベントキャンセル通知の送信ワーカー（Resend 設定が揃っている場合のみ非 nil）を
 	// 起動する。ctx のキャンセルで自然に停止する。
+	// workerDone は Run の終了を待ち合わせるためのチャネル。defer conn.Close() より前に
+	// ワーカーの終了（＝後始末の DB 更新の完了）を待つことで、Close 済みの接続に対する
+	// クエリ実行を防ぐ。
+	workerDone := make(chan struct{})
 	if notificationWorker != nil {
-		go notificationWorker.Run(ctx)
+		go func() {
+			defer close(workerDone)
+			notificationWorker.Run(ctx)
+		}()
+	} else {
+		close(workerDone)
 	}
 
 	srv := &http.Server{
@@ -117,5 +126,15 @@ func run() error {
 		return fmt.Errorf("graceful shutdown: %w", err)
 	}
 	slog.Info("server stopped")
+
+	// 通知ワーカーの終了を待つ。Run は ctx.Done で新規着手を止めて速やかに返る設計
+	// のため、通常は即座に完了する。defer conn.Close() より前にここで待つことで、
+	// ワーカーが後始末の DB 更新（MarkSent 等）を完了してから接続を閉じる。
+	select {
+	case <-workerDone:
+	case <-time.After(10 * time.Second):
+		slog.Warn("notification worker did not stop within timeout")
+	}
+
 	return nil
 }

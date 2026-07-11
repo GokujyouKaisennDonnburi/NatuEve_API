@@ -74,6 +74,10 @@ func (w *NotificationOutboxWorker) Wake() {
 
 // Run はワーカーのメインループを起動する。ctx がキャンセルされるまで動き続ける
 // （graceful shutdown はシグナルの ctx を渡すことで自然に停止する）。
+//
+// ctx がキャンセルされると、新しい outbox 行への着手を止めて速やかに return する。
+// ただし着手済みの1件については、送信結果の後始末（MarkSent 等）を
+// context.WithoutCancel で完了させてから戻る（processOne 参照）。
 func (w *NotificationOutboxWorker) Run(ctx context.Context) {
 	ticker := time.NewTicker(outboxPollInterval)
 	defer ticker.Stop()
@@ -95,6 +99,10 @@ func (w *NotificationOutboxWorker) Run(ctx context.Context) {
 
 // processDue は送信対象の outbox 行を取得し、1件ずつ処理する。
 // 個々の行の失敗は他の行の処理を止めない（slog に記録して次の行へ進む）。
+//
+// シャットダウン中（ctx がキャンセル済み）は、行の取得後であっても新しい行の処理には
+// 着手しない。着手中の1件はキャンセルされても pending のまま残り、次回起動時に
+// at-least-once で再送されるため安全に打ち切れる。
 func (w *NotificationOutboxWorker) processDue(ctx context.Context) {
 	due, err := w.outboxRepo.ListDue(ctx, time.Now(), outboxBatchSize)
 	if err != nil {
@@ -103,6 +111,10 @@ func (w *NotificationOutboxWorker) processDue(ctx context.Context) {
 	}
 
 	for _, item := range due {
+		if ctx.Err() != nil {
+			// シャットダウン中。新しい行には着手せず、pending のまま次回起動に委ねる。
+			return
+		}
 		w.processOne(ctx, item)
 	}
 }
@@ -112,7 +124,19 @@ func (w *NotificationOutboxWorker) processDue(ctx context.Context) {
 // 参加者が0件の場合は送信不要のため sent 扱いにする。送信に成功すれば sent、
 // 失敗すれば試行回数に応じて retry（次回試行日時を予約）または failed（最大試行回数
 // 到達）を記録する。
+//
+// 宛先取得（ListRecipients）とメール送信（SendBatch）は ctx に従い、シャットダウンで
+// 中断されてよい（中断された行は pending のまま残り、次回起動で再送される）。
+// 一方、送信結果の後始末（MarkSent/MarkRetry/MarkFailed）は markCtx
+// （context.WithoutCancel(ctx)）で行う。SendBatch 成功後に ctx がキャンセルされていても
+// MarkSent を確実に完了させないと、「送信成功したのに pending のまま残り、次回起動で
+// 重複送信される」事故につながるため。
 func (w *NotificationOutboxWorker) processOne(ctx context.Context, item model.EventNotificationOutbox) {
+	// SendBatch 成功後や失敗時の後始末は、ctx がキャンセルされていても完了させる。
+	// context.WithoutCancel は親の値（slog 用のコンテキスト値等）は引き継ぎつつ、
+	// キャンセル・デッドラインだけを外す。
+	markCtx := context.WithoutCancel(ctx)
+
 	recipients, err := w.joinRepo.ListRecipients(ctx, item.EventID)
 	if err != nil {
 		slog.Error("outbox の宛先取得に失敗しました",
@@ -123,7 +147,7 @@ func (w *NotificationOutboxWorker) processOne(ctx context.Context, item model.Ev
 	}
 
 	if len(recipients) == 0 {
-		if err := w.outboxRepo.MarkSent(ctx, item.ID); err != nil {
+		if err := w.outboxRepo.MarkSent(markCtx, item.ID); err != nil {
 			slog.Error("outbox の sent 更新に失敗しました",
 				slog.String("outbox_id", item.ID.String()),
 				slog.Any("error", err),
@@ -142,11 +166,11 @@ func (w *NotificationOutboxWorker) processOne(ctx context.Context, item model.Ev
 	}
 
 	if err := w.mailer.SendBatch(ctx, emails); err != nil {
-		w.handleSendFailure(ctx, item, err)
+		w.handleSendFailure(markCtx, item, err)
 		return
 	}
 
-	if err := w.outboxRepo.MarkSent(ctx, item.ID); err != nil {
+	if err := w.outboxRepo.MarkSent(markCtx, item.ID); err != nil {
 		slog.Error("outbox の sent 更新に失敗しました",
 			slog.String("outbox_id", item.ID.String()),
 			slog.Any("error", err),
@@ -157,6 +181,9 @@ func (w *NotificationOutboxWorker) processOne(ctx context.Context, item model.Ev
 // handleSendFailure は送信失敗時の後処理を行う。
 // 更新後の試行回数が outboxMaxAttempts 以上なら failed、未満なら
 // 指数バックオフで次回試行日時を予約した retry を記録する。
+//
+// ctx には markCtx（context.WithoutCancel 済み）を渡すこと。シャットダウン中の
+// 送信失敗であっても、後始末（MarkRetry/MarkFailed）は完了させる必要があるため。
 func (w *NotificationOutboxWorker) handleSendFailure(ctx context.Context, item model.EventNotificationOutbox, sendErr error) {
 	nextAttempts := item.Attempts + 1
 
