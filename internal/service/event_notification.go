@@ -127,10 +127,11 @@ func (s *EventNotificationService) SendBulk(
 }
 
 // validateNotificationContent は通知メールの件名・本文を検証し、trim 済みの値を返す。
-// 問題があれば *ValidationError を返す。
+// 問題があれば *ValidationError を返す。件名・本文とも必須（空文字は不可）。
 //
-// イベント参加者への一斉送信（SendBulk）とイベントキャンセル通知（EventCommandService.Cancel）
-// の両方から呼ばれる共通ロジック。検証仕様・エラーメッセージはどちらの呼び出しでも同一。
+// イベント参加者への一斉送信（SendBulk）から呼ばれる。イベントキャンセル通知
+// （EventCommandService.Cancel）は件名・本文が任意のため、代わりに
+// validateOptionalNotificationContent を使う。
 func validateNotificationContent(rawSubject, rawBody string) (subject, body string, err error) {
 	subject = strings.TrimSpace(rawSubject)
 	if subject == "" {
@@ -144,6 +145,26 @@ func validateNotificationContent(rawSubject, rawBody string) (subject, body stri
 	if body == "" {
 		return "", "", &ValidationError{Message: "本文は必須です"}
 	}
+	if len([]rune(body)) > notificationBodyMaxLen {
+		return "", "", &ValidationError{Message: fmt.Sprintf("本文は%d文字以内で入力してください", notificationBodyMaxLen)}
+	}
+
+	return subject, body, nil
+}
+
+// validateOptionalNotificationContent は通知メールの件名・本文を検証し、trim 済みの値を返す。
+// validateNotificationContent と異なり、空文字（未指定）はエラーとせずそのまま許容する。
+// 指定されている場合のみ最大文字数を検証し、超過していれば *ValidationError を返す。
+//
+// イベントキャンセル通知（EventCommandService.Cancel）で使う。空の場合の既定文面への
+// 補完はこの関数の責務ではなく、呼び出し元（EventCommandService.Cancel）が行う。
+func validateOptionalNotificationContent(rawSubject, rawBody string) (subject, body string, err error) {
+	subject = strings.TrimSpace(rawSubject)
+	if len([]rune(subject)) > notificationSubjectMaxLen {
+		return "", "", &ValidationError{Message: fmt.Sprintf("件名は%d文字以内で入力してください", notificationSubjectMaxLen)}
+	}
+
+	body = strings.TrimSpace(rawBody)
 	if len([]rune(body)) > notificationBodyMaxLen {
 		return "", "", &ValidationError{Message: fmt.Sprintf("本文は%d文字以内で入力してください", notificationBodyMaxLen)}
 	}

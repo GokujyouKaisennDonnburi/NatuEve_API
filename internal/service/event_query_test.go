@@ -44,6 +44,10 @@ type stubEventRepository struct {
 	// GetOwnerProfileID 用: 返却値。
 	ownerProfileID    string
 	ownerProfileIDErr error
+	// GetTitle 用: 返却値・呼び出し有無の記録。
+	title          string
+	titleErr       error
+	getTitleCalled bool
 	// Exists 用: 返却値。
 	exists    bool
 	existsErr error
@@ -87,6 +91,11 @@ func (s *stubEventRepository) Create(_ context.Context, e *model.NewEvent) (mode
 
 func (s *stubEventRepository) GetOwnerProfileID(_ context.Context, _ string) (string, error) {
 	return s.ownerProfileID, s.ownerProfileIDErr
+}
+
+func (s *stubEventRepository) GetTitle(_ context.Context, _ string) (string, error) {
+	s.getTitleCalled = true
+	return s.title, s.titleErr
 }
 
 func (s *stubEventRepository) GetByID(_ context.Context, _ string) (*model.EventResponse, error) {

@@ -709,20 +709,73 @@ func TestEventCommandServiceCancel(t *testing.T) {
 		wantErr          bool
 		wantErrIs        error
 		wantCancelledAt  time.Time
+		// wantSubject/wantBody: repo.CancelWithNotification に渡った最終的な subject/body。
+		wantSubject string
+		wantBody    string
+		// wantTitleCalled: repo.GetTitle が呼ばれたかどうか（body 補完が必要な場合のみ true）。
+		wantTitleCalled bool
 	}{
 		{
-			name:            "正常: 主催者がキャンセル",
+			name:            "正常: 主催者がキャンセル（subject/body 両方指定）",
 			profileID:       ownerUID.String(),
 			eventID:         eventUID.String(),
 			req:             validCancelEventRequest(),
 			repo:            &stubEventRepository{ownerProfileID: ownerUID.String(), cancelResult: cancelledAt},
 			wantCancelledAt: cancelledAt,
+			wantSubject:     "【重要】イベント開催中止のお知らせ",
+			wantBody:        "台風接近に伴い、安全のため本イベントは中止とさせていただきます。",
+			wantTitleCalled: false,
 		},
 		{
-			name:       "異常: subject が空の場合 ValidationError",
-			profileID:  ownerUID.String(),
-			eventID:    eventUID.String(),
-			req:        model.CancelEventRequest{Subject: "", Body: "本文"},
+			name:      "正常: subject のみ空 → 既定件名が使われ、本文は指定値",
+			profileID: ownerUID.String(),
+			eventID:   eventUID.String(),
+			req:       model.CancelEventRequest{Subject: "", Body: "本文"},
+			repo:      &stubEventRepository{ownerProfileID: ownerUID.String(), cancelResult: cancelledAt},
+
+			wantCancelledAt: cancelledAt,
+			wantSubject:     defaultCancelSubject,
+			wantBody:        "本文",
+			wantTitleCalled: false,
+		},
+		{
+			name:      "正常: body のみ空 → 件名は指定値、本文が既定文面（GetTitle が呼ばれる）",
+			profileID: ownerUID.String(),
+			eventID:   eventUID.String(),
+			req:       model.CancelEventRequest{Subject: "件名", Body: ""},
+			repo: &stubEventRepository{
+				ownerProfileID: ownerUID.String(),
+				cancelResult:   cancelledAt,
+				title:          "サクラ観察会",
+			},
+			wantCancelledAt: cancelledAt,
+			wantSubject:     "件名",
+			wantBody:        defaultCancelBodyPrefix + "サクラ観察会",
+			wantTitleCalled: true,
+		},
+		{
+			name:      "正常: subject/body 両方空 → 既定件名＋既定本文（GetTitle が呼ばれる）",
+			profileID: ownerUID.String(),
+			eventID:   eventUID.String(),
+			req:       model.CancelEventRequest{Subject: "", Body: ""},
+			repo: &stubEventRepository{
+				ownerProfileID: ownerUID.String(),
+				cancelResult:   cancelledAt,
+				title:          "サクラ観察会",
+			},
+			wantCancelledAt: cancelledAt,
+			wantSubject:     defaultCancelSubject,
+			wantBody:        defaultCancelBodyPrefix + "サクラ観察会",
+			wantTitleCalled: true,
+		},
+		{
+			name:      "異常: subject が上限文字数を超える場合 ValidationError",
+			profileID: ownerUID.String(),
+			eventID:   eventUID.String(),
+			req: model.CancelEventRequest{
+				Subject: strings.Repeat("あ", 256),
+				Body:    "本文",
+			},
 			repo:       &stubEventRepository{ownerProfileID: ownerUID.String(), cancelResult: cancelledAt},
 			wantValErr: true,
 		},
@@ -760,6 +813,28 @@ func TestEventCommandServiceCancel(t *testing.T) {
 			req:        validCancelEventRequest(),
 			repo:       &stubEventRepository{ownerProfileIDErr: fmt.Errorf("event %s: %w", eventUID, repository.ErrEventNotFound)},
 			wantValErr: true,
+		},
+		{
+			name:      "異常: body 省略時に GetTitle がイベント不存在を返す → ValidationError",
+			profileID: ownerUID.String(),
+			eventID:   eventUID.String(),
+			req:       model.CancelEventRequest{Subject: "件名", Body: ""},
+			repo: &stubEventRepository{
+				ownerProfileID: ownerUID.String(),
+				titleErr:       fmt.Errorf("event %s: %w", eventUID, repository.ErrEventNotFound),
+			},
+			wantValErr: true,
+		},
+		{
+			name:      "異常: body 省略時に GetTitle が想定外のエラー → エラー伝播",
+			profileID: ownerUID.String(),
+			eventID:   eventUID.String(),
+			req:       model.CancelEventRequest{Subject: "件名", Body: ""},
+			repo: &stubEventRepository{
+				ownerProfileID: ownerUID.String(),
+				titleErr:       errors.New("db error"),
+			},
+			wantErr: true,
 		},
 		{
 			name:      "異常: 既にキャンセル済み → ErrEventAlreadyCancelled",
@@ -822,6 +897,15 @@ func TestEventCommandServiceCancel(t *testing.T) {
 			}
 			if !resp.CancelledAt.Equal(tt.wantCancelledAt) {
 				t.Errorf("CancelledAt: got %v, want %v", resp.CancelledAt, tt.wantCancelledAt)
+			}
+			if tt.repo.gotCancelSubject != tt.wantSubject {
+				t.Errorf("CancelWithNotification に渡った subject: got %q, want %q", tt.repo.gotCancelSubject, tt.wantSubject)
+			}
+			if tt.repo.gotCancelBody != tt.wantBody {
+				t.Errorf("CancelWithNotification に渡った body: got %q, want %q", tt.repo.gotCancelBody, tt.wantBody)
+			}
+			if tt.repo.getTitleCalled != tt.wantTitleCalled {
+				t.Errorf("GetTitle 呼び出し有無: got %v, want %v", tt.repo.getTitleCalled, tt.wantTitleCalled)
 			}
 			if !wakeCalled {
 				t.Error("正常系では wake が呼ばれるべき")

@@ -59,8 +59,19 @@ func NewEventCommandService(repo repository.EventRepository, store ObjectStore, 
 	return &EventCommandService{repo: repo, store: store, wake: wake}
 }
 
+// defaultCancelSubject はキャンセル通知の件名省略時に補う既定件名。
+const defaultCancelSubject = "【重要】イベントは主催者によりキャンセルされました"
+
+// defaultCancelBodyPrefix はキャンセル通知の本文省略時に補う既定本文の接頭辞。
+// 実際の本文は defaultCancelBodyPrefix + イベントタイトル。
+const defaultCancelBodyPrefix = "対象イベント："
+
 // Cancel はイベント主催者がイベントを取りやめ状態にし、参加者への通知メールを
 // event_notification_outbox に予約する（Transactional Outbox パターン）。
+//
+// 通知の件名・本文は任意。省略（空文字）時はサーバーが既定文面を補う
+// （件名は defaultCancelSubject、本文は "対象イベント：" + イベントタイトル）。
+// 省略時でも必ず outbox への予約は行われる。
 //
 // 検証エラーは *ValidationError、認可エラーは *ForbiddenError として返す。
 // 非冪等: 既にキャンセル済みのイベントに対する呼び出しは
@@ -69,7 +80,7 @@ func NewEventCommandService(repo repository.EventRepository, store ObjectStore, 
 // 予約成功時は、設定されていればワーカーを起床させる（送信を早める。無くても
 // ポーリングで拾われるため必須ではない）。
 func (s *EventCommandService) Cancel(ctx context.Context, profileID, eventID string, req model.CancelEventRequest) (model.CancelEventResponse, error) {
-	subject, body, err := validateNotificationContent(req.Subject, req.Body)
+	subject, body, err := validateOptionalNotificationContent(req.Subject, req.Body)
 	if err != nil {
 		return model.CancelEventResponse{}, err
 	}
@@ -77,6 +88,23 @@ func (s *EventCommandService) Cancel(ctx context.Context, profileID, eventID str
 	parsedEventID, err := requireEventOwner(ctx, s.repo, profileID, eventID)
 	if err != nil {
 		return model.CancelEventResponse{}, err
+	}
+
+	if subject == "" {
+		subject = defaultCancelSubject
+	}
+	if body == "" {
+		title, err := s.repo.GetTitle(ctx, parsedEventID.String())
+		if err != nil {
+			if errors.Is(err, repository.ErrEventNotFound) {
+				return model.CancelEventResponse{}, &ValidationError{Message: "指定されたイベントが存在しません"}
+			}
+			return model.CancelEventResponse{}, fmt.Errorf("resolve default cancel body: %w", err)
+		}
+		// title は投稿時検証と events.title の VARCHAR(255) で 255 文字以内に
+		// 制限されるため、既定本文（接頭辞 + title）は notificationBodyMaxLen
+		// (10,000) を超えない。よって補完後の本文長の再検証は不要。
+		body = defaultCancelBodyPrefix + title
 	}
 
 	cancelledAt, err := s.repo.CancelWithNotification(ctx, parsedEventID, subject, body)

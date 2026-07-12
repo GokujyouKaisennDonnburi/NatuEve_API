@@ -133,10 +133,10 @@ func (h *EventHandler) Create(c *gin.Context) {
 //
 //	@Summary		イベントの取りやめ（キャンセル）
 //	@Description	イベント主催者がイベントを開催取りやめにする。主催者のみ実行可能。
-//	@Description	非冪等: 参加者へ送る通知メールの件名・本文を必須で受け取り、
-//	@Description	キャンセル確定と同一トランザクションで通知を outbox に予約する
-//	@Description	（バックグラウンドワーカーが個別送信する）。既にキャンセル済みの
-//	@Description	イベントに対する呼び出しは 409 を返す。
+//	@Description	非冪等: 参加者へ送る通知メールの件名・本文は任意で受け取り、省略時は
+//	@Description	サーバーが既定文面を補ったうえで、キャンセル確定と同一トランザクションで
+//	@Description	通知を outbox に予約する（バックグラウンドワーカーが個別送信する）。
+//	@Description	既にキャンセル済みのイベントに対する呼び出しは 409 を返す。
 //	@Tags			event
 //	@Accept			json
 //	@Produce		json
