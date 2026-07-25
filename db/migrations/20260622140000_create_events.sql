@@ -6,6 +6,7 @@ CREATE TABLE events (
     description TEXT,
     location VARCHAR(255),
     event_date TIMESTAMPTZ NOT NULL,
+    end_date TIMESTAMPTZ NOT NULL CHECK (end_date >= event_date),
 	capacity INTEGER,
 	external_url VARCHAR(255),
 	cancelled_at TIMESTAMPTZ,
