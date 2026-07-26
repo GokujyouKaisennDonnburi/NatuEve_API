@@ -73,9 +73,10 @@ func insertTestEvent(t *testing.T, db *sql.DB, profileID uuid.UUID) uuid.UUID {
 	t.Helper()
 
 	id := uuid.New()
+	eventDate := time.Now()
 	const insertEvent = `
-	INSERT INTO events(id, profile_id, title, event_date)
-	VALUES($1, $2, $3, $4)
+	INSERT INTO events(id, profile_id, title, event_date, end_date)
+	VALUES($1, $2, $3, $4, $5)
 	`
 	if _, err := db.ExecContext(
 		context.Background(),
@@ -83,7 +84,8 @@ func insertTestEvent(t *testing.T, db *sql.DB, profileID uuid.UUID) uuid.UUID {
 		id,
 		profileID,
 		"テストイベント",
-		time.Now(),
+		eventDate,
+		eventDate,
 	); err != nil {
 		t.Fatalf("insert test event: %v", err)
 	}

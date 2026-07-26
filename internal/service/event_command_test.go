@@ -228,6 +228,58 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 			wantValErr: true,
 		},
 		{
+			name: "異常: endDate が eventDate より前",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.EndDate = r.EventDate.Add(-1 * time.Hour)
+				return r
+			}(),
+			wantValErr: true,
+		},
+		{
+			name: "正常: endDate 省略（ゼロ値）は eventDate で補完される",
+			req:  validRequest(),
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				want := validRequest().EventDate.UTC()
+				if !e.EndDate.Equal(want) {
+					t.Errorf("EndDate: got %v, want %v", e.EndDate, want)
+				}
+			},
+		},
+		{
+			name: "正常: endDate が eventDate と同値",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.EndDate = r.EventDate
+				return r
+			}(),
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				want := validRequest().EventDate.UTC()
+				if !e.EndDate.Equal(want) {
+					t.Errorf("EndDate: got %v, want %v", e.EndDate, want)
+				}
+			},
+		},
+		{
+			// EventDate（validRequest）は 2026-07-01T10:00:00Z。EndDate は JST 表記で
+			// 絶対時刻として EventDate 以降（2026-07-01T17:00:00Z 相当）になる値を指定する。
+			name: "正常: endDate 指定時はその値が UTC で伝播する",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.EndDate = time.Date(2026, 7, 2, 2, 0, 0, 0, time.FixedZone("JST", 9*60*60))
+				return r
+			}(),
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				want := time.Date(2026, 7, 2, 2, 0, 0, 0, time.FixedZone("JST", 9*60*60)).UTC()
+				if !e.EndDate.Equal(want) || e.EndDate.Location() != time.UTC {
+					t.Errorf("EndDate: got %v (loc=%v), want %v (UTC)", e.EndDate, e.EndDate.Location(), want)
+				}
+			},
+		},
+		{
 			name: "異常: costs が空配列",
 			req: func() model.CreateEventRequest {
 				r := validRequest()
