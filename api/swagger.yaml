@@ -346,6 +346,8 @@ definitions:
         type: string
       description:
         type: string
+      endDate:
+        type: string
       eventDate:
         type: string
       externalUrl:
@@ -411,6 +413,10 @@ definitions:
       createdAt:
         description: CreatedAt はレコード作成日時(RFC3339)。
         example: "2026-06-22T12:00:00Z"
+        type: string
+      endDate:
+        description: EndDate はイベント終了日時(RFC3339)（任意）。省略時は EventDate と同値を補完する。
+        example: "2026-07-01T17:00:00Z"
         type: string
       eventDate:
         description: EventDate はイベント開催日時(RFC3339)。
