@@ -232,6 +232,12 @@ func validateCreateEventRequest(req model.CreateEventRequest) error {
 		return &ValidationError{Message: "開催日時は必須です"}
 	}
 
+	// EndDate（任意）: ゼロ値は未指定扱い（buildNewEvent が EventDate で補完）。
+	// 指定時は EventDate 以降であることを検証する（DB の CHECK 違反による 500 を防ぐため）。
+	if !req.EndDate.IsZero() && req.EndDate.Before(req.EventDate) {
+		return &ValidationError{Message: "終了日時は開催日時以降を指定してください"}
+	}
+
 	// Costs: 1件以上必須。各 Category は trim 後必須・255文字以内、Cost は 0 以上。
 	if len(req.Costs) == 0 {
 		return &ValidationError{Message: "費用情報は1件以上入力してください"}
@@ -340,6 +346,12 @@ func buildNewEvent(profileID string, req model.CreateEventRequest) *model.NewEve
 	// TagIDs: trim した値で重複除去（順序保持）して詰め替える。
 	tagIDs := dedupeTagIDs(req.TagIDs)
 
+	// EndDate: 未指定（ゼロ値）なら EventDate と同値を補完する。
+	endDate := req.EndDate
+	if endDate.IsZero() {
+		endDate = req.EventDate
+	}
+
 	// ImageObjectKeys / PdfObjectKeys は呼び出し元が昇格済みキーをセットするため空で初期化。
 	return &model.NewEvent{
 		ProfileID:       profileID,
@@ -347,6 +359,7 @@ func buildNewEvent(profileID string, req model.CreateEventRequest) *model.NewEve
 		Description:     strings.TrimSpace(req.Description),
 		Location:        strings.TrimSpace(req.Location),
 		EventDate:       req.EventDate.UTC(),
+		EndDate:         endDate.UTC(),
 		Capacity:        req.Capacity,
 		ExternalURL:     strings.TrimSpace(req.ExternalURL),
 		Costs:           costs,

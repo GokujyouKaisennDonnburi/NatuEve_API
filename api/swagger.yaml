@@ -65,6 +65,10 @@ definitions:
         example: 春の桜を観察するイベントです。
         maxLength: 10000
         type: string
+      endDate:
+        description: EndDate はイベント終了日時(RFC3339)（任意）。省略時は EventDate と同値を補完する。
+        example: "2026-07-01T17:00:00Z"
+        type: string
       eventDate:
         description: EventDate はイベント開催日時(RFC3339)（必須）。
         example: "2026-07-01T10:00:00Z"

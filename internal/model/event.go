@@ -30,6 +30,8 @@ type CreateEventRequest struct {
 	Location string `json:"location" example:"東京都新宿御苑" validate:"required,max=255"`
 	// EventDate はイベント開催日時(RFC3339)（必須）。
 	EventDate time.Time `json:"eventDate" example:"2026-07-01T10:00:00Z" validate:"required"`
+	// EndDate はイベント終了日時(RFC3339)（任意）。省略時は EventDate と同値を補完する。
+	EndDate time.Time `json:"endDate" example:"2026-07-01T17:00:00Z" validate:"omitempty"`
 	// Capacity は定員（任意・0=未設定・正数=定員）。
 	Capacity int `json:"capacity,omitempty" example:"30" validate:"min=0"`
 	// ExternalURL は関連URLs（任意・255文字以内・http/https）。
@@ -53,11 +55,13 @@ type CreateEventRequest struct {
 
 // NewEvent は検証済みのイベントドメイン型。repository 層に渡す。
 type NewEvent struct {
-	ProfileID       string
-	Title           string
-	Description     string
-	Location        string
-	EventDate       time.Time
+	ProfileID   string
+	Title       string
+	Description string
+	Location    string
+	EventDate   time.Time
+	// EndDate は補完・検証済みの終了日時（必ず EventDate 以上）。
+	EndDate         time.Time
 	Capacity        int
 	ExternalURL     string
 	Costs           []EventCostInput
