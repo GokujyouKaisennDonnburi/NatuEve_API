@@ -93,28 +93,28 @@ func NewEventRepository(db *sql.DB) EventRepository {
 // ユーザー入力を直接 SQL に埋め込まず、ホワイトリストから固定文字列を選ぶ。
 var listSummariesQueries = map[string]string{
 	"event_date:asc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
+		SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
 		       p.id, p.display_name, p.avatar_url
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
 		ORDER BY e.event_date ASC, e.id
 		LIMIT $1 OFFSET $2`,
 	"event_date:desc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
+		SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
 		       p.id, p.display_name, p.avatar_url
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
 		ORDER BY e.event_date DESC, e.id
 		LIMIT $1 OFFSET $2`,
 	"created_at:asc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
+		SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
 		       p.id, p.display_name, p.avatar_url
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
 		ORDER BY e.created_at ASC, e.id
 		LIMIT $1 OFFSET $2`,
 	"created_at:desc": `
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
+		SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
 		       p.id, p.display_name, p.avatar_url
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
@@ -154,6 +154,7 @@ func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, l
 			&s.ID,
 			&s.Title,
 			&s.EventDate,
+			&s.EndDate,
 			&location,
 			&profileID,
 			&cancelledAt,
@@ -327,7 +328,7 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, 
 	// 一切文字列連結せず args 経由でのみ渡すため SQL インジェクションは発生しない。
 	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
 	query := fmt.Sprintf(`
-		SELECT e.id, e.title, e.event_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
+		SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
 		       p.id, p.display_name, p.avatar_url
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
@@ -357,6 +358,7 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, 
 			&s.ID,
 			&s.Title,
 			&s.EventDate,
+			&s.EndDate,
 			&location,
 			&profileID,
 			&cancelledAt,
@@ -621,7 +623,7 @@ func (r *eventPostgres) CancelWithNotification(ctx context.Context, eventID uuid
 
 func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventResponse, error) {
 	const query = `
-		SELECT		e.id, e.title, e.description, e.location, e.event_date,
+		SELECT		e.id, e.title, e.description, e.location, e.event_date, e.end_date,
 					e.capacity, e.external_url, e.cancelled_at, e.created_at, e.updated_at,
 					p.id, p.display_name, p.avatar_url
 		FROM 		events e
@@ -657,6 +659,7 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 		&desc,
 		&location,
 		&e.EventDate,
+		&e.EndDate,
 		&capacityNull,
 		&externalURL,
 		&cancelledAt,

@@ -1528,6 +1528,9 @@ const docTemplate = `{
                 "description": {
                     "type": "string"
                 },
+                "endDate": {
+                    "type": "string"
+                },
                 "eventDate": {
                     "type": "string"
                 },
@@ -1616,6 +1619,11 @@ const docTemplate = `{
                     "description": "CreatedAt はレコード作成日時(RFC3339)。",
                     "type": "string",
                     "example": "2026-06-22T12:00:00Z"
+                },
+                "endDate": {
+                    "description": "EndDate はイベント終了日時(RFC3339)（任意）。省略時は EventDate と同値を補完する。",
+                    "type": "string",
+                    "example": "2026-07-01T17:00:00Z"
                 },
                 "eventDate": {
                     "description": "EventDate はイベント開催日時(RFC3339)。",
