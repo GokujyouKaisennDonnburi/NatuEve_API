@@ -6,11 +6,13 @@ CREATE TABLE events (
     description TEXT,
     location VARCHAR(255),
     event_date TIMESTAMPTZ NOT NULL,
+    end_date TIMESTAMPTZ NOT NULL,
 	capacity INTEGER,
 	external_url VARCHAR(255),
 	cancelled_at TIMESTAMPTZ,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	CONSTRAINT events_end_date_after_event_date CHECK (end_date >= event_date)
 );
 -- +goose Down
 -- (ロールバック時はeventsを削除する)
