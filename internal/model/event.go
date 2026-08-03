@@ -96,6 +96,8 @@ type EventSummary struct {
 	Location string `json:"location" example:"東京都新宿御苑"`
 	// EventDate はイベント開催日時(RFC3339)。
 	EventDate time.Time `json:"eventDate" example:"2026-07-01T10:00:00Z"`
+	// EndDate はイベント終了日時(RFC3339)（任意）。省略時は EventDate と同値を補完する。
+	EndDate time.Time `json:"endDate" example:"2026-07-01T17:00:00Z"`
 	// CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。
 	CancelledAt *time.Time `json:"cancelledAt,omitempty" example:"2026-06-25T10:00:00Z"`
 	// CreatedAt はレコード作成日時(RFC3339)。
@@ -128,6 +130,7 @@ type EventResponse struct {
 	Description     string              `json:"description"`
 	Location        string              `json:"location"`
 	EventDate       time.Time           `json:"eventDate"`
+	EndDate         time.Time           `json:"endDate"`
 	Capacity        int                 `json:"capacity"`
 	ExternalURL     string              `json:"externalUrl"`
 	Costs           []EventCostResponse `json:"costs"`
