@@ -26,17 +26,22 @@ type stubEventRepository struct {
 	err        error
 	countErr   error
 	// SearchSummaries / CountSearchSummaries 呼び出し時に渡された引数を記録する。
-	gotSearchKeywords []string
-	gotSearchSort     string
-	gotSearchOrder    string
-	gotSearchLimit    int
-	gotSearchOffset   int
-	gotCountKeywords  []string
+	gotSearchFilter model.EventSearchFilter
+	gotSearchSort   string
+	gotSearchOrder  string
+	gotSearchLimit  int
+	gotSearchOffset int
+	gotCountFilter  model.EventSearchFilter
 	// SearchSummaries / CountSearchSummaries 返却値。
 	searchResults    []model.EventSummary
 	searchTotalCount int
 	searchErr        error
 	searchCountErr   error
+	// 各メソッドが実際に呼ばれたかどうかの記録（経路切り替え・未呼び出しの検証に使う）。
+	listCalled        bool
+	countCalled       bool
+	searchCalled      bool
+	countSearchCalled bool
 	// Create 用: 受け取った引数と返却値。
 	gotNewEvent  *model.NewEvent
 	createResult model.CreateEventResponse
@@ -59,6 +64,7 @@ type stubEventRepository struct {
 }
 
 func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
+	s.listCalled = true
 	s.gotSort = sort
 	s.gotOrder = order
 	s.gotLimit = limit
@@ -67,11 +73,13 @@ func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order strin
 }
 
 func (s *stubEventRepository) CountSummaries(_ context.Context) (int, error) {
+	s.countCalled = true
 	return s.totalCount, s.countErr
 }
 
-func (s *stubEventRepository) SearchSummaries(_ context.Context, keywords []string, sort, order string, limit, offset int) ([]model.EventSummary, error) {
-	s.gotSearchKeywords = keywords
+func (s *stubEventRepository) SearchSummaries(_ context.Context, filter model.EventSearchFilter, sort, order string, limit, offset int) ([]model.EventSummary, error) {
+	s.searchCalled = true
+	s.gotSearchFilter = filter
 	s.gotSearchSort = sort
 	s.gotSearchOrder = order
 	s.gotSearchLimit = limit
@@ -79,8 +87,9 @@ func (s *stubEventRepository) SearchSummaries(_ context.Context, keywords []stri
 	return s.searchResults, s.searchErr
 }
 
-func (s *stubEventRepository) CountSearchSummaries(_ context.Context, keywords []string) (int, error) {
-	s.gotCountKeywords = keywords
+func (s *stubEventRepository) CountSearchSummaries(_ context.Context, filter model.EventSearchFilter) (int, error) {
+	s.countSearchCalled = true
+	s.gotCountFilter = filter
 	return s.searchTotalCount, s.searchCountErr
 }
 
@@ -301,7 +310,7 @@ func TestEventQueryServiceList_Normalization(t *testing.T) {
 			}
 			svc := NewEventQueryService(stub, "")
 
-			got, err := svc.List(context.Background(), nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
+			got, err := svc.List(context.Background(), nil, nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
 
 			if tt.wantErr {
 				if err == nil {
@@ -483,7 +492,7 @@ func TestEventQueryServiceList_Search(t *testing.T) {
 			}
 			svc := NewEventQueryService(stub, "")
 
-			got, err := svc.List(context.Background(), tt.inputKeywords, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
+			got, err := svc.List(context.Background(), tt.inputKeywords, nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
 
 			if tt.wantErr {
 				if err == nil {
@@ -497,8 +506,8 @@ func TestEventQueryServiceList_Search(t *testing.T) {
 
 			if tt.wantSearchCalled {
 				// 検索経路: SearchSummaries/CountSearchSummaries に正規化後の値が渡ること。
-				if !reflect.DeepEqual(stub.gotSearchKeywords, tt.wantKeywords) {
-					t.Errorf("search keywords: got %#v, want %#v", stub.gotSearchKeywords, tt.wantKeywords)
+				if !reflect.DeepEqual(stub.gotSearchFilter.Keywords, tt.wantKeywords) {
+					t.Errorf("search keywords: got %#v, want %#v", stub.gotSearchFilter.Keywords, tt.wantKeywords)
 				}
 				if stub.gotSearchSort != tt.wantSort {
 					t.Errorf("search sort: got %q, want %q", stub.gotSearchSort, tt.wantSort)
@@ -512,8 +521,8 @@ func TestEventQueryServiceList_Search(t *testing.T) {
 				if stub.gotSearchOffset != tt.wantOffset {
 					t.Errorf("search offset: got %d, want %d", stub.gotSearchOffset, tt.wantOffset)
 				}
-				if !reflect.DeepEqual(stub.gotCountKeywords, tt.wantKeywords) {
-					t.Errorf("count search keywords: got %#v, want %#v", stub.gotCountKeywords, tt.wantKeywords)
+				if !reflect.DeepEqual(stub.gotCountFilter.Keywords, tt.wantKeywords) {
+					t.Errorf("count search keywords: got %#v, want %#v", stub.gotCountFilter.Keywords, tt.wantKeywords)
 				}
 				if stub.gotSort != "" {
 					t.Errorf("ListSummaries が呼ばれるべきではない: gotSort=%q", stub.gotSort)
@@ -532,13 +541,181 @@ func TestEventQueryServiceList_Search(t *testing.T) {
 				if stub.gotOffset != tt.wantOffset {
 					t.Errorf("offset: got %d, want %d", stub.gotOffset, tt.wantOffset)
 				}
-				if stub.gotSearchKeywords != nil {
-					t.Errorf("SearchSummaries が呼ばれるべきではない: gotSearchKeywords=%#v", stub.gotSearchKeywords)
+				if stub.gotSearchFilter.Keywords != nil {
+					t.Errorf("SearchSummaries が呼ばれるべきではない: gotSearchFilter.Keywords=%#v", stub.gotSearchFilter.Keywords)
 				}
 			}
 
 			if got.TotalCount != tt.wantTotal {
 				t.Errorf("totalCount: got %d, want %d", got.TotalCount, tt.wantTotal)
+			}
+		})
+	}
+}
+
+// TestEventQueryServiceList_TagFilter は tagIDs（OR 検索）の正規化・経路切り替え・
+// 検証エラー（不正な UUID・件数超過）を検証する。
+func TestEventQueryServiceList_TagFilter(t *testing.T) {
+	t.Helper()
+
+	searchResults := []model.EventSummary{
+		{ID: "id-3", Title: "タグ絞り込みテストイベント", EventDate: time.Now().UTC(), CreatedAt: time.Now().UTC()},
+	}
+	const searchTotal = 5
+
+	listResults := []model.EventSummary{
+		{ID: "id-1", Title: "全件テストイベント", EventDate: time.Now().UTC(), CreatedAt: time.Now().UTC()},
+	}
+	const listTotal = 42
+
+	const tagA = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+	const tagB = "d290f1ee-6c54-4b01-90e6-d701748f0851"
+
+	// 上限ちょうど・超過ケース用の UUID 群を用意する。
+	exactlyMaxTagIDs := make([]string, 0, maxFilterTagIDs)
+	for range maxFilterTagIDs {
+		exactlyMaxTagIDs = append(exactlyMaxTagIDs, uuid.New().String())
+	}
+	overMaxTagIDs := make([]string, 0, maxFilterTagIDs+1)
+	overMaxTagIDs = append(overMaxTagIDs, exactlyMaxTagIDs...)
+	overMaxTagIDs = append(overMaxTagIDs, uuid.New().String())
+
+	// 同一タグIDを重複指定するケース用（重複除去後は1件になり上限に達しない）。
+	duplicateTagID := uuid.New().String()
+	duplicateManyTagIDs := make([]string, 0, maxFilterTagIDs+1)
+	for range maxFilterTagIDs + 1 {
+		duplicateManyTagIDs = append(duplicateManyTagIDs, duplicateTagID)
+	}
+
+	tests := []struct {
+		name             string
+		inputKeywords    []string
+		inputTagIDs      []string
+		wantErr          bool
+		wantErrMessage   string
+		wantSearchCalled bool
+		wantKeywords     []string
+		wantTagIDs       []string
+	}{
+		{
+			name:             "正常: タグIDのみ指定すると検索経路に入り正準形で渡る(Keywordsは空)",
+			inputTagIDs:      []string{tagA},
+			wantSearchCalled: true,
+			wantKeywords:     nil,
+			wantTagIDs:       []string{tagA},
+		},
+		{
+			name:             "正常: qとタグIDを併用すると両方セットされ検索経路に入る",
+			inputKeywords:    []string{"桜"},
+			inputTagIDs:      []string{tagA},
+			wantSearchCalled: true,
+			wantKeywords:     []string{"桜"},
+			wantTagIDs:       []string{tagA},
+		},
+		{
+			name:             "正常: タグIDが空文字・空白のみは除去され他に条件が無ければ全件経路に入る",
+			inputTagIDs:      []string{"", "   "},
+			wantSearchCalled: false,
+		},
+		{
+			name:             "正常: 大文字UUID・ブレース付き・重複指定は正準形へ正規化され重複除去される(順序保持)",
+			inputTagIDs:      []string{"A1B2C3D4-E5F6-7890-ABCD-EF1234567890", tagB, "{a1b2c3d4-e5f6-7890-abcd-ef1234567890}"},
+			wantSearchCalled: true,
+			wantTagIDs:       []string{tagA, tagB},
+		},
+		{
+			name:           "異常: UUID形式でない値は ValidationError になり repository は呼ばれない",
+			inputTagIDs:    []string{"not-a-uuid"},
+			wantErr:        true,
+			wantErrMessage: "タグID[0]の形式が不正です",
+		},
+		{
+			name:           "異常: 検証エラーメッセージのインデックスは元スライス基準(先頭が空文字・2番目が不正UUID)",
+			inputTagIDs:    []string{"", "not-a-uuid"},
+			wantErr:        true,
+			wantErrMessage: "タグID[1]の形式が不正です",
+		},
+		{
+			name:             "正常: タグIDがちょうど20件は成功する",
+			inputTagIDs:      exactlyMaxTagIDs,
+			wantSearchCalled: true,
+			wantTagIDs:       exactlyMaxTagIDs,
+		},
+		{
+			name:           "異常: タグIDが21件は ValidationError になる",
+			inputTagIDs:    overMaxTagIDs,
+			wantErr:        true,
+			wantErrMessage: "タグIDは20件以内で指定してください",
+		},
+		{
+			name:             "正常: 同じタグIDを21回重複指定しても重複除去後1件なのでエラーにならない",
+			inputTagIDs:      duplicateManyTagIDs,
+			wantSearchCalled: true,
+			wantTagIDs:       []string{duplicateTagID},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			makeHelper(t)
+
+			stub := &stubEventRepository{
+				results:          listResults,
+				totalCount:       listTotal,
+				searchResults:    searchResults,
+				searchTotalCount: searchTotal,
+			}
+			svc := NewEventQueryService(stub, "")
+
+			got, err := svc.List(context.Background(), tt.inputKeywords, tt.inputTagIDs, "", "", 0, 0)
+
+			if tt.wantErr {
+				var ve *ValidationError
+				if !errors.As(err, &ve) {
+					t.Fatalf("*ValidationError を期待したが got=%v", err)
+				}
+				if ve.Message != tt.wantErrMessage {
+					t.Errorf("message: got %q, want %q", ve.Message, tt.wantErrMessage)
+				}
+				if stub.listCalled || stub.countCalled || stub.searchCalled || stub.countSearchCalled {
+					t.Errorf("検証エラー時は repository が一度も呼ばれないべき: list=%v count=%v search=%v countSearch=%v",
+						stub.listCalled, stub.countCalled, stub.searchCalled, stub.countSearchCalled)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+
+			if tt.wantSearchCalled {
+				if !stub.searchCalled || !stub.countSearchCalled {
+					t.Errorf("検索経路が呼ばれるべき: searchCalled=%v countSearchCalled=%v", stub.searchCalled, stub.countSearchCalled)
+				}
+				if stub.listCalled || stub.countCalled {
+					t.Errorf("全件経路は呼ばれるべきではない: listCalled=%v countCalled=%v", stub.listCalled, stub.countCalled)
+				}
+				if !reflect.DeepEqual(stub.gotSearchFilter.Keywords, tt.wantKeywords) {
+					t.Errorf("filter.Keywords: got %#v, want %#v", stub.gotSearchFilter.Keywords, tt.wantKeywords)
+				}
+				if !reflect.DeepEqual(stub.gotSearchFilter.TagIDs, tt.wantTagIDs) {
+					t.Errorf("filter.TagIDs: got %#v, want %#v", stub.gotSearchFilter.TagIDs, tt.wantTagIDs)
+				}
+				if !reflect.DeepEqual(stub.gotCountFilter.TagIDs, tt.wantTagIDs) {
+					t.Errorf("count filter.TagIDs: got %#v, want %#v", stub.gotCountFilter.TagIDs, tt.wantTagIDs)
+				}
+				if got.TotalCount != searchTotal {
+					t.Errorf("totalCount: got %d, want %d", got.TotalCount, searchTotal)
+				}
+			} else {
+				if !stub.listCalled || !stub.countCalled {
+					t.Errorf("全件経路が呼ばれるべき: listCalled=%v countCalled=%v", stub.listCalled, stub.countCalled)
+				}
+				if stub.searchCalled || stub.countSearchCalled {
+					t.Errorf("検索経路は呼ばれるべきではない: searchCalled=%v countSearchCalled=%v", stub.searchCalled, stub.countSearchCalled)
+				}
+				if got.TotalCount != listTotal {
+					t.Errorf("totalCount: got %d, want %d", got.TotalCount, listTotal)
+				}
 			}
 		})
 	}
