@@ -49,12 +49,15 @@ type EventRepository interface {
 	ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error)
 	// CountSummaries は events テーブルの全件数を返す。
 	CountSummaries(ctx context.Context) (int, error)
-	// SearchSummaries は keywords すべてに一致するイベントサマリーを指定ソート順で取得する。
+	// SearchSummaries は filter に一致するイベントサマリーを指定ソート順で取得する。
 	// 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item)
-	// を横断（OR）し、キーワード間は AND で結合する（AND 検索）。keywords は 1 件以上を前提とする。
-	SearchSummaries(ctx context.Context, keywords []string, sort, order string, limit, offset int) ([]model.EventSummary, error)
-	// CountSearchSummaries は keywords すべてに一致するイベントの件数を返す。keywords は 1 件以上を前提とする。
-	CountSearchSummaries(ctx context.Context, keywords []string) (int, error)
+	// を横断（OR）し、キーワード間は AND で結合する（AND 検索）。
+	// タグは複数指定時 OR（いずれかを持てば該当）で、キーワード条件とは AND で結合する。
+	// filter は条件を 1 つ以上含むことを前提とする（IsEmpty() が false）。
+	SearchSummaries(ctx context.Context, filter model.EventSearchFilter, sort, order string, limit, offset int) ([]model.EventSummary, error)
+	// CountSearchSummaries は filter に一致するイベントの件数を返す。
+	// filter は条件を 1 つ以上含むことを前提とする（IsEmpty() が false）。
+	CountSearchSummaries(ctx context.Context, filter model.EventSearchFilter) (int, error)
 	// GetByID は指定されたイベント ID の詳細情報を取得する。
 	GetByID(ctx context.Context, id string) (*model.EventResponse, error)
 	// Create はイベントを関連テーブルとともにトランザクション内で一括登録する。
@@ -281,38 +284,61 @@ func normalizeSearchText(s string) string {
 	return norm.NFKC.String(s)
 }
 
-// buildSearchWhere は keywords を AND 検索する WHERE 句本体と ILIKE パターン引数を返す。
-// 各キーワードは5フィールド(title/description/display_name/location/持ち物)を OR で横断する
-// 1グループとなり、グループ間は AND で連結する。プレースホルダは $startIdx から連番で割り当てる。
-// キーワードは常にプレースホルダ経由で渡し、SQL 文字列へ直接埋め込まない（SQLインジェクション対策）。
+// buildSearchWhere は filter の条件を AND で結合した WHERE 句本体とその引数を返す。
+//
+// キーワードは1語につき5フィールド(title/description/display_name/location/持ち物)を OR で
+// 横断する1グループとなり、グループ間は AND で連結する（全語に一致するものだけが該当）。
+// タグは1つの EXISTS にまとめ、tag_id を IN で並べることで OR（いずれかのタグを持てば該当）とする。
+// キーワード条件とタグ条件は AND で結合する。
+//
+// プレースホルダは $startIdx から連番で割り当てる。キーワード・タグIDは常にプレースホルダ経由で
+// 渡し、SQL 文字列へ直接埋め込まない（SQLインジェクション対策）。
 // 半角/全角を同一視するため、カラム側は normalize(col, NFKC)、キーワード側は
 // normalizeSearchText で NFKC 正規化する（両辺を同じ正規化形にそろえる）。
-// keywords は 1 件以上であることを前提とする（0 件だと空の WHERE となり不正な SQL になる）。
-func buildSearchWhere(keywords []string, startIdx int) (string, []any) {
-	groups := make([]string, len(keywords))
-	args := make([]any, len(keywords))
-	for i, kw := range keywords {
-		ph := fmt.Sprintf("$%d", startIdx+i)
+//
+// filter は条件を 1 つ以上含むことを前提とする（0 件だと空の WHERE となり不正な SQL になる）。
+func buildSearchWhere(filter model.EventSearchFilter, startIdx int) (string, []any) {
+	conds := make([]string, 0, len(filter.Keywords)+1)
+	args := make([]any, 0, len(filter.Keywords)+len(filter.TagIDs))
+
+	for _, kw := range filter.Keywords {
+		ph := fmt.Sprintf("$%d", startIdx+len(args))
 		// %[1]s は同一プレースホルダを5箇所へ展開する（ワイヤプロトコル上、同一 $N の複数参照は正当）。
-		groups[i] = fmt.Sprintf(
+		conds = append(conds, fmt.Sprintf(
 			"(normalize(e.title, NFKC) ILIKE %[1]s OR normalize(e.description, NFKC) ILIKE %[1]s "+
 				"OR normalize(p.display_name, NFKC) ILIKE %[1]s OR normalize(e.location, NFKC) ILIKE %[1]s "+
 				"OR EXISTS (SELECT 1 FROM event_items it WHERE it.event_id = e.id "+
 				"AND normalize(it.event_item, NFKC) ILIKE %[1]s))",
 			ph,
-		)
+		))
 		// NFKC 正規化 → LIKE エスケープ → % で囲む の順。全角％(U+FF05)は NFKC で ASCII '%' に
 		// なるため、正規化を先に行い escapeLike でワイルドカードとして無効化する必要がある。
-		args[i] = "%" + escapeLike(normalizeSearchText(kw)) + "%"
+		args = append(args, "%"+escapeLike(normalizeSearchText(kw))+"%")
 	}
-	return strings.Join(groups, " AND "), args
+
+	if len(filter.TagIDs) > 0 {
+		placeholders := make([]string, len(filter.TagIDs))
+		for i, tagID := range filter.TagIDs {
+			placeholders[i] = fmt.Sprintf("$%d", startIdx+len(args))
+			args = append(args, tagID)
+		}
+		// EXISTS の相関サブクエリにすることで、タグを複数指定しても外側の行は重複しない。
+		// （JOIN で展開すると1イベントがタグ数ぶん重複し COUNT(*) が狂う）
+		conds = append(conds, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM event_tags et WHERE et.event_id = e.id AND et.tag_id IN (%s))",
+			strings.Join(placeholders, ", "),
+		))
+	}
+
+	return strings.Join(conds, " AND "), args
 }
 
-// SearchSummaries は keywords すべてに一致するイベントサマリーを指定ソート順で取得する（AND 検索）。
-// 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item) を横断（OR）する。
+// SearchSummaries は filter に一致するイベントサマリーを指定ソート順で取得する。
+// 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item) を横断（OR）し、
+// キーワード間は AND で結合する。タグは複数指定時 OR で、キーワード条件とは AND で結合する。
 // sort・order は呼び出し元（service 層）でホワイトリスト検証済みであることを前提とする。
-func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, sort, order string, limit, offset int) ([]model.EventSummary, error) {
-	where, args := buildSearchWhere(keywords, 1)
+func (r *eventPostgres) SearchSummaries(ctx context.Context, filter model.EventSearchFilter, sort, order string, limit, offset int) ([]model.EventSummary, error) {
+	where, args := buildSearchWhere(filter, 1)
 
 	orderBy, ok := searchOrderByClauses[sort+":"+order]
 	if !ok {
@@ -324,7 +350,7 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, 
 	limitIdx := len(args) + 1
 	offsetIdx := len(args) + 2
 	// G201: 埋め込むのは buildSearchWhere が生成する列名+プレースホルダ番号($N)、
-	// ホワイトリスト由来の ORDER BY、int のインデックスのみ。キーワード等のユーザー入力は
+	// ホワイトリスト由来の ORDER BY、int のインデックスのみ。キーワード・タグID等のユーザー入力は
 	// 一切文字列連結せず args 経由でのみ渡すため SQL インジェクションは発生しない。
 	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
 	query := fmt.Sprintf(`
@@ -395,13 +421,13 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, keywords []string, 
 	return summaries, nil
 }
 
-// CountSearchSummaries は keywords すべてに一致するイベントの件数を返す（AND 検索）。
-// LEFT JOIN profiles は 1 対 1、持ち物は EXISTS のため行の重複は起きず COUNT(*) で正しい。
-func (r *eventPostgres) CountSearchSummaries(ctx context.Context, keywords []string) (int, error) {
-	where, args := buildSearchWhere(keywords, 1)
+// CountSearchSummaries は filter に一致するイベントの件数を返す。
+// LEFT JOIN profiles は 1 対 1、持ち物とタグは EXISTS のため行の重複は起きず COUNT(*) で正しい。
+func (r *eventPostgres) CountSearchSummaries(ctx context.Context, filter model.EventSearchFilter) (int, error) {
+	where, args := buildSearchWhere(filter, 1)
 
 	// G201: 埋め込むのは buildSearchWhere が生成する列名+プレースホルダ番号($N)のみ。
-	// キーワードは args 経由でのみ渡すため SQL インジェクションは発生しない。
+	// キーワード・タグIDは args 経由でのみ渡すため SQL インジェクションは発生しない。
 	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
 	query := fmt.Sprintf(`
 		SELECT COUNT(*)

@@ -76,6 +76,26 @@ type NewEvent struct {
 	TagIDs []string
 }
 
+// EventSearchFilter はイベント一覧の絞り込み条件をまとめた検証済みの内部型。
+// service 層で正規化してから repository 層へ渡す（HTTP には露出しない）。
+//
+// 条件を増やす際はフィールドを追加する。引数を並べる形にすると同型（[]string や string）が
+// 並んで取り違えてもコンパイルが通らないため、構造体に集約している。
+type EventSearchFilter struct {
+	// Keywords は AND 検索するキーワード（trim・空要素除去済み）。
+	// 各キーワードは title/description/主催者名/location/持ち物 を横断（OR）する。
+	Keywords []string
+	// TagIDs は絞り込み対象のタグ UUID（正準形・重複除去済み）。
+	// 複数指定時は OR（いずれかのタグを持つイベントが該当する）。
+	TagIDs []string
+}
+
+// IsEmpty は絞り込み条件が 1 つも無いことを返す。
+// true の場合、呼び出し元は検索ではなく全件一覧の経路を使う。
+func (f EventSearchFilter) IsEmpty() bool {
+	return len(f.Keywords) == 0 && len(f.TagIDs) == 0
+}
+
 // CreateEventResponse はイベント投稿エンドポイントのレスポンス DTO。
 type CreateEventResponse struct {
 	// ID は生成されたイベントの UUID。
@@ -114,7 +134,8 @@ type EventSummary struct {
 type EventListResponse struct {
 	// Events はイベントサマリーの一覧。
 	Events []EventSummary `json:"events"`
-	// TotalCount はフィルタなし全件数。クライアントが最終ページ offset を算出するために使う。
+	// TotalCount は現在の絞り込み条件（q / tagId）に一致する総件数。
+	// 条件を指定しない場合は全件数になる。クライアントが最終ページ offset を算出するために使う。
 	TotalCount int `json:"totalCount" example:"153"`
 	// Limit は正規化後の実際に使われた取得件数。
 	Limit int `json:"limit" example:"20"`
