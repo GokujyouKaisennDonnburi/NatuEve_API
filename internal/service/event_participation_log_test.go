@@ -105,6 +105,7 @@ func TestEventParticipationLogServiceCreate(t *testing.T) {
 				l := stub.gotLog
 				if l == nil {
 					t.Fatal("gotLog が nil")
+					return
 				}
 				if l.EventID != eventID {
 					t.Errorf("EventParticipationLog.EventID: got %v, want %v", l.EventID, eventID)

@@ -74,6 +74,7 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 				t.Helper()
 				if e == nil {
 					t.Fatal("NewEvent が nil")
+					return
 				}
 				if e.ProfileID != profileID {
 					t.Errorf("ProfileID: got %q, want %q", e.ProfileID, profileID)

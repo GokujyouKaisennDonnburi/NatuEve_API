@@ -183,6 +183,7 @@ func TestProfileServiceUpdateMyProfile(t *testing.T) {
 			}
 			if got == nil {
 				t.Fatalf("結果が nil でした")
+				return
 			}
 			if got.DisplayName != tt.wantDisplayName {
 				t.Errorf("DisplayName = %q, want %q", got.DisplayName, tt.wantDisplayName)

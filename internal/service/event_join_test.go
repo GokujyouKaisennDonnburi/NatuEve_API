@@ -153,6 +153,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				m := stub.gotMember
 				if m == nil {
 					t.Fatal("gotMember が nil")
+					return
 				}
 				if m.EventID != eventID {
 					t.Errorf("EventMember.EventID: got %v, want %v", m.EventID, eventID)
@@ -191,6 +192,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				m := stub.gotMember
 				if m == nil {
 					t.Fatal("gotMember が nil")
+					return
 				}
 				if m.ProfileID.Valid {
 					t.Errorf("EventMember.ProfileID.Valid: got true, want false（匿名）")
