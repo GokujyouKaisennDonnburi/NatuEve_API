@@ -34,3 +34,4 @@
 | [0016](./0016-event-cancel-notification-outbox.md) | イベントキャンセル通知の Transactional Outbox 化と cancel API の非冪等化 | Accepted（決定事項 2 を ADR-0017 で置換） |
 | [0017](./0017-event-cancel-notification-optional-content.md) | イベントキャンセル通知の件名・本文を任意化しサーバー既定文面で補う | Accepted |
 | [0018](./0018-event-end-date-optional-with-default.md) | イベント終了日時を任意入力とし、省略時は開催日時で補完する | Accepted |
+| [0019](./0019-event-search-keep-get-method.md) | イベント検索は GET を維持し、QUERY メソッドへは移行しない | Accepted |
