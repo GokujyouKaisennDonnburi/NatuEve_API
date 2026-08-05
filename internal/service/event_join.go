@@ -162,14 +162,8 @@ func (s *EventJoinService) ListMembers(
 	respMembers := make([]model.EventMemberResponse, 0, len(members))
 	totalMembers := 0
 	for _, m := range members {
-		var respProfileID *uuid.UUID
-		if m.ProfileID.Valid {
-			v := m.ProfileID.UUID
-			respProfileID = &v
-		}
 		respMembers = append(respMembers, model.EventMemberResponse{
 			Username:    m.Username,
-			ProfileID:   respProfileID,
 			PartySize:   m.PartySize,
 			MailAddress: m.MailAddress,
 			CreatedAt:   m.CreatedAt,

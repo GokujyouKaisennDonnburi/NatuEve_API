@@ -71,7 +71,7 @@ type EventMember struct {
 
 // EventMemberResponse は参加者一覧取得エンドポイントの1参加者分の DTO。
 //
-//	@Description	参加者1人分の情報。profileId は匿名参加の場合 null。
+//	@Description	参加者1人分の情報。匿名参加かどうかは profile が null かどうかで判定できる。
 //	@Description	profile は参加者のプロフィールサマリー。匿名参加の場合 null。
 //	@Description	username は申込時に入力された名前で、profile.displayName（アカウントの表示名）とは別物。
 type EventMemberResponse struct {
@@ -79,8 +79,6 @@ type EventMemberResponse struct {
 	// 保存後は変更されない。アカウントの表示名（Profile.DisplayName）とは別物で、
 	// ログイン参加でも一致するとは限らない。匿名参加でも必ず値が入る。
 	Username string `json:"username" example:"山田太郎"`
-	// ProfileID は参加者のプロフィールUUID。匿名参加の場合は null。
-	ProfileID *uuid.UUID `json:"profileId" example:"b2c3d4e5-f6a7-8901-bcde-f23456789012" extensions:"x-nullable"`
 	// PartySize は代表者を含む参加人数。
 	PartySize int `json:"partySize" example:"1"`
 	// MailAddress は参加者のメールアドレス。
