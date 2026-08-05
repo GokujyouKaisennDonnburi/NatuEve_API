@@ -85,18 +85,21 @@ Go の標準スタイル（[Effective Go](https://go.dev/doc/effective_go) / [Go
 満たす例は `EventSummary.Tags`（タグ無しイベントで `"tags":[]` を並べるより軽い / ADR-0015）と
 `EventSummary.CancelledAt`（キャンセル済みは少数で、該当しないイベントには項目自体が無意味）。
 満たさない例は `EventMemberResponse.Profile`（欠損＝匿名参加が主催者にとって意味のある情報で、
-隣の `profileId` が同じ事実を `null` で表している）。
+かつ匿名判定の唯一の手掛かりでもある。キーごと消すと最も弱い形でしか表現されない）。
 
 **nullable なフィールドには `extensions:"x-nullable"` を付ける**。swag が生成するのは Swagger 2.0 で、
 Go のポインタから nullable を自動推論しない。タグが無いと生成される型が非 null になり、クライアント側の
 null 処理漏れがコンパイル時に検出できなくなる。
 
 ```go
-// ProfileID は参加者のプロフィールUUID。匿名参加の場合は null。
-ProfileID *uuid.UUID `json:"profileId" extensions:"x-nullable"`
 // Profile は参加者のプロフィールサマリー。匿名参加の場合は null。
 Profile *ProfileSummary `json:"profile" extensions:"x-nullable"`
 ```
+
+**同じ情報を 2 つのフィールドで返さない**。ネストしたオブジェクトを足すとき、その中の値と同じものを
+トップレベルにも置くと、クライアントはどちらを正とするか判断を迫られ、両者がズレ得るという誤解も生む。
+`EventMemberResponse` は `profile` の追加と同時に、`profile.id` と完全に重複する `profileId` を削除した
+（ADR-0022）。削除は破壊的変更になるため、追加と同じタイミングで判断しておくとコストが小さい。
 
 ### 落とし穴
 
