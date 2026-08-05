@@ -77,7 +77,7 @@ type EventMemberResponse struct {
 	// Username は参加者の表示名。
 	Username string `json:"username" example:"山田太郎"`
 	// ProfileID は参加者のプロフィールUUID。匿名参加の場合は null。
-	ProfileID *uuid.UUID `json:"profileId" example:"b2c3d4e5-f6a7-8901-bcde-f23456789012"`
+	ProfileID *uuid.UUID `json:"profileId" example:"b2c3d4e5-f6a7-8901-bcde-f23456789012" extensions:"x-nullable"`
 	// PartySize は代表者を含む参加人数。
 	PartySize int `json:"partySize" example:"1"`
 	// MailAddress は参加者のメールアドレス。

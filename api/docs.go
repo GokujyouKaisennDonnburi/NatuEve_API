@@ -1522,6 +1522,7 @@ const docTemplate = `{
                 "profileId": {
                     "description": "ProfileID は参加者のプロフィールUUID。匿名参加の場合は null。",
                     "type": "string",
+                    "x-nullable": true,
                     "example": "b2c3d4e5-f6a7-8901-bcde-f23456789012"
                 },
                 "username": {
