@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -100,25 +101,26 @@ func TestNormalizeSearchText(t *testing.T) {
 }
 
 // TestBuildSearchWhere は buildSearchWhere が各キーワードを5フィールド OR の
-// 1グループとし、グループ間を AND で連結すること、プレースホルダを startIdx から
-// 連番で割り当てること、ILIKE パターン引数を順序どおり生成することを検証する。
+// 1グループとし、グループ間を AND で連結すること、タグ条件を EXISTS + IN の1グループに
+// まとめること、プレースホルダを startIdx から連番で割り当てること（キーワード→タグの順）、
+// ILIKE パターン・タグID引数を順序どおり生成することを検証する。
 func TestBuildSearchWhere(t *testing.T) {
 	t.Helper()
 
 	tests := []struct {
 		name     string
-		keywords []string
+		filter   model.EventSearchFilter
 		startIdx int
 		// wantContains は生成 WHERE 句に必ず含まれるべき部分文字列。
 		wantContains []string
 		// wantNotContains は含まれてはならない部分文字列（AND 連結の確認等）。
 		wantNotContains []string
-		wantAndCount    int // " AND " の出現回数（グループ数-1）
+		wantAndCount    int // ") AND (" の出現回数（キーワードグループ数-1。タグ条件との連結は含まない）
 		wantArgs        []any
 	}{
 		{
 			name:     "単一キーワード: $1 が5フィールド(normalize適用)へ展開され AND を含まない",
-			keywords: []string{"桜"},
+			filter:   model.EventSearchFilter{Keywords: []string{"桜"}},
 			startIdx: 1,
 			wantContains: []string{
 				"normalize(e.title, NFKC) ILIKE $1",
@@ -132,7 +134,7 @@ func TestBuildSearchWhere(t *testing.T) {
 		},
 		{
 			name:            "複数キーワード: 連番プレースホルダと AND 連結",
-			keywords:        []string{"桜", "東京"},
+			filter:          model.EventSearchFilter{Keywords: []string{"桜", "東京"}},
 			startIdx:        1,
 			wantContains:    []string{"ILIKE $1", "ILIKE $2", ") AND ("},
 			wantNotContains: []string{"ILIKE $3"},
@@ -141,7 +143,7 @@ func TestBuildSearchWhere(t *testing.T) {
 		},
 		{
 			name:         "startIdx オフセット: limit/offset を後続に置くため $3 から開始",
-			keywords:     []string{"a", "b"},
+			filter:       model.EventSearchFilter{Keywords: []string{"a", "b"}},
 			startIdx:     3,
 			wantContains: []string{"ILIKE $3", "ILIKE $4"},
 			wantAndCount: 1,
@@ -149,30 +151,69 @@ func TestBuildSearchWhere(t *testing.T) {
 		},
 		{
 			name:         "特殊文字を含むキーワードはエスケープされてパターン化される",
-			keywords:     []string{"50%"},
+			filter:       model.EventSearchFilter{Keywords: []string{"50%"}},
 			startIdx:     1,
 			wantContains: []string{"ILIKE $1"},
 			wantArgs:     []any{`%50\%%`},
 		},
 		{
 			name:         "全角数字は NFKC 正規化で半角化されてパターン化される",
-			keywords:     []string{"２０２６"},
+			filter:       model.EventSearchFilter{Keywords: []string{"２０２６"}},
 			startIdx:     1,
 			wantContains: []string{"ILIKE $1"},
 			wantArgs:     []any{"%2026%"},
 		},
 		{
 			name:         "全角パーセントは NFKC で ASCII 化された後 LIKE エスケープされる",
-			keywords:     []string{"５０％"},
+			filter:       model.EventSearchFilter{Keywords: []string{"５０％"}},
 			startIdx:     1,
 			wantContains: []string{"ILIKE $1"},
 			wantArgs:     []any{`%50\%%`},
+		},
+		{
+			name:         "タグのみ1件: EXISTS + IN で1プレースホルダになり ILIKE を含まない",
+			filter:       model.EventSearchFilter{TagIDs: []string{"tag-1"}},
+			startIdx:     1,
+			wantContains: []string{"EXISTS (SELECT 1 FROM event_tags et WHERE et.event_id = e.id AND et.tag_id IN ($1))"},
+			wantNotContains: []string{
+				"ILIKE",
+			},
+			wantAndCount: 0,
+			wantArgs:     []any{"tag-1"},
+		},
+		{
+			name:         "タグ複数: IN にカンマ区切りで並び OR セマンティクスになる",
+			filter:       model.EventSearchFilter{TagIDs: []string{"tag-1", "tag-2"}},
+			startIdx:     1,
+			wantContains: []string{"et.tag_id IN ($1, $2)"},
+			wantAndCount: 0,
+			wantArgs:     []any{"tag-1", "tag-2"},
+		},
+		{
+			name:     "キーワード1件+タグ2件: プレースホルダはキーワード→タグの順で連番になる",
+			filter:   model.EventSearchFilter{Keywords: []string{"桜"}, TagIDs: []string{"tag-1", "tag-2"}},
+			startIdx: 1,
+			wantContains: []string{
+				"normalize(e.title, NFKC) ILIKE $1",
+				") AND EXISTS (",
+				"et.tag_id IN ($2, $3)",
+			},
+			wantAndCount: 0, // キーワードグループは1つのみのため ") AND (" は無い（キーワード-タグ間は ") AND EXISTS (" で判定）
+			wantArgs:     []any{"%桜%", "tag-1", "tag-2"},
+		},
+		{
+			name:         "startIdx=3 でキーワード1+タグ1: ILIKE $3, IN ($4) になる",
+			filter:       model.EventSearchFilter{Keywords: []string{"a"}, TagIDs: []string{"tag-1"}},
+			startIdx:     3,
+			wantContains: []string{"ILIKE $3", "IN ($4)"},
+			wantAndCount: 0,
+			wantArgs:     []any{"%a%", "tag-1"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			where, args := buildSearchWhere(tt.keywords, tt.startIdx)
+			where, args := buildSearchWhere(tt.filter, tt.startIdx)
 
 			for _, sub := range tt.wantContains {
 				if !strings.Contains(where, sub) {
@@ -185,6 +226,7 @@ func TestBuildSearchWhere(t *testing.T) {
 				}
 			}
 			// グループ間の連結は ") AND (" で判定する（EXISTS 内部の AND と区別するため）。
+			// キーワード群とタグ条件の連結は ") AND EXISTS (" になりこのカウントには含まれない。
 			if got := strings.Count(where, ") AND ("); got != tt.wantAndCount {
 				t.Errorf("グループ AND 連結回数: got %d, want %d\nwhere=%s", got, tt.wantAndCount, where)
 			}
@@ -353,13 +395,13 @@ func TestEventPostgres_SearchSummaries_Tags(t *testing.T) {
 
 	// insertTestEvent は title を固定値で作成するため、その語をキーワードに検索する。
 	// 既存データを含む一致件数を数えてから limit に使う。
-	keywords := []string{"テストイベント"}
-	total, err := repo.CountSearchSummaries(context.Background(), keywords)
+	filter := model.EventSearchFilter{Keywords: []string{"テストイベント"}}
+	total, err := repo.CountSearchSummaries(context.Background(), filter)
 	if err != nil {
 		t.Fatalf("CountSearchSummaries() returned error: %v", err)
 	}
 
-	got, err := repo.SearchSummaries(context.Background(), keywords, "created_at", "desc", total+10, 0)
+	got, err := repo.SearchSummaries(context.Background(), filter, "created_at", "desc", total+10, 0)
 	if err != nil {
 		t.Fatalf("SearchSummaries() returned error: %v", err)
 	}
@@ -383,4 +425,147 @@ func TestEventPostgres_SearchSummaries_Tags(t *testing.T) {
 	if untaggedSummary.Tags != nil {
 		t.Errorf("Tags = %#v, want nil", untaggedSummary.Tags)
 	}
+}
+
+// insertTestEventWithTitle はテスト用の events 行を1件、指定したタイトルで作成する。
+// insertTestEvent は title を固定値("テストイベント")で作成するため、キーワード検索で
+// 特定のイベントだけを一致させたいテスト（AND 検索の検証等）ではこちらを使う。
+func insertTestEventWithTitle(t *testing.T, db *sql.DB, profileID uuid.UUID, title string) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	eventDate := time.Now()
+	const insertEvent = `
+	INSERT INTO events(id, profile_id, title, event_date, end_date)
+	VALUES($1, $2, $3, $4, $5)
+	`
+	if _, err := db.ExecContext(
+		context.Background(),
+		insertEvent,
+		id,
+		profileID,
+		title,
+		eventDate,
+		eventDate,
+	); err != nil {
+		t.Fatalf("insert test event: %v", err)
+	}
+	return id
+}
+
+// countOccurrences は summaries 内で id に一致する要素の個数を返す。
+// EXISTS によるタグ絞り込みで、複数タグに一致する行が重複して現れないことの検証に使う。
+func countOccurrences(summaries []model.EventSummary, id string) int {
+	n := 0
+	for _, s := range summaries {
+		if s.ID == id {
+			n++
+		}
+	}
+	return n
+}
+
+// TestEventPostgres_SearchSummaries_TagFilter は SearchSummaries/CountSearchSummaries の
+// タグ絞り込み(OR)・キーワードとの併用(AND)・EXISTS による重複排除を検証する。
+//
+// insertTestTag は毎回新規の UUID を採番するため、このテストで使うタグIDを条件に含む検索は
+// このテスト内で作成したイベントにしか一致しない。そのため他テストの既存データと干渉しない。
+func TestEventPostgres_SearchSummaries_TagFilter(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+
+	t.Run("OR検索: いずれかのタグを持つイベントが該当し、両方持つイベントも重複しない", func(t *testing.T) {
+		tagAID, _ := insertTestTag(t, db, "タグA")
+		tagBID, _ := insertTestTag(t, db, "タグB")
+
+		eventAOnly := insertTestEvent(t, db, profileID)
+		linkEventTag(t, db, eventAOnly, tagAID)
+
+		eventBOnly := insertTestEvent(t, db, profileID)
+		linkEventTag(t, db, eventBOnly, tagBID)
+
+		eventBoth := insertTestEvent(t, db, profileID)
+		linkEventTag(t, db, eventBoth, tagAID)
+		linkEventTag(t, db, eventBoth, tagBID)
+
+		eventNoTag := insertTestEvent(t, db, profileID)
+
+		filter := model.EventSearchFilter{TagIDs: []string{tagAID.String(), tagBID.String()}}
+
+		count, err := repo.CountSearchSummaries(context.Background(), filter)
+		if err != nil {
+			t.Fatalf("CountSearchSummaries() returned error: %v", err)
+		}
+
+		// 自前で作成したデータが全部入るよう count+10 を limit にする。
+		got, err := repo.SearchSummaries(context.Background(), filter, "created_at", "desc", count+10, 0)
+		if err != nil {
+			t.Fatalf("SearchSummaries() returned error: %v", err)
+		}
+		// CountSearchSummaries と SearchSummaries の件数が整合すること（重複カウントされないこと）。
+		if len(got) != count {
+			t.Errorf("SearchSummaries() 件数 = %d, CountSearchSummaries() = %d: 不整合", len(got), count)
+		}
+
+		if _, ok := findSummaryByID(got, eventAOnly.String()); !ok {
+			t.Errorf("タグAのみのイベントが結果に含まれるべき")
+		}
+		if _, ok := findSummaryByID(got, eventBOnly.String()); !ok {
+			t.Errorf("タグBのみのイベントが結果に含まれるべき")
+		}
+		if _, ok := findSummaryByID(got, eventNoTag.String()); ok {
+			t.Errorf("タグ無しイベントは結果に含まれるべきではない")
+		}
+		if n := countOccurrences(got, eventBoth.String()); n != 1 {
+			t.Errorf("両方のタグを持つイベントは1回だけ現れるべき: got %d 回", n)
+		}
+	})
+
+	t.Run("AND検索: キーワードとタグを併用するとタグは一致してもキーワードが不一致なら除外される", func(t *testing.T) {
+		tagCID, _ := insertTestTag(t, db, "タグC")
+		keyword := "AND検索固有" + uuid.NewString()[:8]
+
+		eventMatch := insertTestEventWithTitle(t, db, profileID, keyword+"についてのイベント")
+		linkEventTag(t, db, eventMatch, tagCID)
+
+		// title は insertTestEvent 固定値("テストイベント")のためキーワードを含まない。
+		eventTagOnly := insertTestEvent(t, db, profileID)
+		linkEventTag(t, db, eventTagOnly, tagCID)
+
+		filter := model.EventSearchFilter{Keywords: []string{keyword}, TagIDs: []string{tagCID.String()}}
+
+		got, err := repo.SearchSummaries(context.Background(), filter, "created_at", "desc", 100, 0)
+		if err != nil {
+			t.Fatalf("SearchSummaries() returned error: %v", err)
+		}
+
+		if _, ok := findSummaryByID(got, eventMatch.String()); !ok {
+			t.Errorf("キーワード・タグ両方に一致するイベントが結果に含まれるべき")
+		}
+		if _, ok := findSummaryByID(got, eventTagOnly.String()); ok {
+			t.Errorf("タグは一致してもキーワードが不一致のイベントは結果に含まれるべきではない")
+		}
+	})
+
+	t.Run("存在しないタグIDで検索すると0件になる", func(t *testing.T) {
+		filter := model.EventSearchFilter{TagIDs: []string{uuid.New().String()}}
+
+		count, err := repo.CountSearchSummaries(context.Background(), filter)
+		if err != nil {
+			t.Fatalf("CountSearchSummaries() returned error: %v", err)
+		}
+		if count != 0 {
+			t.Errorf("CountSearchSummaries() = %d, want 0", count)
+		}
+
+		got, err := repo.SearchSummaries(context.Background(), filter, "created_at", "desc", 100, 0)
+		if err != nil {
+			t.Fatalf("SearchSummaries() returned error: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("SearchSummaries() 件数 = %d, want 0", len(got))
+		}
+	})
 }

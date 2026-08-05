@@ -48,27 +48,39 @@ func NewEventHandler(
 //	@Description	q は検索キーワード。反復指定で AND 検索になる（例: ?q=桜&q=東京）。各語はタイトル/イベント詳細/
 //	@Description	主催者名/地域名/持ち物を横断して部分一致で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。
 //	@Description	照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。全角数字↔半角数字・全角英字↔半角英字・半角カナ↔全角カナ）。
+//	@Description	tagId はタグでの絞り込み。反復指定は OR 検索になる（例: ?tagId=A&tagId=B なら A または B が付いたイベント）。
+//	@Description	q と同時に指定した場合は AND（キーワード条件かつタグ条件）で絞り込む。
+//	@Description	UUID 形式でない値・21件以上の指定は 400 を返す（値が空の tagId は未指定として無視する）。
 //	@Tags			event
 //	@Produce		json
 //	@Param			q		query		[]string	false	"検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)"	collectionFormat(multi)
+//	@Param			tagId	query		[]string	false	"絞り込むタグID(UUID。反復指定でOR検索。最大20件)"	collectionFormat(multi)
 //	@Param			sort	query		string	false	"ソートカラム(created_at|event_date, default: created_at)"
 //	@Param			order	query		string	false	"ソート順(asc|desc, default: desc)"
 //	@Param			limit	query		int		false	"取得件数(default 20, 最大 100)"
 //	@Param			offset	query		int		false	"取得開始位置(default 0)"
 //	@Success		200		{object}	model.EventListResponse
+//	@Failure		400		{object}	model.ValidationErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events [get]
 func (h *EventHandler) List(c *gin.Context) {
-	// クエリパラメータを取得する（不正値は service 層で安全側に丸める）。
+	// クエリパラメータを取得する（sort/order/limit/offset の不正値は service 層で安全側に丸める）。
 	// q は反復クエリ(?q=a&q=b)で複数受け取り AND 検索する（正規化は service 層）。
+	// tagId も反復クエリで複数受け取るが、こちらは OR 検索。形式不正・件数超過は 400 になる。
 	keywords := c.QueryArray("q")
+	tagIDs := c.QueryArray("tagId")
 	sort := c.Query("sort")
 	order := c.Query("order")
 	limit := queryInt(c, "limit", 0)
 	offset := queryInt(c, "offset", 0)
 
-	resp, err := h.querySvc.List(c.Request.Context(), keywords, sort, order, limit, offset)
+	resp, err := h.querySvc.List(c.Request.Context(), keywords, tagIDs, sort, order, limit, offset)
 	if err != nil {
+		var ve *service.ValidationError
+		if errors.As(err, &ve) {
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "イベント一覧の取得に失敗しました"))
 		return
 	}

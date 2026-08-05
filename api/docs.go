@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/api/v1/events": {
             "get": {
-                "description": "公開イベントを指定ソート順で返す。認証不要。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。\nprifileはProfileSummaryを返す。\nq は検索キーワード。反復指定で AND 検索になる（例: ?q=桜\u0026q=東京）。各語はタイトル/イベント詳細/\n主催者名/地域名/持ち物を横断して部分一致で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。\n照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。全角数字↔半角数字・全角英字↔半角英字・半角カナ↔全角カナ）。",
+                "description": "公開イベントを指定ソート順で返す。認証不要。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。\nprifileはProfileSummaryを返す。\nq は検索キーワード。反復指定で AND 検索になる（例: ?q=桜\u0026q=東京）。各語はタイトル/イベント詳細/\n主催者名/地域名/持ち物を横断して部分一致で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。\n照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。全角数字↔半角数字・全角英字↔半角英字・半角カナ↔全角カナ）。\ntagId はタグでの絞り込み。反復指定は OR 検索になる（例: ?tagId=A\u0026tagId=B なら A または B が付いたイベント）。\nq と同時に指定した場合は AND（キーワード条件かつタグ条件）で絞り込む。\nUUID 形式でない値・21件以上の指定は 400 を返す（値が空の tagId は未指定として無視する）。",
                 "produces": [
                     "application/json"
                 ],
@@ -34,6 +34,16 @@ const docTemplate = `{
                         "collectionFormat": "multi",
                         "description": "検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)",
                         "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "絞り込むタグID(UUID。反復指定でOR検索。最大20件)",
+                        "name": "tagId",
                         "in": "query"
                     },
                     {
@@ -66,6 +76,12 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
                         }
                     },
                     "500": {
@@ -1447,7 +1463,7 @@ const docTemplate = `{
                     "example": 0
                 },
                 "totalCount": {
-                    "description": "TotalCount はフィルタなし全件数。クライアントが最終ページ offset を算出するために使う。",
+                    "description": "TotalCount は現在の絞り込み条件（q / tagId）に一致する総件数。\n条件を指定しない場合は全件数になる。クライアントが最終ページ offset を算出するために使う。",
                     "type": "integer",
                     "example": 153
                 }
