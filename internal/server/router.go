@@ -38,6 +38,9 @@ func NewRouter(cfg config.Config, sqlDB *sql.DB) (*gin.Engine, *service.Notifica
 		middleware.SlogRecovery(),
 		middleware.NewCORS(),
 		middleware.BodyLimit(),
+		// CORS より後ろに置く: 前に置くと 400 レスポンスに CORS ヘッダが付かず、
+		// ブラウザからは 400 ではなく CORS エラーに見えて原因が追えなくなる。
+		middleware.ValidateQuery(),
 	)
 
 	// 信頼するプロキシを設定（nil = どのプロキシも信頼しない）。
