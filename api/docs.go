@@ -424,7 +424,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。\nprofileId は匿名参加（ログインしていない）の場合 null。\nprofile は参加者のプロフィールサマリー。匿名参加の場合は null。\nイベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。",
+                "description": "イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。\nprofile は参加者のプロフィールサマリー。匿名参加の場合は null。\nイベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。",
                 "produces": [
                     "application/json"
                 ],
@@ -1492,7 +1492,7 @@ const docTemplate = `{
             }
         },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberResponse": {
-            "description": "参加者1人分の情報。profileId は匿名参加の場合 null。 profile は参加者のプロフィールサマリー。匿名参加の場合 null。 username は申込時に入力された名前で、profile.displayName（アカウントの表示名）とは別物。",
+            "description": "参加者1人分の情報。匿名参加かどうかは profile が null かどうかで判定できる。 profile は参加者のプロフィールサマリー。匿名参加の場合 null。 username は申込時に入力された名前で、profile.displayName（アカウントの表示名）とは別物。",
             "type": "object",
             "properties": {
                 "createdAt": {
@@ -1518,12 +1518,6 @@ const docTemplate = `{
                         }
                     ],
                     "x-nullable": true
-                },
-                "profileId": {
-                    "description": "ProfileID は参加者のプロフィールUUID。匿名参加の場合は null。",
-                    "type": "string",
-                    "x-nullable": true,
-                    "example": "b2c3d4e5-f6a7-8901-bcde-f23456789012"
                 },
                 "username": {
                     "description": "Username は申込時にフォームへ入力された名前。参加者が名乗った名前のスナップショットで、\n保存後は変更されない。アカウントの表示名（Profile.DisplayName）とは別物で、\nログイン参加でも一致するとは限らない。匿名参加でも必ず値が入る。",
