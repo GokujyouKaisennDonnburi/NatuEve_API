@@ -64,6 +64,8 @@ type EventJoinRepository interface {
 	ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error)
 
 	// ListMembers は指定 eventID の参加者一覧を作成日時の昇順で返す。
+	// profiles を LEFT JOIN してプロフィールサマリーを同時取得する。
+	// 匿名参加（profile_id NULL）は EventMember.Profile が nil になる。
 	// 0件の場合は nil ではなく空スライスを返す（呼び出し元の totalCount 計算で安全側に倒すため）。
 	ListMembers(ctx context.Context, eventID uuid.UUID) ([]model.EventMember, error)
 }
@@ -341,13 +343,25 @@ func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID uuid.UUI
 
 // ListMembers は指定 eventID の参加者一覧を作成日時の昇順で返す。
 // profile_id は nullable なので uuid.NullUUID で受ける。
+// profiles を LEFT JOIN してプロフィールサマリー（display_name・avatar_url）を同時取得する。
+//
+// 匿名参加（profile_id NULL）は Profile を nil にする。event.go の ListSummaries が
+// NULL を空文字で埋めた model.ProfileSummary として返すのとは意図的に異なる扱いで、
+// 「プロフィールが存在しない（匿名）」と「アイコン未設定（空文字）」を呼び出し元が
+// 区別できるようにするため。
+//
+// profiles.id は PK、event_members には (event_id, created_at) の複合インデックス
+// （migration 20260708052650）があるため、JOIN を足しても WHERE / ORDER BY のコストは変わらない。
+//
 // レコードが 0 件でも nil ではなく空スライスを返す。
 func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) ([]model.EventMember, error) {
 	const query = `
-	SELECT event_id, profile_id, username, mail_address, party_size, created_at
-	FROM event_members
-	WHERE event_id = $1
-	ORDER BY created_at
+	SELECT m.event_id, m.profile_id, m.username, m.mail_address, m.party_size, m.created_at,
+	       p.id, p.display_name, p.avatar_url
+	FROM event_members m
+	LEFT JOIN profiles p ON p.id = m.profile_id
+	WHERE m.event_id = $1
+	ORDER BY m.created_at
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, eventID)
@@ -360,6 +374,11 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 	members := []model.EventMember{}
 	for rows.Next() {
 		var m model.EventMember
+		var (
+			pID         sql.NullString
+			displayName sql.NullString
+			avatarURL   sql.NullString
+		)
 		if err := rows.Scan(
 			&m.EventID,
 			&m.ProfileID,
@@ -367,8 +386,18 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 			&m.MailAddress,
 			&m.PartySize,
 			&m.CreatedAt,
+			&pID,
+			&displayName,
+			&avatarURL,
 		); err != nil {
 			return nil, fmt.Errorf("scan member: %w", err)
+		}
+		if pID.Valid {
+			m.Profile = &model.ProfileSummary{
+				ID:          pID.String,
+				DisplayName: displayName.String,
+				AvatarURL:   avatarURL.String,
+			}
 		}
 		members = append(members, m)
 	}

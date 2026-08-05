@@ -64,11 +64,15 @@ type EventMember struct {
 	// PartySize は代表者を含む参加人数（1以上）。
 	PartySize int
 	CreatedAt time.Time
+	// Profile は profiles から LEFT JOIN で取得したプロフィールサマリー。
+	// 匿名参加（ProfileID が Invalid）の場合は nil。Join（INSERT）経路では使わない。
+	Profile *ProfileSummary
 }
 
 // EventMemberResponse は参加者一覧取得エンドポイントの1参加者分の DTO。
 //
 //	@Description	参加者1人分の情報。profileId は匿名参加の場合 null。
+//	@Description	profile は参加者のプロフィールサマリー。匿名参加の場合 null。
 type EventMemberResponse struct {
 	// Username は参加者の表示名。
 	Username string `json:"username" example:"山田太郎"`
@@ -80,6 +84,9 @@ type EventMemberResponse struct {
 	MailAddress string `json:"mailAddress" example:"yamada@example.com"`
 	// CreatedAt は参加申込日時(RFC3339)。
 	CreatedAt time.Time `json:"createdAt" example:"2026-07-01T12:00:00Z"`
+	// Profile は参加者のプロフィールサマリー（表示名・アイコン URL）。匿名参加の場合は null。
+	// Username は申込時に入力された名前で、Profile.DisplayName（アカウントの表示名）とは別物。
+	Profile *ProfileSummary `json:"profile" extensions:"x-nullable"`
 }
 
 // EventMemberListResponse は参加者一覧取得エンドポイントのレスポンス。

@@ -173,6 +173,7 @@ func (s *EventJoinService) ListMembers(
 			PartySize:   m.PartySize,
 			MailAddress: m.MailAddress,
 			CreatedAt:   m.CreatedAt,
+			Profile:     m.Profile,
 		})
 		totalMembers += m.PartySize
 	}
