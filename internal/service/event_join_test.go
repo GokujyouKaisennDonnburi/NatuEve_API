@@ -563,6 +563,11 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 						MailAddress: "yamada@example.com",
 						PartySize:   3,
 						CreatedAt:   createdAt1,
+						Profile: &model.ProfileSummary{
+							ID:          profileUID.UUID.String(),
+							DisplayName: "なちゅいべ太郎",
+							AvatarURL:   "https://example.com/avatar.png",
+						},
 					},
 					{
 						EventID:     eventUID,
@@ -608,6 +613,18 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				if !m0.CreatedAt.Equal(createdAt1) {
 					t.Errorf("Members[0].CreatedAt: got %v, want %v", m0.CreatedAt, createdAt1)
 				}
+				if m0.Profile == nil {
+					t.Fatal("Members[0].Profile: got nil, want non-nil")
+				}
+				if m0.Profile.ID != profileUID.UUID.String() {
+					t.Errorf("Members[0].Profile.ID: got %q, want %q", m0.Profile.ID, profileUID.UUID.String())
+				}
+				if m0.Profile.DisplayName != "なちゅいべ太郎" {
+					t.Errorf("Members[0].Profile.DisplayName: got %q, want %q", m0.Profile.DisplayName, "なちゅいべ太郎")
+				}
+				if m0.Profile.AvatarURL != "https://example.com/avatar.png" {
+					t.Errorf("Members[0].Profile.AvatarURL: got %q, want %q", m0.Profile.AvatarURL, "https://example.com/avatar.png")
+				}
 
 				// 2人目: 匿名参加
 				m1 := resp.Members[1]
@@ -625,6 +642,9 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				}
 				if !m1.CreatedAt.Equal(createdAt2) {
 					t.Errorf("Members[1].CreatedAt: got %v, want %v", m1.CreatedAt, createdAt2)
+				}
+				if m1.Profile != nil {
+					t.Errorf("Members[1].Profile: got %v, want nil（匿名）", m1.Profile)
 				}
 			},
 		},

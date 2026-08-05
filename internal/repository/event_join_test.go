@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 
@@ -165,4 +166,130 @@ func TestEventJoinPostgres_Leave_DeletesMemberAndWritesLog(t *testing.T) {
 			t.Errorf("Leave() error = %v, want ErrEventNotFound", err)
 		}
 	})
+}
+
+// updateTestProfileDetails はテスト用の profiles 行の display_name・avatar_url を更新する。
+// insertTestProfile はメールアドレスのみ設定するため、プロフィールサマリーの検証に
+// display_name・avatar_url が必要なテストではこのヘルパーで追加設定する。
+func updateTestProfileDetails(t *testing.T, db *sql.DB, profileID uuid.UUID, displayName, avatarURL string) {
+	t.Helper()
+
+	const updateProfile = `
+	UPDATE profiles
+	SET display_name = $2, avatar_url = $3
+	WHERE id = $1
+	`
+	if _, err := db.ExecContext(context.Background(), updateProfile, profileID, displayName, avatarURL); err != nil {
+		t.Fatalf("update test profile details: %v", err)
+	}
+}
+
+// TestEventJoinPostgres_ListMembers_ReturnsProfileSummary は ListMembers が
+// created_at 昇順で参加者を返すこと、ログイン参加者は profiles から LEFT JOIN した
+// プロフィールサマリー（display_name・avatar_url）を保持すること、匿名参加者は
+// Profile が nil になることを検証する。
+func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	eventID := insertTestEvent(t, db, ownerID)
+
+	// ログイン参加者用プロフィール（表示名・アイコン URL を設定する）。
+	loggedInProfileID := insertTestProfile(t, db)
+	updateTestProfileDetails(t, db, loggedInProfileID, "なちゅいべ太郎", "https://example.com/avatar.png")
+
+	// ログイン参加者を登録する。
+	loggedInMember := &model.EventMember{
+		EventID:     eventID,
+		ProfileID:   uuid.NullUUID{UUID: loggedInProfileID, Valid: true},
+		Username:    "山田太郎",
+		MailAddress: uuid.NewString() + "@example.com",
+		PartySize:   1,
+	}
+	if err := repo.Join(context.Background(), loggedInMember); err != nil {
+		t.Fatalf("Join() (logged-in) returned error: %v", err)
+	}
+
+	// 匿名参加者を登録する（profile_id は NULL）。
+	anonymousMember := &model.EventMember{
+		EventID:     eventID,
+		ProfileID:   uuid.NullUUID{},
+		Username:    "匿名花子",
+		MailAddress: uuid.NewString() + "@example.com",
+		PartySize:   1,
+	}
+	if err := repo.Join(context.Background(), anonymousMember); err != nil {
+		t.Fatalf("Join() (anonymous) returned error: %v", err)
+	}
+
+	members, err := repo.ListMembers(context.Background(), eventID)
+	if err != nil {
+		t.Fatalf("ListMembers() returned error: %v", err)
+	}
+	if len(members) != 2 {
+		t.Fatalf("len(members) = %d, want 2", len(members))
+	}
+
+	// created_at 昇順で返ること。
+	if members[0].CreatedAt.After(members[1].CreatedAt) {
+		t.Errorf(
+			"members not sorted by created_at ascending: members[0]=%v, members[1]=%v",
+			members[0].CreatedAt, members[1].CreatedAt,
+		)
+	}
+
+	// 検証対象は添字ではなく Username で特定する。ORDER BY m.created_at には二次キーが無く、
+	// 同一マイクロ秒で created_at がタイになると返却順が不定になるため、
+	// 「1件目がログイン参加者」を前提にすると理論上テストが取り違える。
+	byUsername := make(map[string]model.EventMember, len(members))
+	for _, m := range members {
+		byUsername[m.Username] = m
+	}
+
+	tests := []struct {
+		name        string
+		username    string
+		wantProfile bool
+	}{
+		{
+			name:        "ログイン参加は Profile が非 nil で display_name・avatar_url を保持する",
+			username:    "山田太郎",
+			wantProfile: true,
+		},
+		{
+			name:        "匿名参加は Profile が nil",
+			username:    "匿名花子",
+			wantProfile: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			member, ok := byUsername[tt.username]
+			if !ok {
+				t.Fatalf("参加者 %q が ListMembers の結果に含まれていない", tt.username)
+			}
+
+			if !tt.wantProfile {
+				if member.Profile != nil {
+					t.Errorf("Profile: got %v, want nil（匿名）", member.Profile)
+				}
+				return
+			}
+
+			if member.Profile == nil {
+				t.Fatal("Profile: got nil, want non-nil")
+			}
+			if member.Profile.ID != loggedInProfileID.String() {
+				t.Errorf("Profile.ID: got %q, want %q", member.Profile.ID, loggedInProfileID.String())
+			}
+			if member.Profile.DisplayName != "なちゅいべ太郎" {
+				t.Errorf("Profile.DisplayName: got %q, want %q", member.Profile.DisplayName, "なちゅいべ太郎")
+			}
+			if member.Profile.AvatarURL != "https://example.com/avatar.png" {
+				t.Errorf("Profile.AvatarURL: got %q, want %q", member.Profile.AvatarURL, "https://example.com/avatar.png")
+			}
+		})
+	}
 }
