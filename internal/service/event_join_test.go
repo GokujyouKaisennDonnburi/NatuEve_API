@@ -598,12 +598,6 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				if m0.Username != "山田太郎" {
 					t.Errorf("Members[0].Username: got %q, want %q", m0.Username, "山田太郎")
 				}
-				if m0.ProfileID == nil {
-					t.Fatal("Members[0].ProfileID: got nil, want non-nil")
-				}
-				if *m0.ProfileID != profileUID.UUID {
-					t.Errorf("Members[0].ProfileID: got %v, want %v", *m0.ProfileID, profileUID.UUID)
-				}
 				if m0.PartySize != 3 {
 					t.Errorf("Members[0].PartySize: got %d, want 3", m0.PartySize)
 				}
@@ -630,9 +624,6 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				m1 := resp.Members[1]
 				if m1.Username != "匿名花子" {
 					t.Errorf("Members[1].Username: got %q, want %q", m1.Username, "匿名花子")
-				}
-				if m1.ProfileID != nil {
-					t.Errorf("Members[1].ProfileID: got %v, want nil（匿名）", *m1.ProfileID)
 				}
 				if m1.PartySize != 5 {
 					t.Errorf("Members[1].PartySize: got %d, want 5", m1.PartySize)
@@ -673,9 +664,9 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				}
 			},
 		},
-		// 3. 正常: 匿名参加者のみ - 全員の profileId が null
+		// 3. 正常: 匿名参加者のみ - 全員の profile が null
 		{
-			name:      "正常: 匿名参加者のみ - 全員の profileId が null",
+			name:      "正常: 匿名参加者のみ - 全員の profile が null",
 			profileID: ownerUID.String(),
 			eventID:   eventUID.String(),
 			joinStub: &stubEventJoinRepository{
@@ -696,8 +687,9 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 				if len(resp.Members) != 1 {
 					t.Fatalf("Members length: got %d, want 1", len(resp.Members))
 				}
-				if resp.Members[0].ProfileID != nil {
-					t.Errorf("ProfileID: got %v, want nil（匿名）", *resp.Members[0].ProfileID)
+				// 匿名参加は profile が null になる（profileId 削除後、匿名判定の唯一の手掛かり）。
+				if resp.Members[0].Profile != nil {
+					t.Errorf("Members[0].Profile: got %v, want nil（匿名）", resp.Members[0].Profile)
 				}
 				if resp.TotalCount != 1 {
 					t.Errorf("TotalCount: got %d, want 1", resp.TotalCount)
