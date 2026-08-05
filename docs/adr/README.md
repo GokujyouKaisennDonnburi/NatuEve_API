@@ -37,3 +37,4 @@
 | [0019](./0019-event-search-keep-get-method.md) | イベント検索は GET を維持し、QUERY メソッドへは移行しない | Accepted |
 | [0020](./0020-event-list-tag-filter.md) | イベント一覧のタグ絞り込みは OR 条件とし、検索条件を構造体へ集約する | Accepted |
 | [0021](./0021-reject-invalid-query-string.md) | 不正なクエリ文字列はミドルウェアで 400 を返す | Accepted |
+| [0022](./0022-event-member-profile-summary.md) | イベント参加者一覧にプロフィールサマリーを公開し、匿名参加は null で表す | Accepted |
