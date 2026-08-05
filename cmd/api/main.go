@@ -38,6 +38,23 @@ func main() {
 	}
 }
 
+// maxHeaderBytes はリクエストライン（URL を含む）と全ヘッダの合計サイズの上限。
+//
+// Go の既定値は 1MB だが、現実的な最大リクエストは 8KB 程度（クエリ 2KB 未満・
+// Supabase JWT 約 1KB・通常ヘッダ）であり過剰である。公開エンドポイントには
+// レート制限がなく前段のプロキシもないため、巨大なリクエストラインを並列に
+// 投げられるとアプリケーションコードが動く前に http.Server がそれをバッファする。
+//
+// 注意点:
+//   - net/http の実効上限はこの値 +4096 バイト（bufio のスロップ）になる。
+//   - 超過時の 431 は http.Server が生の HTTP レスポンスとして直接書くため、
+//     gin に到達しない。slog に残らず、統一エラーフォーマットでもなく、
+//     CORS ヘッダも付かない。正当なクライアントが到達しない値として 64KB を選ぶ。
+//   - これはクエリパラメータの silent drop（ADR-0021）への対策ではない。
+//     10,001 パラメータの最小構成は約 10KB にしかならず本値では捕まらないため、
+//     そちらは middleware.ValidateQuery が 400 で拾う。
+const maxHeaderBytes = 64 << 10
+
 // run はサーバを起動し、終了シグナルを受けて graceful shutdown するまでを担う。
 // os.Exit を呼ばずエラーを返すことで、defer によるクリーンアップを確実に実行する。
 func run() error {
@@ -99,6 +116,8 @@ func run() error {
 		Handler: r,
 		// ヘッダ読み取りに時間制限を設ける（Slowloris 攻撃対策）。
 		ReadHeaderTimeout: 10 * time.Second,
+		// リクエストラインとヘッダのサイズを制限する（既定 1MB は過剰）。
+		MaxHeaderBytes: maxHeaderBytes,
 	}
 
 	// サーバーを別 goroutine で起動し、起動失敗はチャネルで受け取る。
