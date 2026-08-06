@@ -310,7 +310,8 @@ definitions:
         type: integer
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventMemberResponse:
-    description: 参加者1人分の情報。profileId は匿名参加の場合 null。
+    description: 参加者1人分の情報。匿名参加かどうかは profile が null かどうかで判定できる。 profile は参加者のプロフィールサマリー。匿名参加の場合
+      null。 username は申込時に入力された名前で、profile.displayName（アカウントの表示名）とは別物。
     properties:
       createdAt:
         description: CreatedAt は参加申込日時(RFC3339)。
@@ -324,12 +325,18 @@ definitions:
         description: PartySize は代表者を含む参加人数。
         example: 1
         type: integer
-      profileId:
-        description: ProfileID は参加者のプロフィールUUID。匿名参加の場合は null。
-        example: b2c3d4e5-f6a7-8901-bcde-f23456789012
-        type: string
+      profile:
+        allOf:
+        - $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileSummary'
+        description: |-
+          Profile は参加者のプロフィールサマリー（表示名・アイコン URL）。匿名参加の場合は null。
+          Username は申込時に入力された名前で、Profile.DisplayName（アカウントの表示名）とは別物。
+        x-nullable: true
       username:
-        description: Username は参加者の表示名。
+        description: |-
+          Username は申込時にフォームへ入力された名前。参加者が名乗った名前のスナップショットで、
+          保存後は変更されない。アカウントの表示名（Profile.DisplayName）とは別物で、
+          ログイン参加でも一致するとは限らない。匿名参加でも必ず値が入る。
         example: 山田太郎
         type: string
     type: object
@@ -1229,7 +1236,7 @@ paths:
     get:
       description: |-
         イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。
-        profileId は匿名参加（ログインしていない）の場合 null。
+        profile は参加者のプロフィールサマリー。匿名参加の場合は null。
         イベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。
       parameters:
       - description: イベントID

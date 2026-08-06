@@ -197,7 +197,7 @@ func (h *EventHandler) Leave(c *gin.Context) {
 //
 //	@Summary		イベント参加者一覧取得
 //	@Description	イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。
-//	@Description	profileId は匿名参加（ログインしていない）の場合 null。
+//	@Description	profile は参加者のプロフィールサマリー。匿名参加の場合は null。
 //	@Description	イベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。
 //	@Tags			event
 //	@Produce		json
