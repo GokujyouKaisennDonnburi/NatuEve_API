@@ -1,8 +1,13 @@
 -- +goose Up
 
--- 参加状態ログのカテゴリ別人数の内訳。action='join' 時点のスナップショットを残す。
--- ログ自体が追記専用のため、この内訳も後から更新しない。
+-- 参加状態ログのカテゴリ別人数の内訳。action='join' 時点に「どのカテゴリで何名か」を記録する。
+-- ログ自体が追記専用のため、この行も後から更新しない。
 -- action='leave' は全キャンセルのみを扱い部分キャンセルがないため、leave ログには内訳行を作らない。
+--
+-- ただしカテゴリ名と金額は凍結されない。cost_id で event_costs を参照する構造のため、
+-- 主催者がカテゴリを改名・金額変更すると過去のログの見え方も現在値に追随する
+-- （改名の禁止は API 層で行う）。当時の名前・金額を証跡として残す必要が出た場合は、
+-- このテーブルへ category / cost をコピーする列を足す拡張が必要になる。
 --
 -- 匿名参加（profile_id NULL）は event_participation_logs 自体に記録されないため、
 -- 匿名参加の内訳は event_member_categories 側にのみ残る。
@@ -20,6 +25,8 @@ CREATE TABLE event_participation_log_categories (
         REFERENCES event_participation_logs (id, event_id) ON DELETE CASCADE,
     -- 別イベントの費用カテゴリを指定したログを構造的に不可能にする。
     -- NO ACTION（既定）のため、内訳が残っているカテゴリの削除は DB が拒否する。
+    -- ログは leave 後も残るので、一度 join ログが付いたカテゴリは以降削除できなくなる
+    -- （申込実績のあるカテゴリを消させない、という監査寄りの制約として受け入れる）。
     FOREIGN KEY (cost_id, event_id)
         REFERENCES event_costs (id, event_id)
 );
