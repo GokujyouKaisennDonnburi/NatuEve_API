@@ -4,7 +4,11 @@ CREATE TABLE event_participation_logs (
     event_id   UUID NOT NULL REFERENCES events(id),
     profile_id UUID NOT NULL REFERENCES profiles(id),
     action     TEXT NOT NULL CHECK (action IN ('join', 'leave')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- event_participation_log_categories からの複合 FK の参照先。id は PK なので
+    -- 一意性としては冗長だが、複合 FK は参照先に同じ列組の UNIQUE 制約を要求するため
+    -- 明示的に張る。
+    UNIQUE (id, event_id)
 );
 
 CREATE INDEX idx_event_participation_logs_event_profile

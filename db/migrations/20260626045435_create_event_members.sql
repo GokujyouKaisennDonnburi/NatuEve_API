@@ -8,7 +8,10 @@ CREATE TABLE event_members (
     -- 代表者を含む参加人数。団体登録（代表者＋同伴者氏名）導入時は 1 + 同伴者数 をセットする。
     party_size INT NOT NULL DEFAULT 1 CHECK (party_size >= 1),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (event_id, profile_id)
+    UNIQUE (event_id, profile_id),
+    -- event_member_categories からの複合 FK の参照先。id は PK なので一意性としては
+    -- 冗長だが、複合 FK は参照先に同じ列組の UNIQUE 制約を要求するため明示的に張る。
+    UNIQUE (id, event_id)
 );
 
 -- 同一イベントへの同一メールアドレスの重複申込を DB レベルで禁止する。
