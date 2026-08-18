@@ -321,9 +321,16 @@ definitions:
         description: MailAddress は参加者のメールアドレス。
         example: yamada@example.com
         type: string
+      participants:
+        description: |-
+          Participants はカテゴリ別人数の内訳。イベントの費用カテゴリの登録順で返す。
+          内訳を持たない参加者では空配列（null ではない）。
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse'
+        type: array
       partySize:
-        description: PartySize は代表者を含む参加人数。
-        example: 1
+        description: PartySize は代表者を含む参加人数。participants の合計と一致する。
+        example: 3
         type: integer
       profile:
         allOf:
@@ -536,18 +543,21 @@ definitions:
         $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorBody'
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinEventRequest:
-    description: イベント参加申込に必要な情報。認証は任意。
+    description: イベント参加申込に必要な情報。認証は任意。 参加人数はカテゴリ別の内訳（participants）で送る。合計はサーバーが算出する。
     properties:
       mailAddress:
         description: MailAddress は参加するユーザーのメールアドレス（必須）。
         example: yamada@example.com
         maxLength: 255
         type: string
-      partySize:
-        description: PartySize は代表者を含む参加人数（必須・1以上）。
-        example: 1
-        minimum: 1
-        type: integer
+      participants:
+        description: |-
+          Participants はカテゴリ別の参加人数（必須・1件以上）。
+          同一カテゴリを複数の要素に分けて送ることはできない。
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantInput'
+        minItems: 1
+        type: array
       username:
         description: Username は参加するユーザーの表示名（必須・255文字以内）。
         example: 山田太郎
@@ -555,7 +565,7 @@ definitions:
         type: string
     required:
     - mailAddress
-    - partySize
+    - participants
     - username
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinEventResponse:
@@ -572,9 +582,14 @@ definitions:
         description: MailAddress は参加するユーザーのメールアドレス。
         example: yamada@example.com
         type: string
+      participants:
+        description: Participants は登録されたカテゴリ別人数。イベントの費用カテゴリの登録順で返す。
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse'
+        type: array
       partySize:
-        description: PartySize は代表者を含む参加人数。
-        example: 1
+        description: PartySize は participants の合計人数（サーバーが算出した値）。
+        example: 3
         type: integer
       profileId:
         description: ProfileID は参加するユーザーのUUID。ログイン時のみ記録され、匿名参加時は null。
@@ -620,6 +635,36 @@ definitions:
     properties:
       error:
         $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorBody'
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantInput:
+    properties:
+      category:
+        description: |-
+          Category は参加者カテゴリ（必須・255文字以内）。
+          そのイベントの費用カテゴリ（costs[].category）に実在する名前を指定する。
+          大文字小文字は区別しない。
+        example: 大人
+        maxLength: 255
+        type: string
+      headCount:
+        description: HeadCount はそのカテゴリの人数（必須・1以上）。0人のカテゴリは送らない。
+        example: 2
+        minimum: 1
+        type: integer
+    required:
+    - category
+    - headCount
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse:
+    properties:
+      category:
+        description: Category は参加者カテゴリ。
+        example: 大人
+        type: string
+      headCount:
+        description: HeadCount はそのカテゴリの人数。
+        example: 2
+        type: integer
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipationStatusResponse:
     description: 認証ユーザー自身の最新の参加状態。履歴が1件もない場合は action=null, participating=false, updatedAt=null。
@@ -1137,7 +1182,10 @@ paths:
         Authorization ヘッダなし → 匿名参加（profileId = null）。
         ヘッダありでトークンが無効 → 401 で中断。
         ヘッダありで有効 → profileId を記録してログイン参加。
-        partySizeで代表者を含む参加人数を指定できる。
+        参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名
+        （イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。
+        合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。
+        0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。
         イベント定員を超える場合は409 Conflict（capacity_full）を返す。
       parameters:
       - description: イベントID
@@ -1237,6 +1285,7 @@ paths:
       description: |-
         イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。
         profile は参加者のプロフィールサマリー。匿名参加の場合は null。
+        participants は申込のカテゴリ別人数（カテゴリ名の昇順）。内訳を持たない申込では空配列。
         イベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。
       parameters:
       - description: イベントID

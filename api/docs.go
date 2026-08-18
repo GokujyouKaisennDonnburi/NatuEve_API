@@ -278,7 +278,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → 匿名参加（profileId = null）。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → profileId を記録してログイン参加。\npartySizeで代表者を含む参加人数を指定できる。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す。",
+                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → 匿名参加（profileId = null）。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → profileId を記録してログイン参加。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す。",
                 "consumes": [
                     "application/json"
                 ],
@@ -424,7 +424,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。\nprofile は参加者のプロフィールサマリー。匿名参加の場合は null。\nイベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。",
+                "description": "イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。\nprofile は参加者のプロフィールサマリー。匿名参加の場合は null。\nparticipants は申込のカテゴリ別人数（カテゴリ名の昇順）。内訳を持たない申込では空配列。\nイベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。",
                 "produces": [
                     "application/json"
                 ],
@@ -1505,10 +1505,17 @@ const docTemplate = `{
                     "type": "string",
                     "example": "yamada@example.com"
                 },
+                "participants": {
+                    "description": "Participants はカテゴリ別人数の内訳。イベントの費用カテゴリの登録順で返す。\n内訳を持たない参加者では空配列（null ではない）。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse"
+                    }
+                },
                 "partySize": {
-                    "description": "PartySize は代表者を含む参加人数。",
+                    "description": "PartySize は代表者を含む参加人数。participants の合計と一致する。",
                     "type": "integer",
-                    "example": 1
+                    "example": 3
                 },
                 "profile": {
                     "description": "Profile は参加者のプロフィールサマリー（表示名・アイコン URL）。匿名参加の場合は null。\nUsername は申込時に入力された名前で、Profile.DisplayName（アカウントの表示名）とは別物。",
@@ -1794,11 +1801,11 @@ const docTemplate = `{
             }
         },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinEventRequest": {
-            "description": "イベント参加申込に必要な情報。認証は任意。",
+            "description": "イベント参加申込に必要な情報。認証は任意。 参加人数はカテゴリ別の内訳（participants）で送る。合計はサーバーが算出する。",
             "type": "object",
             "required": [
                 "mailAddress",
-                "partySize",
+                "participants",
                 "username"
             ],
             "properties": {
@@ -1808,11 +1815,13 @@ const docTemplate = `{
                     "maxLength": 255,
                     "example": "yamada@example.com"
                 },
-                "partySize": {
-                    "description": "PartySize は代表者を含む参加人数（必須・1以上）。",
-                    "type": "integer",
-                    "minimum": 1,
-                    "example": 1
+                "participants": {
+                    "description": "Participants はカテゴリ別の参加人数（必須・1件以上）。\n同一カテゴリを複数の要素に分けて送ることはできない。",
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantInput"
+                    }
                 },
                 "username": {
                     "description": "Username は参加するユーザーの表示名（必須・255文字以内）。",
@@ -1840,10 +1849,17 @@ const docTemplate = `{
                     "type": "string",
                     "example": "yamada@example.com"
                 },
+                "participants": {
+                    "description": "Participants は登録されたカテゴリ別人数。イベントの費用カテゴリの登録順で返す。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse"
+                    }
+                },
                 "partySize": {
-                    "description": "PartySize は代表者を含む参加人数。",
+                    "description": "PartySize は participants の合計人数（サーバーが算出した値）。",
                     "type": "integer",
-                    "example": 1
+                    "example": 3
                 },
                 "profileId": {
                     "description": "ProfileID は参加するユーザーのUUID。ログイン時のみ記録され、匿名参加時は null。",
@@ -1903,6 +1919,42 @@ const docTemplate = `{
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorBody"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantInput": {
+            "type": "object",
+            "required": [
+                "category",
+                "headCount"
+            ],
+            "properties": {
+                "category": {
+                    "description": "Category は参加者カテゴリ（必須・255文字以内）。\nそのイベントの費用カテゴリ（costs[].category）に実在する名前を指定する。\n大文字小文字は区別しない。",
+                    "type": "string",
+                    "maxLength": 255,
+                    "example": "大人"
+                },
+                "headCount": {
+                    "description": "HeadCount はそのカテゴリの人数（必須・1以上）。0人のカテゴリは送らない。",
+                    "type": "integer",
+                    "minimum": 1,
+                    "example": 2
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "description": "Category は参加者カテゴリ。",
+                    "type": "string",
+                    "example": "大人"
+                },
+                "headCount": {
+                    "description": "HeadCount はそのカテゴリの人数。",
+                    "type": "integer",
+                    "example": 2
                 }
             }
         },
