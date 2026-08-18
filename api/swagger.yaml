@@ -627,6 +627,46 @@ definitions:
         example: b2c3d4e5-f6a7-8901-bcde-f23456789012
         type: string
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.MyEventCounts:
+    properties:
+      applied:
+        description: Applied は申し込み中のイベントの件数。
+        example: 2
+        type: integer
+      attended:
+        description: Attended は参加済みのイベントの件数。
+        example: 3
+        type: integer
+      hosted:
+        description: Hosted は主催したイベントの件数。
+        example: 4
+        type: integer
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.MyEventListResponse:
+    description: 指定種別のイベント一覧と、3種別すべての件数。
+    properties:
+      counts:
+        allOf:
+        - $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.MyEventCounts'
+        description: Counts は3種別すべての件数。タブのバッジ表示に使う（1回のリクエストで揃う）。
+      events:
+        description: Events はイベントサマリーの一覧（種別は counts ではなくリクエストの type に対応する）。
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventSummary'
+        type: array
+      limit:
+        description: Limit は正規化後の実際に使われた取得件数。
+        example: 20
+        type: integer
+      offset:
+        description: Offset は正規化後の実際に使われた取得開始位置。
+        example: 0
+        type: integer
+      totalCount:
+        description: TotalCount はリクエストした種別の総件数（counts の該当値と一致する）。
+        example: 2
+        type: integer
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorBody:
     properties:
       code:
@@ -1545,6 +1585,65 @@ paths:
       summary: 本人プロフィール更新
       tags:
       - user
+  /api/v1/me/events:
+    get:
+      description: |-
+        認証済みユーザー自身のイベントを種別ごとに返す。
+        type は必須。"hosted"(主催したイベント) / "applied"(申し込み中イベント) /
+        "attended"(参加済みイベント) のいずれかで、未指定・不正値は 400 を返す。
+        hosted は自分が投稿したイベント全件（過去・キャンセル済みを含む）。
+        applied は申込済みでイベント終了日時(endDate)が未到来のもの、attended は終了日時を過ぎたもの。
+        参加をキャンセル(leave)したイベントと、ログインせずに申し込んだイベントは applied / attended に含まれない。
+        counts には3種別すべての件数を常に含める（タブのバッジ表示用）。totalCount は type に対応する件数。
+        events の各要素は GET /api/v1/events と同じ EventSummary。
+        sort は "created_at"(デフォルト) / "event_date" のみ許可。不正値はデフォルトに戻す。
+        order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
+      parameters:
+      - description: 取得する種別(hosted|applied|attended)
+        in: query
+        name: type
+        required: true
+        type: string
+      - description: 'ソートカラム(created_at|event_date, default: created_at)'
+        in: query
+        name: sort
+        type: string
+      - description: 'ソート順(asc|desc, default: desc)'
+        in: query
+        name: order
+        type: string
+      - description: 取得件数(default 20, 最大 100)
+        in: query
+        name: limit
+        type: integer
+      - description: 取得開始位置(default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.MyEventListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: マイページのイベント一覧取得
+      tags:
+      - event
   /api/v1/profiles/{id}:
     get:
       description: 指定したユーザー ID のプロフィールを返す
