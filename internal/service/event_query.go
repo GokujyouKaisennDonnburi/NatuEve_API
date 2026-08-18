@@ -232,3 +232,46 @@ func (s *EventQueryService) GetByID(ctx context.Context, id string) (*model.Even
 
 	return event, nil
 }
+
+// ListByProfile は指定プロフィールのイベント一覧を種別ごとに返す。
+//
+// kind は "hosted"（主催）/ "applied"（申し込み中）/ "attended"（参加済み）のいずれか。
+// 不正値は既定値へ丸めず *ValidationError を返す（handler 層が 400 にする）。
+//
+// profileID は handler 層でパース済みの uuid.UUID を受け取る（ADR-0010）。
+// limit / offset / sort / order の正規化ルールは List と同じ。
+// レスポンスには3種別すべての件数（counts）を含める。種別の定義と設計判断は ADR-0024 を参照。
+func (s *EventQueryService) ListByProfile(ctx context.Context, profileID uuid.UUID, kind, sort, order string, limit, offset int) (model.MyEventListResponse, error) {
+	eventKind := model.MyEventKind(kind)
+	if !eventKind.IsValid() {
+		return model.MyEventListResponse{}, &ValidationError{
+			Message: "種別(type)は hosted / applied / attended のいずれかを指定してください",
+		}
+	}
+
+	limit = normalizeLimit(limit)
+	offset = normalizeOffset(offset)
+	sort = normalizeSort(sort)
+	order = normalizeOrder(order)
+
+	summaries, err := s.repo.ListMySummaries(ctx, model.MyEventFilter{
+		ProfileID: profileID,
+		Kind:      eventKind,
+	}, sort, order, limit, offset)
+	if err != nil {
+		return model.MyEventListResponse{}, err
+	}
+
+	counts, err := s.repo.CountMyEventKinds(ctx, profileID)
+	if err != nil {
+		return model.MyEventListResponse{}, err
+	}
+
+	return model.MyEventListResponse{
+		Events:     summaries,
+		Counts:     counts,
+		TotalCount: counts.Of(eventKind),
+		Limit:      limit,
+		Offset:     offset,
+	}, nil
+}

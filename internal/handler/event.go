@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/middleware"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
@@ -260,4 +261,68 @@ func (h *EventHandler) GetByID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, event)
+}
+
+// ListMine godoc
+//
+//	@Summary		マイページのイベント一覧取得
+//	@Description	認証済みユーザー自身のイベントを種別ごとに返す。
+//	@Description	type は必須。"hosted"(主催したイベント) / "applied"(申し込み中イベント) /
+//	@Description	"attended"(参加済みイベント) のいずれかで、未指定・不正値は 400 を返す。
+//	@Description	hosted は自分が投稿したイベント全件（過去・キャンセル済みを含む）。
+//	@Description	applied は申込済みでイベント終了日時(endDate)が未到来のもの、attended は終了日時を過ぎたもの。
+//	@Description	参加をキャンセル(leave)したイベントと、ログインせずに申し込んだイベントは applied / attended に含まれない。
+//	@Description	counts には3種別すべての件数を常に含める（タブのバッジ表示用）。totalCount は type に対応する件数。
+//	@Description	events の各要素は GET /api/v1/events と同じ EventSummary。
+//	@Description	sort は "created_at"(デフォルト) / "event_date" のみ許可。不正値はデフォルトに戻す。
+//	@Description	order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
+//	@Tags			event
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			type	query		string	true	"取得する種別(hosted|applied|attended)"
+//	@Param			sort	query		string	false	"ソートカラム(created_at|event_date, default: created_at)"
+//	@Param			order	query		string	false	"ソート順(asc|desc, default: desc)"
+//	@Param			limit	query		int		false	"取得件数(default 20, 最大 100)"
+//	@Param			offset	query		int		false	"取得開始位置(default 0)"
+//	@Success		200		{object}	model.MyEventListResponse
+//	@Failure		400		{object}	model.ValidationErrorResponse
+//	@Failure		401		{object}	model.UnauthorizedErrorResponse
+//	@Failure		500		{object}	model.InternalErrorResponse
+//	@Router			/api/v1/me/events [get]
+func (h *EventHandler) ListMine(c *gin.Context) {
+	authUser, ok := middleware.AuthFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, model.NewErrorResponse("unauthorized", "認証が必要です"))
+		return
+	}
+
+	profileID, err := uuid.Parse(authUser.ID)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, model.NewErrorResponse("unauthorized", "ユーザーIDが不正です"))
+		return
+	}
+
+	kind := c.Query("type")
+	sort := c.Query("sort")
+	order := c.Query("order")
+	limit := queryInt(c, "limit", 0)
+	offset := queryInt(c, "offset", 0)
+
+	resp, err := h.querySvc.ListByProfile(c.Request.Context(), profileID, kind, sort, order, limit, offset)
+	if err != nil {
+		var ve *service.ValidationError
+		if errors.As(err, &ve) {
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			return
+		}
+		slog.Error("マイページのイベント一覧の取得に失敗しました",
+			slog.String("profile_id", profileID.String()),
+			slog.String("type", kind),
+			slog.Any("error", err),
+		)
+		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "イベント一覧の取得に失敗しました"))
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
