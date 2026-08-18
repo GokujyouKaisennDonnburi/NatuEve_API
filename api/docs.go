@@ -811,7 +811,7 @@ const docTemplate = `{
                     "application/json"
                 ],
                 "tags": [
-                    "event"
+                    "user"
                 ],
                 "summary": "マイページのイベント一覧取得",
                 "parameters": [

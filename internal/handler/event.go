@@ -276,7 +276,7 @@ func (h *EventHandler) GetByID(c *gin.Context) {
 //	@Description	events の各要素は GET /api/v1/events と同じ EventSummary。
 //	@Description	sort は "created_at"(デフォルト) / "event_date" のみ許可。不正値はデフォルトに戻す。
 //	@Description	order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
-//	@Tags			event
+//	@Tags			user
 //	@Produce		json
 //	@Security		BearerAuth
 //	@Param			type	query		string	true	"取得する種別(hosted|applied|attended)"

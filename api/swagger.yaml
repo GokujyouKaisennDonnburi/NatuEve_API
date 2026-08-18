@@ -1643,7 +1643,7 @@ paths:
       - BearerAuth: []
       summary: マイページのイベント一覧取得
       tags:
-      - event
+      - user
   /api/v1/profiles/{id}:
     get:
       description: 指定したユーザー ID のプロフィールを返す
