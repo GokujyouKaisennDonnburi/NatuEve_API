@@ -28,6 +28,13 @@ var ErrEventCancelled = errors.New("event cancelled")
 // ErrNotJoined は参加キャンセル時に、そのイベントに参加していない場合に返されるエラー。
 var ErrNotJoined = errors.New("not joined")
 
+// ErrCategoryNotFound は申込で指定されたカテゴリがそのイベントの費用カテゴリに存在しない場合に返されるエラー。
+var ErrCategoryNotFound = errors.New("participant category not found")
+
+// ErrDuplicateCategory は申込の内訳で同一カテゴリが複数指定された場合に返されるエラー。
+// 大文字小文字違いなど、表記が異なっていても同じ費用カテゴリに解決された場合を含む。
+var ErrDuplicateCategory = errors.New("duplicate participant category")
+
 // pgUniqueViolationCode は PostgreSQL の unique_violation エラーコード。
 const pgUniqueViolationCode = "23505"
 
@@ -36,17 +43,23 @@ const pgUniqueViolationCode = "23505"
 // 実際のDB実装(PostgreSQLなど)には依存しない。
 type EventJoinRepository interface {
 
-	// Join はイベント参加を1トランザクションで登録する。成功時は member.CreatedAt を埋める。
+	// Join はイベント参加を1トランザクションで登録する。
+	// 成功時は member.ID・member.CreatedAt と、member.Categories の CostID・Category を埋める。
 	//
-	// イベント行を FOR UPDATE でロックして存在確認・重複確認・定員確認・INSERT を
+	// イベント行を FOR UPDATE でロックして存在確認・重複確認・カテゴリ解決・定員確認・INSERT を
 	// 原子的に行うため、並行リクエストでも定員超過・重複登録は発生しない。
+	// member.Categories の Category（カテゴリ名）は event_costs から lower() 比較で
+	// cost_id に解決し、event_member_categories へ内訳を追記する。
 	// ログイン参加（member.ProfileID が Valid）の場合は、同一トランザクション内で
-	// event_participation_logs に action='join' を1件追記する。匿名参加（profile_id NULL）は
+	// event_participation_logs に action='join' を1件、その内訳を
+	// event_participation_log_categories に追記する。匿名参加（profile_id NULL）は
 	// ログ対象外（event_participation_logs.profile_id が NOT NULL のため）。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
 	//   - ErrAlreadyJoined: 同一 mail_address（大文字小文字無視）またはログイン時は同一 profile_id で参加済み
 	//   - ErrEventCapacityFull: 定員超過（定員 NULL / 0 は定員なし）
+	//   - ErrCategoryNotFound: 指定カテゴリがそのイベントの費用カテゴリに存在しない
+	//   - ErrDuplicateCategory: 同一カテゴリが内訳で重複している
 	Join(ctx context.Context, member *model.EventMember) error
 
 	// Leave はログイン参加者のイベント参加を1トランザクションで取り消す。
@@ -150,6 +163,45 @@ func (r *eventJoinPostgres) Join(
 		return fmt.Errorf("event %s: %w", member.EventID, ErrAlreadyJoined)
 	}
 
+	// 申込のカテゴリ名を、そのイベントの費用カテゴリ（event_costs）へ解決する。
+	// 照合は event_costs の一意インデックスと同じ lower(category) 基準で行うため、
+	// 「一意と判定される表記」と「解決に成功する表記」が食い違わない。
+	const findCost = `
+	SELECT id, category
+	FROM event_costs
+	WHERE event_id = $1
+	AND lower(category) = lower($2)
+	`
+
+	seenCost := make(map[uuid.UUID]struct{}, len(member.Categories))
+	for i := range member.Categories {
+		var (
+			costID   uuid.UUID
+			category string
+		)
+		err := tx.QueryRowContext(
+			ctx,
+			findCost,
+			member.EventID,
+			member.Categories[i].Category,
+		).Scan(&costID, &category)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("category %q: %w", member.Categories[i].Category, ErrCategoryNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("find cost: %w", err)
+		}
+		// 表記違いで同一カテゴリを指した場合もここで弾く（DB では PK 違反になる）。
+		if _, dup := seenCost[costID]; dup {
+			return fmt.Errorf("category %q: %w", member.Categories[i].Category, ErrDuplicateCategory)
+		}
+		seenCost[costID] = struct{}{}
+
+		member.Categories[i].CostID = costID
+		// 保存・返却するカテゴリ名は event_costs 側の表記に揃える。
+		member.Categories[i].Category = category
+	}
+
 	// 定員確認。capacity が NULL または 0 は「定員なし」。
 	// 人数は party_size の合計で数える（団体登録導入後もこの式のまま）。
 	if capacity.Valid && capacity.Int32 > 0 {
@@ -185,7 +237,7 @@ func (r *eventJoinPostgres) Join(
 		$4,
 		$5
 	)
-	RETURNING created_at
+	RETURNING id, created_at
 	`
 
 	err = tx.QueryRowContext(
@@ -196,7 +248,7 @@ func (r *eventJoinPostgres) Join(
 		member.Username,
 		member.MailAddress,
 		member.PartySize,
-	).Scan(&member.CreatedAt)
+	).Scan(&member.ID, &member.CreatedAt)
 	if err != nil {
 		// UNIQUE 制約違反は重複参加として扱う（事前チェックの最後の砦）。
 		var pgErr *pgconn.PgError
@@ -204,6 +256,30 @@ func (r *eventJoinPostgres) Join(
 			return fmt.Errorf("event %s: %w", member.EventID, ErrAlreadyJoined)
 		}
 		return fmt.Errorf("join event: %w", err)
+	}
+
+	// カテゴリ別人数の内訳を追記する。
+	const insertMemberCategory = `
+	INSERT INTO event_member_categories(
+		member_id,
+		cost_id,
+		event_id,
+		head_count
+	)
+	VALUES($1, $2, $3, $4)
+	`
+
+	for _, c := range member.Categories {
+		if _, err := tx.ExecContext(
+			ctx,
+			insertMemberCategory,
+			member.ID,
+			c.CostID,
+			member.EventID,
+			c.HeadCount,
+		); err != nil {
+			return fmt.Errorf("insert member category: %w", err)
+		}
 	}
 
 	// ログイン参加時のみ、参加状態ログに join を追記する（同一トランザクション内で原子的に）。
@@ -218,15 +294,41 @@ func (r *eventJoinPostgres) Join(
 			action
 		)
 		VALUES($1, $2, 'join')
+		RETURNING id
 		`
 
-		if _, err := tx.ExecContext(
+		var logID uuid.UUID
+		if err := tx.QueryRowContext(
 			ctx,
 			insertParticipationLog,
 			member.EventID,
 			member.ProfileID.UUID,
-		); err != nil {
+		).Scan(&logID); err != nil {
 			return fmt.Errorf("insert participation log: %w", err)
+		}
+
+		// join ログにも同じ内訳を残す。
+		const insertLogCategory = `
+		INSERT INTO event_participation_log_categories(
+			participation_log_id,
+			cost_id,
+			event_id,
+			head_count
+		)
+		VALUES($1, $2, $3, $4)
+		`
+
+		for _, c := range member.Categories {
+			if _, err := tx.ExecContext(
+				ctx,
+				insertLogCategory,
+				logID,
+				c.CostID,
+				member.EventID,
+				c.HeadCount,
+			); err != nil {
+				return fmt.Errorf("insert participation log category: %w", err)
+			}
 		}
 	}
 
@@ -356,7 +458,7 @@ func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID uuid.UUI
 // レコードが 0 件でも nil ではなく空スライスを返す。
 func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) ([]model.EventMember, error) {
 	const query = `
-	SELECT m.event_id, m.profile_id, m.username, m.mail_address, m.party_size, m.created_at,
+	SELECT m.id, m.event_id, m.profile_id, m.username, m.mail_address, m.party_size, m.created_at,
 	       p.id, p.display_name, p.avatar_url
 	FROM event_members m
 	LEFT JOIN profiles p ON p.id = m.profile_id
@@ -380,6 +482,7 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 			avatarURL   sql.NullString
 		)
 		if err := rows.Scan(
+			&m.ID,
 			&m.EventID,
 			&m.ProfileID,
 			&m.Username,
@@ -405,5 +508,53 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 		return nil, fmt.Errorf("list members rows: %w", err)
 	}
 
+	// 内訳は1クエリでまとめて引き、member_id で紐づける（申込ごとに引くと N+1 になる）。
+	categories, err := r.listMemberCategories(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range members {
+		members[i].Categories = categories[members[i].ID]
+	}
+
 	return members, nil
+}
+
+// listMemberCategories は指定 eventID の参加者内訳を member_id ごとにまとめて返す。
+// カテゴリ名の昇順で並べる（event_costs に表示順の列がないため、順序を決定的にする）。
+// 内訳を持たない申込はキー自体が存在しない（呼び出し元では nil スライスになる）。
+func (r *eventJoinPostgres) listMemberCategories(
+	ctx context.Context,
+	eventID uuid.UUID,
+) (map[uuid.UUID][]model.MemberCategory, error) {
+	const query = `
+	SELECT mc.member_id, mc.cost_id, c.category, mc.head_count
+	FROM event_member_categories mc
+	JOIN event_costs c ON c.id = mc.cost_id
+	WHERE mc.event_id = $1
+	ORDER BY c.category
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("list member categories: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	byMember := map[uuid.UUID][]model.MemberCategory{}
+	for rows.Next() {
+		var (
+			memberID uuid.UUID
+			c        model.MemberCategory
+		)
+		if err := rows.Scan(&memberID, &c.CostID, &c.Category, &c.HeadCount); err != nil {
+			return nil, fmt.Errorf("scan member category: %w", err)
+		}
+		byMember[memberID] = append(byMember[memberID], c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list member categories rows: %w", err)
+	}
+
+	return byMember, nil
 }

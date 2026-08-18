@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -67,13 +68,26 @@ func (s *EventJoinService) Join(
 		return model.JoinEventResponse{}, err
 	}
 
+	// 内訳を組み立て、合計人数を算出する。
+	// 合計はクライアントから受け取らず、必ず内訳から求めた値を保存する。
+	categories := make([]model.MemberCategory, 0, len(req.Participants))
+	partySize := 0
+	for _, p := range req.Participants {
+		categories = append(categories, model.MemberCategory{
+			Category:  strings.TrimSpace(p.Category),
+			HeadCount: p.HeadCount,
+		})
+		partySize += p.HeadCount
+	}
+
 	// 参加登録（バリデーション済みの値を使う）
 	member := &model.EventMember{
 		EventID:     eventID,
 		ProfileID:   profileID,
 		Username:    strings.TrimSpace(req.Username),
 		MailAddress: strings.TrimSpace(req.MailAddress),
-		PartySize:   req.PartySize,
+		PartySize:   partySize,
+		Categories:  categories,
 	}
 
 	if err := s.joinRepo.Join(ctx, member); err != nil {
@@ -86,6 +100,10 @@ func (s *EventJoinService) Join(
 			return model.JoinEventResponse{}, &ConflictError{Code: "capacity_full", Message: "定員に達しています"}
 		case errors.Is(err, repository.ErrEventCancelled):
 			return model.JoinEventResponse{}, &ConflictError{Code: "event_cancelled", Message: "このイベントはキャンセルされているため参加できません"}
+		case errors.Is(err, repository.ErrCategoryNotFound):
+			return model.JoinEventResponse{}, &ValidationError{Message: "指定された参加者カテゴリはこのイベントに存在しません"}
+		case errors.Is(err, repository.ErrDuplicateCategory):
+			return model.JoinEventResponse{}, &ValidationError{Message: "同じ参加者カテゴリが重複しています"}
 		}
 		return model.JoinEventResponse{}, fmt.Errorf("join event: %w", err)
 	}
@@ -98,13 +116,31 @@ func (s *EventJoinService) Join(
 	}
 
 	return model.JoinEventResponse{
-		EventID:     member.EventID,
-		ProfileID:   respProfileID,
-		Username:    member.Username,
-		MailAddress: member.MailAddress,
-		PartySize:   member.PartySize,
-		CreatedAt:   member.CreatedAt,
+		EventID:      member.EventID,
+		ProfileID:    respProfileID,
+		Username:     member.Username,
+		MailAddress:  member.MailAddress,
+		PartySize:    member.PartySize,
+		Participants: toParticipantResponses(member.Categories),
+		CreatedAt:    member.CreatedAt,
 	}, nil
+}
+
+// toParticipantResponses は内訳をレスポンス DTO へ変換する。
+// カテゴリ名の昇順に整列し、内訳がない場合も nil ではなく空スライスを返す
+// （JSON で null ではなく [] にするため）。
+func toParticipantResponses(categories []model.MemberCategory) []model.ParticipantResponse {
+	participants := make([]model.ParticipantResponse, 0, len(categories))
+	for _, c := range categories {
+		participants = append(participants, model.ParticipantResponse{
+			Category:  c.Category,
+			HeadCount: c.HeadCount,
+		})
+	}
+	sort.Slice(participants, func(i, j int) bool {
+		return participants[i].Category < participants[j].Category
+	})
+	return participants
 }
 
 // Leave はログイン参加者のイベント参加を取り消す。
@@ -163,11 +199,12 @@ func (s *EventJoinService) ListMembers(
 	totalMembers := 0
 	for _, m := range members {
 		respMembers = append(respMembers, model.EventMemberResponse{
-			Username:    m.Username,
-			PartySize:   m.PartySize,
-			MailAddress: m.MailAddress,
-			CreatedAt:   m.CreatedAt,
-			Profile:     m.Profile,
+			Username:     m.Username,
+			PartySize:    m.PartySize,
+			Participants: toParticipantResponses(m.Categories),
+			MailAddress:  m.MailAddress,
+			CreatedAt:    m.CreatedAt,
+			Profile:      m.Profile,
 		})
 		totalMembers += m.PartySize
 	}
@@ -203,11 +240,33 @@ func validateJoinEventRequest(req model.JoinEventRequest) error {
 		return &ValidationError{Message: "メールアドレスの形式が不正です"}
 	}
 
-	// PartySize: 代表者を含む参加人数。1以上。
-	if req.PartySize < 1 {
-		return &ValidationError{
-			Message: "参加人数は1人以上で入力してください",
+	// Participants: カテゴリ別の参加人数。1件以上必要で、合計が参加人数になる。
+	if len(req.Participants) == 0 {
+		return &ValidationError{Message: "参加人数の内訳は1件以上必要です"}
+	}
+
+	// 同一カテゴリの重複を防ぐ。表記ゆれ（大文字小文字）も同一とみなす。
+	// カテゴリがイベントに実在するかは repository がトランザクション内で確認する。
+	seen := make(map[string]struct{}, len(req.Participants))
+	for _, p := range req.Participants {
+		category := strings.TrimSpace(p.Category)
+		if category == "" {
+			return &ValidationError{Message: "参加者カテゴリは必須です"}
 		}
+		if len([]rune(category)) > 255 {
+			return &ValidationError{Message: "参加者カテゴリは255文字以内で入力してください"}
+		}
+		if p.HeadCount < 1 {
+			return &ValidationError{Message: "各カテゴリの人数は1人以上で入力してください"}
+		}
+
+		key := strings.ToLower(category)
+		if _, dup := seen[key]; dup {
+			return &ValidationError{
+				Message: fmt.Sprintf("参加者カテゴリ「%s」が重複しています", category),
+			}
+		}
+		seen[key] = struct{}{}
 	}
 
 	return nil
