@@ -29,7 +29,10 @@ func conflictCode(ce *service.ConflictError) string {
 //	@Description	Authorization ヘッダなし → 匿名参加（profileId = null）。
 //	@Description	ヘッダありでトークンが無効 → 401 で中断。
 //	@Description	ヘッダありで有効 → profileId を記録してログイン参加。
-//	@Description	partySizeで代表者を含む参加人数を指定できる。
+//	@Description	参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名
+//	@Description	（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。
+//	@Description	合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。
+//	@Description	0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。
 //	@Description	イベント定員を超える場合は409 Conflict（capacity_full）を返す。
 //	@Tags			event
 //	@Accept			json
@@ -198,6 +201,7 @@ func (h *EventHandler) Leave(c *gin.Context) {
 //	@Summary		イベント参加者一覧取得
 //	@Description	イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。
 //	@Description	profile は参加者のプロフィールサマリー。匿名参加の場合は null。
+//	@Description	participants は申込のカテゴリ別人数（カテゴリ名の昇順）。内訳を持たない申込では空配列。
 //	@Description	イベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。
 //	@Tags			event
 //	@Produce		json

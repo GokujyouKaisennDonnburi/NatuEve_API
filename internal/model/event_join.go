@@ -6,16 +6,36 @@ import (
 	"github.com/google/uuid"
 )
 
+// ParticipantInput は参加申込のカテゴリ別人数1件分の入力 DTO。
+type ParticipantInput struct {
+	// Category は参加者カテゴリ（必須・255文字以内）。
+	// そのイベントの費用カテゴリ（costs[].category）に実在する名前を指定する。
+	// 大文字小文字は区別しない。
+	Category string `json:"category" example:"大人" validate:"required,max=255"`
+	// HeadCount はそのカテゴリの人数（必須・1以上）。0人のカテゴリは送らない。
+	HeadCount int `json:"headCount" example:"2" validate:"required,min=1"`
+}
+
+// ParticipantResponse は参加者のカテゴリ別人数1件分のレスポンス DTO。
+type ParticipantResponse struct {
+	// Category は参加者カテゴリ。
+	Category string `json:"category" example:"大人"`
+	// HeadCount はそのカテゴリの人数。
+	HeadCount int `json:"headCount" example:"2"`
+}
+
 // JoinEventRequest はイベント参加申込エンドポイントのリクエストボディ DTO。
 //
 //	@Description	イベント参加申込に必要な情報。認証は任意。
+//	@Description	参加人数はカテゴリ別の内訳（participants）で送る。合計はサーバーが算出する。
 type JoinEventRequest struct {
 	// Username は参加するユーザーの表示名（必須・255文字以内）。
 	Username string `json:"username" example:"山田太郎" validate:"required,max=255"`
 	// MailAddress は参加するユーザーのメールアドレス（必須）。
 	MailAddress string `json:"mailAddress" example:"yamada@example.com" validate:"required,email,max=255"`
-	// PartySize は代表者を含む参加人数（必須・1以上）。
-	PartySize int `json:"partySize" example:"1" validate:"required,min=1"`
+	// Participants はカテゴリ別の参加人数（必須・1件以上）。
+	// 同一カテゴリを複数の要素に分けて送ることはできない。
+	Participants []ParticipantInput `json:"participants" validate:"required,min=1,dive"`
 }
 
 // JoinEventResponse は参加申込完了時に返すレスポンス。
@@ -28,8 +48,10 @@ type JoinEventResponse struct {
 	Username string `json:"username" example:"山田太郎"`
 	// MailAddress は参加するユーザーのメールアドレス。
 	MailAddress string `json:"mailAddress" example:"yamada@example.com"`
-	// PartySize は代表者を含む参加人数。
-	PartySize int `json:"partySize" example:"1"`
+	// PartySize は participants の合計人数（サーバーが算出した値）。
+	PartySize int `json:"partySize" example:"3"`
+	// Participants は登録されたカテゴリ別人数。イベントの費用カテゴリの登録順で返す。
+	Participants []ParticipantResponse `json:"participants"`
 	// CreatedAt は参加申込日時。
 	CreatedAt time.Time `json:"createdAt" example:"2023-01-01T12:00:00Z"`
 }
@@ -54,16 +76,32 @@ type EventRecipient struct {
 	MailAddress string
 }
 
+// MemberCategory は event_member_categories の1行に対応するモデル。
+// Repository 層で INSERT・SELECT する際に使用する。
+type MemberCategory struct {
+	// CostID は参照する event_costs の ID。カテゴリ名から repository が解決して埋める。
+	CostID uuid.UUID
+	// Category はカテゴリ名。
+	Category string
+	// HeadCount はそのカテゴリの人数（1以上）。
+	HeadCount int
+}
+
 // EventMember は event_members テーブルと対応するモデル。
 // Repository 層で INSERT・SELECT する際に使用する。
 type EventMember struct {
+	// ID は event_members の主キー。Join（INSERT）時に repository が採番して埋める。
+	ID          uuid.UUID
 	EventID     uuid.UUID
 	ProfileID   uuid.NullUUID // ログイン時のみ Valid=true。匿名参加は Valid=false（DB上はNULL）。
 	Username    string
 	MailAddress string
-	// PartySize は代表者を含む参加人数（1以上）。
+	// PartySize は代表者を含む参加人数（1以上）。Categories の HeadCount 合計と一致する。
 	PartySize int
-	CreatedAt time.Time
+	// Categories はカテゴリ別人数の内訳。Join（INSERT）時は Category と HeadCount を
+	// 呼び出し元が埋め、CostID は repository がカテゴリ名から解決して埋める。
+	Categories []MemberCategory
+	CreatedAt  time.Time
 	// Profile は profiles から LEFT JOIN で取得したプロフィールサマリー。
 	// 匿名参加（ProfileID が Invalid）の場合は nil。Join（INSERT）経路では使わない。
 	Profile *ProfileSummary
@@ -79,8 +117,11 @@ type EventMemberResponse struct {
 	// 保存後は変更されない。アカウントの表示名（Profile.DisplayName）とは別物で、
 	// ログイン参加でも一致するとは限らない。匿名参加でも必ず値が入る。
 	Username string `json:"username" example:"山田太郎"`
-	// PartySize は代表者を含む参加人数。
-	PartySize int `json:"partySize" example:"1"`
+	// PartySize は代表者を含む参加人数。participants の合計と一致する。
+	PartySize int `json:"partySize" example:"3"`
+	// Participants はカテゴリ別人数の内訳。イベントの費用カテゴリの登録順で返す。
+	// 内訳を持たない参加者では空配列（null ではない）。
+	Participants []ParticipantResponse `json:"participants"`
 	// MailAddress は参加者のメールアドレス。
 	MailAddress string `json:"mailAddress" example:"yamada@example.com"`
 	// CreatedAt は参加申込日時(RFC3339)。
