@@ -227,6 +227,8 @@ func queryInt(c *gin.Context, key string, defaultVal int) int {
 //
 //	@Summary		イベント詳細取得
 //	@Description	指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。
+//	@Description	participantCount は現在申込中の参加人数の合計で、定員未設定（capacity=0）でも返す。
+//	@Description	定員がある場合の残り人数は capacity - participantCount で算出する。
 //	@Tags			event
 //	@Produce		json
 //	@Param			id	path	string	true	"イベントID"
