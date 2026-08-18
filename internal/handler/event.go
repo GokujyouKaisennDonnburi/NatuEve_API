@@ -326,3 +326,76 @@ func (h *EventHandler) ListMine(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+// ListByProfile godoc
+//
+//	@Summary		プロフィールのイベント一覧取得
+//	@Description	指定したユーザーが主催したイベント／参加済みイベントを返す。認証不要。
+//	@Description	type は必須。"hosted"(主催したイベント) / "attended"(参加済みイベント) のいずれかで、
+//	@Description	未指定・不正値は 400 を返す。"applied"(申し込み中) は本人限定のため公開せず、
+//	@Description	本人が取得する場合は GET /api/v1/me/events を使う。
+//	@Description	hosted はそのユーザーが投稿したイベント全件（過去・キャンセル済みを含む）。
+//	@Description	attended は申込済みでイベント終了日時(endDate)を過ぎたもの。
+//	@Description	参加をキャンセル(leave)したイベントと、ログインせずに申し込んだイベントは attended に含まれない。
+//	@Description	counts には公開する2種別の件数を常に含める（タブのバッジ表示用）。totalCount は type に対応する件数。
+//	@Description	events の各要素は GET /api/v1/events と同じ EventSummary。
+//	@Description	sort は "created_at"(デフォルト) / "event_date" のみ許可。不正値はデフォルトに戻す。
+//	@Description	order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
+//	@Tags			user
+//	@Produce		json
+//	@Param			id		path		string	true	"ユーザー ID"
+//	@Param			type	query		string	true	"取得する種別(hosted|attended)"
+//	@Param			sort	query		string	false	"ソートカラム(created_at|event_date, default: created_at)"
+//	@Param			order	query		string	false	"ソート順(asc|desc, default: desc)"
+//	@Param			limit	query		int		false	"取得件数(default 20, 最大 100)"
+//	@Param			offset	query		int		false	"取得開始位置(default 0)"
+//	@Success		200		{object}	model.ProfileEventListResponse
+//	@Failure		400		{object}	model.ValidationErrorResponse
+//	@Failure		404		{object}	model.NotFoundErrorResponse
+//	@Failure		500		{object}	model.InternalErrorResponse
+//	@Router			/api/v1/profiles/{id}/events [get]
+func (h *EventHandler) ListByProfile(c *gin.Context) {
+	profileID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", "ユーザーIDの形式が不正です"))
+		return
+	}
+
+	// 存在しないユーザーは 404 にする（GET /api/v1/profiles/{id} と揃える）。
+	if _, err := h.profileSvc.GetByID(c.Request.Context(), profileID.String()); err != nil {
+		if errors.Is(err, service.ErrProfileNotFound) {
+			c.JSON(http.StatusNotFound, model.NewErrorResponse("not_found", "プロフィールが見つかりません"))
+			return
+		}
+		slog.Error("プロフィールの取得に失敗しました",
+			slog.String("profile_id", profileID.String()),
+			slog.Any("error", err),
+		)
+		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "イベント一覧の取得に失敗しました"))
+		return
+	}
+
+	kind := c.Query("type")
+	sort := c.Query("sort")
+	order := c.Query("order")
+	limit := queryInt(c, "limit", 0)
+	offset := queryInt(c, "offset", 0)
+
+	resp, err := h.querySvc.ListPublicByProfile(c.Request.Context(), profileID, kind, sort, order, limit, offset)
+	if err != nil {
+		var ve *service.ValidationError
+		if errors.As(err, &ve) {
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			return
+		}
+		slog.Error("プロフィールのイベント一覧の取得に失敗しました",
+			slog.String("profile_id", profileID.String()),
+			slog.String("type", kind),
+			slog.Any("error", err),
+		)
+		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "イベント一覧の取得に失敗しました"))
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
