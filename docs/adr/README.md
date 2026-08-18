@@ -41,3 +41,4 @@
 | [0023](./0023-participant-category-breakdown.md) | 参加者カテゴリ別人数の内訳は event_costs を参照して保持する | Accepted |
 | [0024](./0024-event-detail-participant-count.md) | イベント詳細で参加人数を公開し、残り人数はクライアントで算出する | Accepted |
 | [0024](./0024-my-page-event-lists.md) | マイページのイベント一覧は種別つきの単一エンドポイントで返し、参加済みは終了日時で判定する | Accepted |
+| [0025](./0025-profile-event-lists-public-scope.md) | プロフィールのイベント一覧は主催・参加済みのみ公開し、申し込み中は本人限定にする | Accepted |
