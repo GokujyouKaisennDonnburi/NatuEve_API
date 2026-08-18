@@ -527,6 +527,68 @@ func insertTestEventWithTitle(t *testing.T, db *sql.DB, profileID uuid.UUID, tit
 	return id
 }
 
+// insertTestEventWithEndDate はテスト用の events 行を1件、指定した end_date で作成する。
+// insertTestEvent は event_date/end_date とも現在時刻固定のため、終了済み/開催中を
+// 作り分けたいテスト（マイページのapplied/attended境界の検証等）ではこちらを使う。
+// event_date は events_end_date_after_event_date 制約(end_date >= event_date)を満たすよう
+// endDate の1時間前に固定する（endDate が過去でも未来でも成立する）。
+func insertTestEventWithEndDate(t *testing.T, db *sql.DB, profileID uuid.UUID, endDate time.Time) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	const insertEvent = `
+	INSERT INTO events(id, profile_id, title, event_date, end_date)
+	VALUES($1, $2, $3, $4, $5)
+	`
+	if _, err := db.ExecContext(
+		context.Background(),
+		insertEvent,
+		id,
+		profileID,
+		"テストイベント",
+		endDate.Add(-1*time.Hour),
+		endDate,
+	); err != nil {
+		t.Fatalf("insert test event: %v", err)
+	}
+	return id
+}
+
+// insertTestMember はテスト用の event_members 行を1件作成する（参加申込を表す）。
+// profileID.Valid が false の場合は匿名申込（profile_id は NULL）として登録する。
+func insertTestMember(t *testing.T, db *sql.DB, eventID uuid.UUID, profileID uuid.NullUUID) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	const insertMember = `
+	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size)
+	VALUES($1, $2, $3, $4, $5, $6)
+	`
+	if _, err := db.ExecContext(
+		context.Background(),
+		insertMember,
+		id,
+		eventID,
+		profileID,
+		"参加者",
+		uuid.NewString()+"@example.com",
+		1,
+	); err != nil {
+		t.Fatalf("insert test member: %v", err)
+	}
+	return id
+}
+
+// deleteTestMember はテスト用の event_members 行を削除する（参加キャンセル/leave 相当）。
+func deleteTestMember(t *testing.T, db *sql.DB, memberID uuid.UUID) {
+	t.Helper()
+
+	const deleteMember = `DELETE FROM event_members WHERE id = $1`
+	if _, err := db.ExecContext(context.Background(), deleteMember, memberID); err != nil {
+		t.Fatalf("delete test member: %v", err)
+	}
+}
+
 // countOccurrences は summaries 内で id に一致する要素の個数を返す。
 // EXISTS によるタグ絞り込みで、複数タグに一致する行が重複して現れないことの検証に使う。
 func countOccurrences(summaries []model.EventSummary, id string) int {
@@ -642,4 +704,192 @@ func TestEventPostgres_SearchSummaries_TagFilter(t *testing.T) {
 			t.Errorf("SearchSummaries() 件数 = %d, want 0", len(got))
 		}
 	})
+}
+
+// TestEventPostgres_ListMySummaries_Hosted は hosted 種別が自分が主催したイベントのみを
+// 返すこと（他人のイベントは含まない）、キャンセル済み・終了済みのイベントも含むことを検証する。
+//
+// 件数検証は共有 DB 上の既存データと干渉しないよう、このテストで作成したプロフィールに
+// 紐づくイベント ID が結果に含まれる/含まれないかで判定する。
+func TestEventPostgres_ListMySummaries_Hosted(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+	otherProfileID := insertTestProfile(t, db)
+
+	upcomingEvent := insertTestEvent(t, db, profileID)
+
+	cancelledEvent := insertTestEvent(t, db, profileID)
+	if _, err := repo.CancelWithNotification(context.Background(), cancelledEvent, "件名", "本文"); err != nil {
+		t.Fatalf("CancelWithNotification() returned error: %v", err)
+	}
+
+	endedEvent := insertTestEventWithEndDate(t, db, profileID, time.Now().Add(-24*time.Hour))
+
+	otherEvent := insertTestEvent(t, db, otherProfileID)
+
+	got, err := repo.ListMySummaries(context.Background(), model.MyEventFilter{
+		ProfileID: profileID,
+		Kind:      model.MyEventKindHosted,
+	}, "created_at", "desc", 100, 0)
+	if err != nil {
+		t.Fatalf("ListMySummaries() returned error: %v", err)
+	}
+
+	for _, wantID := range []uuid.UUID{upcomingEvent, cancelledEvent, endedEvent} {
+		if _, ok := findSummaryByID(got, wantID.String()); !ok {
+			t.Errorf("主催イベント %s が結果に含まれるべき", wantID)
+		}
+	}
+	if _, ok := findSummaryByID(got, otherEvent.String()); ok {
+		t.Errorf("他人が主催したイベントは結果に含まれるべきではない")
+	}
+
+	cancelledSummary, ok := findSummaryByID(got, cancelledEvent.String())
+	if !ok {
+		t.Fatalf("cancelledEvent が結果に含まれていない")
+	}
+	if cancelledSummary.CancelledAt == nil {
+		t.Error("キャンセル済みイベントの CancelledAt が nil, want non-nil")
+	}
+}
+
+// TestEventPostgres_ListMySummaries_AppliedAttended は applied/attended 種別の境界
+// （end_date と now() の比較）、匿名申込（profile_id NULL）が誰の一覧にも出ないこと、
+// 参加行削除（leave 相当）後は applied にも attended にも出ないことを検証する。
+func TestEventPostgres_ListMySummaries_AppliedAttended(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	meID := insertTestProfile(t, db)
+	otherID := insertTestProfile(t, db)
+
+	futureEvent := insertTestEventWithEndDate(t, db, ownerID, time.Now().Add(24*time.Hour))
+	pastEvent := insertTestEventWithEndDate(t, db, ownerID, time.Now().Add(-24*time.Hour))
+	anonOnlyEvent := insertTestEventWithEndDate(t, db, ownerID, time.Now().Add(24*time.Hour))
+
+	memberFuture := insertTestMember(t, db, futureEvent, uuid.NullUUID{UUID: meID, Valid: true})
+	insertTestMember(t, db, pastEvent, uuid.NullUUID{UUID: meID, Valid: true})
+	insertTestMember(t, db, futureEvent, uuid.NullUUID{UUID: otherID, Valid: true})
+	insertTestMember(t, db, anonOnlyEvent, uuid.NullUUID{}) // 匿名申込(profile_id NULL)
+
+	listApplied := func(t *testing.T, profileID uuid.UUID) []model.EventSummary {
+		t.Helper()
+		got, err := repo.ListMySummaries(context.Background(), model.MyEventFilter{
+			ProfileID: profileID,
+			Kind:      model.MyEventKindApplied,
+		}, "created_at", "desc", 100, 0)
+		if err != nil {
+			t.Fatalf("ListMySummaries(applied) returned error: %v", err)
+		}
+		return got
+	}
+	listAttended := func(t *testing.T, profileID uuid.UUID) []model.EventSummary {
+		t.Helper()
+		got, err := repo.ListMySummaries(context.Background(), model.MyEventFilter{
+			ProfileID: profileID,
+			Kind:      model.MyEventKindAttended,
+		}, "created_at", "desc", 100, 0)
+		if err != nil {
+			t.Fatalf("ListMySummaries(attended) returned error: %v", err)
+		}
+		return got
+	}
+
+	t.Run("applied: end_dateが未到来かつ自分の申込があるイベントのみ含む", func(t *testing.T) {
+		got := listApplied(t, meID)
+		if _, ok := findSummaryByID(got, futureEvent.String()); !ok {
+			t.Error("申込済み・未終了のイベントが含まれるべき")
+		}
+		if _, ok := findSummaryByID(got, pastEvent.String()); ok {
+			t.Error("終了済みのイベントは applied に含まれるべきではない")
+		}
+		if _, ok := findSummaryByID(got, anonOnlyEvent.String()); ok {
+			t.Error("自分が申込していないイベントは含まれるべきではない")
+		}
+	})
+
+	t.Run("attended: end_dateを過ぎており自分の申込があるイベントのみ含む", func(t *testing.T) {
+		got := listAttended(t, meID)
+		if _, ok := findSummaryByID(got, pastEvent.String()); !ok {
+			t.Error("申込済み・終了済みのイベントが含まれるべき")
+		}
+		if _, ok := findSummaryByID(got, futureEvent.String()); ok {
+			t.Error("未終了のイベントは attended に含まれるべきではない")
+		}
+	})
+
+	t.Run("匿名申込は他人(owner)の一覧にも出ない", func(t *testing.T) {
+		got := listApplied(t, ownerID)
+		if _, ok := findSummaryByID(got, anonOnlyEvent.String()); ok {
+			t.Error("匿名申込のみのイベントは他人の一覧にも含まれるべきではない")
+		}
+	})
+
+	t.Run("参加行を削除(leave相当)すると applied にも attended にも出ない", func(t *testing.T) {
+		deleteTestMember(t, db, memberFuture)
+
+		if _, ok := findSummaryByID(listApplied(t, meID), futureEvent.String()); ok {
+			t.Error("参加取消後は applied に含まれるべきではない")
+		}
+		if _, ok := findSummaryByID(listAttended(t, meID), futureEvent.String()); ok {
+			t.Error("参加取消後は attended にも含まれるべきではない")
+		}
+	})
+}
+
+// TestEventPostgres_CountMyEventKinds は hosted/applied/attended の件数を1クエリで
+// 正しく返すことを検証する。新規プロフィールで隔離しているため、既存データの件数に左右されない。
+func TestEventPostgres_CountMyEventKinds(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+	otherProfileID := insertTestProfile(t, db)
+
+	insertTestEvent(t, db, profileID)
+	insertTestEvent(t, db, profileID)
+
+	appliedEvent := insertTestEventWithEndDate(t, db, otherProfileID, time.Now().Add(24*time.Hour))
+	insertTestMember(t, db, appliedEvent, uuid.NullUUID{UUID: profileID, Valid: true})
+
+	attendedEvent1 := insertTestEventWithEndDate(t, db, otherProfileID, time.Now().Add(-24*time.Hour))
+	attendedEvent2 := insertTestEventWithEndDate(t, db, otherProfileID, time.Now().Add(-48*time.Hour))
+	insertTestMember(t, db, attendedEvent1, uuid.NullUUID{UUID: profileID, Valid: true})
+	insertTestMember(t, db, attendedEvent2, uuid.NullUUID{UUID: profileID, Valid: true})
+
+	got, err := repo.CountMyEventKinds(context.Background(), profileID)
+	if err != nil {
+		t.Fatalf("CountMyEventKinds() returned error: %v", err)
+	}
+
+	want := model.MyEventCounts{Hosted: 2, Applied: 1, Attended: 2}
+	if got != want {
+		t.Errorf("CountMyEventKinds() = %#v, want %#v", got, want)
+	}
+}
+
+// TestEventPostgres_ListMySummaries_EmptyReturnsEmptySlice は該当イベントが0件のとき
+// nil ではなく空スライスを返すことを検証する。
+func TestEventPostgres_ListMySummaries_EmptyReturnsEmptySlice(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+
+	got, err := repo.ListMySummaries(context.Background(), model.MyEventFilter{
+		ProfileID: profileID,
+		Kind:      model.MyEventKindHosted,
+	}, "created_at", "desc", 20, 0)
+	if err != nil {
+		t.Fatalf("ListMySummaries() returned error: %v", err)
+	}
+	if got == nil {
+		t.Error("got = nil, want empty slice")
+	}
+	if len(got) != 0 {
+		t.Errorf("len(got) = %d, want 0", len(got))
+	}
 }
