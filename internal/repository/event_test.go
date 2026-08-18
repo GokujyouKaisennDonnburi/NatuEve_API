@@ -316,6 +316,80 @@ func TestEventPostgres_GetByID_Tags(t *testing.T) {
 	})
 }
 
+// insertTestEventMember はテスト用の event_members 行を1件作成する。
+// profile_id は匿名参加を想定して常に NULL にする。同一イベントに複数件作成する場合は
+// (event_id, lower(mail_address)) の UNIQUE 制約を避けるため mailAddress を呼び出し側で
+// ユニークにする。
+func insertTestEventMember(t *testing.T, db *sql.DB, eventID uuid.UUID, mailAddress string, partySize int) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	const insertMember = `
+	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size)
+	VALUES($1, $2, NULL, $3, $4, $5)
+	`
+	if _, err := db.ExecContext(context.Background(), insertMember, id, eventID, "テスト参加者", mailAddress, partySize); err != nil {
+		t.Fatalf("insert test event member: %v", err)
+	}
+	return id
+}
+
+// TestEventPostgres_GetByID_ParticipantCount は GetByID の ParticipantCount が
+// event_members.party_size の合計になること、申込0件のイベントでは0になること、
+// 他イベントの申込が合算されないことを検証する（ADR-0024）。
+func TestEventPostgres_GetByID_ParticipantCount(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+
+	t.Run("申込0件のイベントはParticipantCountが0になる", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, profileID)
+
+		got, err := repo.GetByID(context.Background(), eventID.String())
+		if err != nil {
+			t.Fatalf("GetByID() returned error: %v", err)
+		}
+
+		if got.ParticipantCount != 0 {
+			t.Errorf("ParticipantCount = %d, want 0", got.ParticipantCount)
+		}
+	})
+
+	t.Run("複数申込のparty_sizeを合計する", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, profileID)
+
+		insertTestEventMember(t, db, eventID, fmt.Sprintf("%s@example.com", uuid.NewString()), 2)
+		insertTestEventMember(t, db, eventID, fmt.Sprintf("%s@example.com", uuid.NewString()), 3)
+
+		got, err := repo.GetByID(context.Background(), eventID.String())
+		if err != nil {
+			t.Fatalf("GetByID() returned error: %v", err)
+		}
+
+		if got.ParticipantCount != 5 {
+			t.Errorf("ParticipantCount = %d, want 5", got.ParticipantCount)
+		}
+	})
+
+	t.Run("別イベントの申込は合算されない", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, profileID)
+		otherEventID := insertTestEvent(t, db, profileID)
+
+		insertTestEventMember(t, db, eventID, fmt.Sprintf("%s@example.com", uuid.NewString()), 2)
+		insertTestEventMember(t, db, otherEventID, fmt.Sprintf("%s@example.com", uuid.NewString()), 10)
+
+		got, err := repo.GetByID(context.Background(), eventID.String())
+		if err != nil {
+			t.Fatalf("GetByID() returned error: %v", err)
+		}
+
+		if got.ParticipantCount != 2 {
+			t.Errorf("ParticipantCount = %d, want 2（別イベントの申込が混入している）", got.ParticipantCount)
+		}
+	})
+}
+
 // findSummaryByID は summaries から id に一致する要素を返す。
 // 見つかった場合は ok が true になる。
 func findSummaryByID(summaries []model.EventSummary, id string) (summary model.EventSummary, ok bool) {
