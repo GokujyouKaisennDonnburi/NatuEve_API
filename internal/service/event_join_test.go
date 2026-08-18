@@ -100,7 +100,9 @@ func TestEventJoinServiceJoin(t *testing.T) {
 	validReq := model.JoinEventRequest{
 		Username:    "山田太郎",
 		MailAddress: "yamada@example.com",
-		PartySize:   1,
+		Participants: []model.ParticipantInput{
+			{Category: "大人", HeadCount: 1},
+		},
 	}
 
 	tests := []struct {
@@ -143,6 +145,15 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				}
 				if resp.PartySize != 1 {
 					t.Errorf("PartySize: got %d, want %d", resp.PartySize, 1)
+				}
+				if len(resp.Participants) != 1 {
+					t.Fatalf("Participants: got %d件, want 1件", len(resp.Participants))
+				}
+				if resp.Participants[0].Category != "大人" {
+					t.Errorf("Participants[0].Category: got %q, want %q", resp.Participants[0].Category, "大人")
+				}
+				if resp.Participants[0].HeadCount != 1 {
+					t.Errorf("Participants[0].HeadCount: got %d, want 1", resp.Participants[0].HeadCount)
 				}
 				if !resp.CreatedAt.Equal(createdAt) {
 					t.Errorf("CreatedAt: got %v, want %v", resp.CreatedAt, createdAt)
@@ -207,7 +218,9 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			req: model.JoinEventRequest{
 				Username:    "  山田太郎  ",
 				MailAddress: "  yamada@example.com  ",
-				PartySize:   1,
+				Participants: []model.ParticipantInput{
+					{Category: "  大人  ", HeadCount: 1},
+				},
 			},
 			checkMember: func(t *testing.T, stub *stubEventJoinRepository) {
 				t.Helper()
@@ -218,11 +231,17 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				if m.MailAddress != "yamada@example.com" {
 					t.Errorf("MailAddress trim: got %q, want %q", m.MailAddress, "yamada@example.com")
 				}
+				if len(m.Categories) != 1 {
+					t.Fatalf("Categories: got %d件, want 1件", len(m.Categories))
+				}
+				if m.Categories[0].Category != "大人" {
+					t.Errorf("Category trim: got %q, want %q", m.Categories[0].Category, "大人")
+				}
 			},
 		},
 		// --- 正常系: 個人参加申請 ---
 		{
-			name: "正常: 1人参加申請 - PartySizeが正しく渡る",
+			name: "正常: 1カテゴリ1名 - 内訳の合計が PartySize になる",
 			stub: &stubEventJoinRepository{
 				joinCreatedAt: createdAt,
 			},
@@ -230,7 +249,9 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			req: model.JoinEventRequest{
 				Username:    "山田太郎",
 				MailAddress: "yamada@example.com",
-				PartySize:   1,
+				Participants: []model.ParticipantInput{
+					{Category: "大人", HeadCount: 1},
+				},
 			},
 			checkMember: func(t *testing.T, stub *stubEventJoinRepository) {
 				t.Helper()
@@ -248,9 +269,9 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				}
 			},
 		},
-		// --- 正常系: 複数人参加申請 ---
+		// --- 正常系: 複数カテゴリの申請 ---
 		{
-			name: "正常: 複数人参加申請 - PartySizeが正しく渡る",
+			name: "正常: 複数カテゴリ - 内訳の合計が PartySize になり内訳がそのまま渡る",
 			stub: &stubEventJoinRepository{
 				joinCreatedAt: createdAt,
 			},
@@ -258,7 +279,10 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			req: model.JoinEventRequest{
 				Username:    "山田太郎",
 				MailAddress: "yamada@example.com",
-				PartySize:   5,
+				Participants: []model.ParticipantInput{
+					{Category: "大人", HeadCount: 2},
+					{Category: "学生", HeadCount: 3},
+				},
 			},
 			checkMember: func(t *testing.T, stub *stubEventJoinRepository) {
 				t.Helper()
@@ -273,6 +297,55 @@ func TestEventJoinServiceJoin(t *testing.T) {
 						stub.gotMember.PartySize,
 						5,
 					)
+				}
+				if len(stub.gotMember.Categories) != 2 {
+					t.Fatalf("Categories: got %d件, want 2件", len(stub.gotMember.Categories))
+				}
+				for i, want := range []model.MemberCategory{
+					{Category: "大人", HeadCount: 2},
+					{Category: "学生", HeadCount: 3},
+				} {
+					got := stub.gotMember.Categories[i]
+					if got.Category != want.Category || got.HeadCount != want.HeadCount {
+						t.Errorf(
+							"Categories[%d]: got {%q %d}, want {%q %d}",
+							i, got.Category, got.HeadCount, want.Category, want.HeadCount,
+						)
+					}
+				}
+			},
+		},
+		// --- 正常系: レスポンスの内訳はカテゴリ名の昇順 ---
+		{
+			name: "正常: participants はカテゴリ名の昇順で返る",
+			stub: &stubEventJoinRepository{
+				joinCreatedAt: createdAt,
+			},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				Participants: []model.ParticipantInput{
+					{Category: "Student", HeadCount: 1},
+					{Category: "Adult", HeadCount: 2},
+				},
+			},
+			checkResp: func(t *testing.T, resp model.JoinEventResponse) {
+				t.Helper()
+				want := []model.ParticipantResponse{
+					{Category: "Adult", HeadCount: 2},
+					{Category: "Student", HeadCount: 1},
+				}
+				if len(resp.Participants) != len(want) {
+					t.Fatalf("Participants: got %d件, want %d件", len(resp.Participants), len(want))
+				}
+				for i := range want {
+					if resp.Participants[i] != want[i] {
+						t.Errorf("Participants[%d]: got %+v, want %+v", i, resp.Participants[i], want[i])
+					}
+				}
+				if resp.PartySize != 3 {
+					t.Errorf("PartySize: got %d, want 3", resp.PartySize)
 				}
 			},
 		},
@@ -362,25 +435,81 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			wantConflictCode: "event_cancelled",
 		},
 		{
-			name:      "異常: PartySizeが0",
+			name:      "異常: participants が空",
 			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: loggedInProfileID,
 			req: model.JoinEventRequest{
-				Username:    "山田太郎",
-				MailAddress: "yamada@example.com",
-				PartySize:   0,
+				Username:     "山田太郎",
+				MailAddress:  "yamada@example.com",
+				Participants: []model.ParticipantInput{},
 			},
 			wantValErr: true,
 		},
 		{
-			name:      "異常: PartySizeがマイナス",
+			name:      "異常: headCount が0",
 			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: loggedInProfileID,
 			req: model.JoinEventRequest{
 				Username:    "山田太郎",
 				MailAddress: "yamada@example.com",
-				PartySize:   -1,
+				Participants: []model.ParticipantInput{
+					{Category: "大人", HeadCount: 0},
+				},
 			},
+			wantValErr: true,
+		},
+		{
+			name:      "異常: headCount がマイナス",
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				Participants: []model.ParticipantInput{
+					{Category: "大人", HeadCount: -1},
+				},
+			},
+			wantValErr: true,
+		},
+		{
+			name:      "異常: カテゴリが空白のみ",
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				Participants: []model.ParticipantInput{
+					{Category: "   ", HeadCount: 1},
+				},
+			},
+			wantValErr: true,
+		},
+		{
+			name:      "異常: 同一カテゴリの重複（大文字小文字違いも同一とみなす）",
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				Participants: []model.ParticipantInput{
+					{Category: "Adult", HeadCount: 1},
+					{Category: "adult", HeadCount: 2},
+				},
+			},
+			wantValErr: true,
+		},
+		{
+			name:       "異常: イベントに存在しないカテゴリ（ValidationError に変換）",
+			stub:       &stubEventJoinRepository{joinErr: repository.ErrCategoryNotFound},
+			profileID:  loggedInProfileID,
+			req:        validReq,
+			wantValErr: true,
+		},
+		{
+			name:       "異常: repository が重複カテゴリを検出（ValidationError に変換）",
+			stub:       &stubEventJoinRepository{joinErr: fmtWrap(repository.ErrDuplicateCategory)},
+			profileID:  loggedInProfileID,
+			req:        validReq,
 			wantValErr: true,
 		},
 		// --- リポジトリエラー伝播 ---

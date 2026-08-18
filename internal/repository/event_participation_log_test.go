@@ -92,6 +92,23 @@ func insertTestEvent(t *testing.T, db *sql.DB, profileID uuid.UUID) uuid.UUID {
 	return id
 }
 
+// insertTestCost はテスト用の event_costs 行を1件作成し、その ID を返す。
+// 参加申込の内訳はカテゴリ名から event_costs を解決するため、Join を使うテストでは
+// 事前にこのヘルパーでカテゴリを用意する。
+func insertTestCost(t *testing.T, db *sql.DB, eventID uuid.UUID, category string, cost int) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	const insertCost = `
+	INSERT INTO event_costs(id, event_id, category, cost)
+	VALUES($1, $2, $3, $4)
+	`
+	if _, err := db.ExecContext(context.Background(), insertCost, id, eventID, category, cost); err != nil {
+		t.Fatalf("insert test cost: %v", err)
+	}
+	return id
+}
+
 // TestEventParticipationLogPostgres_Create は Create の正常系(join/leave両方)と
 // イベント不存在時に ErrEventNotFound を返すことを検証する。
 func TestEventParticipationLogPostgres_Create(t *testing.T) {

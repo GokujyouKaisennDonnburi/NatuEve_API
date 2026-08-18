@@ -32,6 +32,7 @@ func TestEventJoinPostgres_Join_WritesParticipationLog(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			eventID := insertTestEvent(t, db, ownerID)
+			insertTestCost(t, db, eventID, "大人", 500)
 
 			var profileID uuid.NullUUID
 			if tt.loggedIn {
@@ -44,10 +45,27 @@ func TestEventJoinPostgres_Join_WritesParticipationLog(t *testing.T) {
 				Username:    "参加者",
 				MailAddress: uuid.NewString() + "@example.com",
 				PartySize:   1,
+				Categories: []model.MemberCategory{
+					{Category: "大人", HeadCount: 1},
+				},
 			}
 
 			if err := repo.Join(context.Background(), member); err != nil {
 				t.Fatalf("Join() returned error: %v", err)
+			}
+
+			// ログの内訳はログ本体と同じ条件で残る（匿名参加はログごと残らない）。
+			const countLogCategories = `
+			SELECT COUNT(*)
+			FROM event_participation_log_categories
+			WHERE event_id = $1
+			`
+			var gotLogCategories int
+			if err := db.QueryRowContext(context.Background(), countLogCategories, eventID).Scan(&gotLogCategories); err != nil {
+				t.Fatalf("count participation log categories: %v", err)
+			}
+			if gotLogCategories != tt.wantLogCount {
+				t.Errorf("participation log category count = %d, want %d", gotLogCategories, tt.wantLogCount)
 			}
 
 			// 参加状態ログの件数と内容を検証する。
@@ -97,6 +115,7 @@ func TestEventJoinPostgres_Leave_DeletesMemberAndWritesLog(t *testing.T) {
 
 	t.Run("正常: 参加行を削除し leave ログを1件追記する", func(t *testing.T) {
 		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "大人", 500)
 		profileID := insertTestProfile(t, db)
 
 		// 事前にログイン参加させる（join ログが1件記録される）。
@@ -106,6 +125,9 @@ func TestEventJoinPostgres_Leave_DeletesMemberAndWritesLog(t *testing.T) {
 			Username:    "参加者",
 			MailAddress: uuid.NewString() + "@example.com",
 			PartySize:   1,
+			Categories: []model.MemberCategory{
+				{Category: "大人", HeadCount: 1},
+			},
 		}
 		if err := repo.Join(context.Background(), member); err != nil {
 			t.Fatalf("Join() returned error: %v", err)
@@ -131,6 +153,34 @@ func TestEventJoinPostgres_Leave_DeletesMemberAndWritesLog(t *testing.T) {
 		}
 		if memberCount != 0 {
 			t.Errorf("member count = %d, want 0", memberCount)
+		}
+
+		// 申込の内訳は参加行と一緒に CASCADE 削除される。
+		const countMemberCategories = `
+		SELECT COUNT(*)
+		FROM event_member_categories
+		WHERE event_id = $1
+		`
+		var memberCategoryCount int
+		if err := db.QueryRowContext(context.Background(), countMemberCategories, eventID).Scan(&memberCategoryCount); err != nil {
+			t.Fatalf("count member categories: %v", err)
+		}
+		if memberCategoryCount != 0 {
+			t.Errorf("member category count = %d, want 0", memberCategoryCount)
+		}
+
+		// join 時に記録したログの内訳は履歴として残る。
+		const countLogCategories = `
+		SELECT COUNT(*)
+		FROM event_participation_log_categories
+		WHERE event_id = $1
+		`
+		var logCategoryCount int
+		if err := db.QueryRowContext(context.Background(), countLogCategories, eventID).Scan(&logCategoryCount); err != nil {
+			t.Fatalf("count participation log categories: %v", err)
+		}
+		if logCategoryCount != 1 {
+			t.Errorf("participation log category count = %d, want 1", logCategoryCount)
 		}
 
 		// leave ログが1件追記されていることを確認する（join と合わせて計2件）。
@@ -194,18 +244,24 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 
 	ownerID := insertTestProfile(t, db)
 	eventID := insertTestEvent(t, db, ownerID)
+	insertTestCost(t, db, eventID, "大人", 500)
+	insertTestCost(t, db, eventID, "学生", 300)
 
 	// ログイン参加者用プロフィール（表示名・アイコン URL を設定する）。
 	loggedInProfileID := insertTestProfile(t, db)
 	updateTestProfileDetails(t, db, loggedInProfileID, "なちゅいべ太郎", "https://example.com/avatar.png")
 
-	// ログイン参加者を登録する。
+	// ログイン参加者を登録する（内訳は2カテゴリ）。
 	loggedInMember := &model.EventMember{
 		EventID:     eventID,
 		ProfileID:   uuid.NullUUID{UUID: loggedInProfileID, Valid: true},
 		Username:    "山田太郎",
 		MailAddress: uuid.NewString() + "@example.com",
-		PartySize:   1,
+		PartySize:   3,
+		Categories: []model.MemberCategory{
+			{Category: "大人", HeadCount: 2},
+			{Category: "学生", HeadCount: 1},
+		},
 	}
 	if err := repo.Join(context.Background(), loggedInMember); err != nil {
 		t.Fatalf("Join() (logged-in) returned error: %v", err)
@@ -218,6 +274,9 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 		Username:    "匿名花子",
 		MailAddress: uuid.NewString() + "@example.com",
 		PartySize:   1,
+		Categories: []model.MemberCategory{
+			{Category: "大人", HeadCount: 1},
+		},
 	}
 	if err := repo.Join(context.Background(), anonymousMember); err != nil {
 		t.Fatalf("Join() (anonymous) returned error: %v", err)
@@ -248,19 +307,27 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		username    string
-		wantProfile bool
+		name           string
+		username       string
+		wantProfile    bool
+		wantCategories []model.MemberCategory
 	}{
 		{
 			name:        "ログイン参加は Profile が非 nil で display_name・avatar_url を保持する",
 			username:    "山田太郎",
 			wantProfile: true,
+			wantCategories: []model.MemberCategory{
+				{Category: "大人", HeadCount: 2},
+				{Category: "学生", HeadCount: 1},
+			},
 		},
 		{
 			name:        "匿名参加は Profile が nil",
 			username:    "匿名花子",
 			wantProfile: false,
+			wantCategories: []model.MemberCategory{
+				{Category: "大人", HeadCount: 1},
+			},
 		},
 	}
 
@@ -269,6 +336,20 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 			member, ok := byUsername[tt.username]
 			if !ok {
 				t.Fatalf("参加者 %q が ListMembers の結果に含まれていない", tt.username)
+			}
+
+			// 内訳を検証する。並び順は DB の照合順に左右されるため、カテゴリ名で引いて比較する。
+			gotCategories := make(map[string]int, len(member.Categories))
+			for _, c := range member.Categories {
+				gotCategories[c.Category] = c.HeadCount
+			}
+			if len(gotCategories) != len(tt.wantCategories) {
+				t.Errorf("Categories: got %d件, want %d件", len(gotCategories), len(tt.wantCategories))
+			}
+			for _, want := range tt.wantCategories {
+				if got := gotCategories[want.Category]; got != want.HeadCount {
+					t.Errorf("Categories[%q]: got %d, want %d", want.Category, got, want.HeadCount)
+				}
 			}
 
 			if !tt.wantProfile {
@@ -292,4 +373,122 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEventJoinPostgres_Join_ResolvesCategories は Join がカテゴリ名を event_costs へ解決して
+// 内訳を保存すること、解決できない・重複するカテゴリを sentinel エラーで弾くことを検証する。
+func TestEventJoinPostgres_Join_ResolvesCategories(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+
+	// newMember は検証用の申込を組み立てる。
+	newMember := func(eventID uuid.UUID, categories ...model.MemberCategory) *model.EventMember {
+		partySize := 0
+		for _, c := range categories {
+			partySize += c.HeadCount
+		}
+		return &model.EventMember{
+			EventID:     eventID,
+			Username:    "参加者",
+			MailAddress: uuid.NewString() + "@example.com",
+			PartySize:   partySize,
+			Categories:  categories,
+		}
+	}
+
+	// countMembers は指定イベントの参加行数を返す（エラー時のロールバック確認に使う）。
+	countMembers := func(t *testing.T, eventID uuid.UUID) int {
+		t.Helper()
+		const query = `SELECT COUNT(*) FROM event_members WHERE event_id = $1`
+		var n int
+		if err := db.QueryRowContext(context.Background(), query, eventID).Scan(&n); err != nil {
+			t.Fatalf("count members: %v", err)
+		}
+		return n
+	}
+
+	t.Run("正常: 大文字小文字が違っても解決し、event_costs 側の表記に正規化する", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		adultID := insertTestCost(t, db, eventID, "Adult", 500)
+
+		member := newMember(eventID, model.MemberCategory{Category: "adult", HeadCount: 2})
+		if err := repo.Join(context.Background(), member); err != nil {
+			t.Fatalf("Join() returned error: %v", err)
+		}
+
+		if member.Categories[0].CostID != adultID {
+			t.Errorf("CostID: got %v, want %v", member.Categories[0].CostID, adultID)
+		}
+		if member.Categories[0].Category != "Adult" {
+			t.Errorf("Category: got %q, want %q（event_costs 側の表記に揃える）", member.Categories[0].Category, "Adult")
+		}
+		if member.ID == uuid.Nil {
+			t.Error("member.ID が埋められていない")
+		}
+
+		const selectCategory = `
+		SELECT cost_id, head_count
+		FROM event_member_categories
+		WHERE member_id = $1
+		`
+		var (
+			gotCostID    uuid.UUID
+			gotHeadCount int
+		)
+		if err := db.QueryRowContext(context.Background(), selectCategory, member.ID).Scan(&gotCostID, &gotHeadCount); err != nil {
+			t.Fatalf("select member category: %v", err)
+		}
+		if gotCostID != adultID || gotHeadCount != 2 {
+			t.Errorf("保存された内訳 = (%v, %d), want (%v, 2)", gotCostID, gotHeadCount, adultID)
+		}
+	})
+
+	t.Run("異常: イベントに存在しないカテゴリは ErrCategoryNotFound", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "大人", 500)
+
+		member := newMember(eventID, model.MemberCategory{Category: "学生", HeadCount: 1})
+		err := repo.Join(context.Background(), member)
+		if !errors.Is(err, ErrCategoryNotFound) {
+			t.Fatalf("Join() error = %v, want ErrCategoryNotFound", err)
+		}
+		if n := countMembers(t, eventID); n != 0 {
+			t.Errorf("参加行が %d 件残っている, want 0（トランザクションがロールバックされること）", n)
+		}
+	})
+
+	t.Run("異常: 他イベントのカテゴリ名は解決できない", func(t *testing.T) {
+		otherEventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, otherEventID, "大人", 500)
+
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "学生", 300)
+
+		member := newMember(eventID, model.MemberCategory{Category: "大人", HeadCount: 1})
+		if err := repo.Join(context.Background(), member); !errors.Is(err, ErrCategoryNotFound) {
+			t.Fatalf("Join() error = %v, want ErrCategoryNotFound", err)
+		}
+		if n := countMembers(t, eventID); n != 0 {
+			t.Errorf("参加行が %d 件残っている, want 0", n)
+		}
+	})
+
+	t.Run("異常: 表記違いで同一カテゴリを重複指定すると ErrDuplicateCategory", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "Adult", 500)
+
+		member := newMember(
+			eventID,
+			model.MemberCategory{Category: "Adult", HeadCount: 1},
+			model.MemberCategory{Category: "adult", HeadCount: 2},
+		)
+		if err := repo.Join(context.Background(), member); !errors.Is(err, ErrDuplicateCategory) {
+			t.Fatalf("Join() error = %v, want ErrDuplicateCategory", err)
+		}
+		if n := countMembers(t, eventID); n != 0 {
+			t.Errorf("参加行が %d 件残っている, want 0", n)
+		}
+	})
 }
