@@ -916,6 +916,84 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/profiles/{id}/events": {
+            "get": {
+                "description": "指定したユーザーが主催したイベント／参加済みイベントを返す。認証不要。\ntype は必須。\"hosted\"(主催したイベント) / \"attended\"(参加済みイベント) のいずれかで、\n未指定・不正値は 400 を返す。\"applied\"(申し込み中) は本人限定のため公開せず、\n本人が取得する場合は GET /api/v1/me/events を使う。\nhosted はそのユーザーが投稿したイベント全件（過去・キャンセル済みを含む）。\nattended は申込済みでイベント終了日時(endDate)を過ぎたもの。\n参加をキャンセル(leave)したイベントと、ログインせずに申し込んだイベントは attended に含まれない。\ncounts には公開する2種別の件数を常に含める（タブのバッジ表示用）。totalCount は type に対応する件数。\nevents の各要素は GET /api/v1/events と同じ EventSummary。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "プロフィールのイベント一覧取得",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ユーザー ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "取得する種別(hosted|attended)",
+                        "name": "type",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "ソートカラム(created_at|event_date, default: created_at)",
+                        "name": "sort",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "ソート順(asc|desc, default: desc)",
+                        "name": "order",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "取得件数(default 20, 最大 100)",
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "取得開始位置(default 0)",
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileEventListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/reports": {
             "post": {
                 "security": [
@@ -2160,6 +2238,57 @@ const docTemplate = `{
                     "description": "UploadURL はファイルを直接 PUT するための署名付き URL。",
                     "type": "string",
                     "example": "https://xxxxx.r2.cloudflarestorage.com/natuportal/natueve/tmp/profile-uuid/uuid.jpg?X-Amz-..."
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileEventCounts": {
+            "type": "object",
+            "properties": {
+                "attended": {
+                    "description": "Attended は参加済みのイベントの件数。",
+                    "type": "integer",
+                    "example": 3
+                },
+                "hosted": {
+                    "description": "Hosted は主催したイベントの件数。",
+                    "type": "integer",
+                    "example": 4
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileEventListResponse": {
+            "description": "指定種別のイベント一覧と、公開する2種別の件数。",
+            "type": "object",
+            "properties": {
+                "counts": {
+                    "description": "Counts は公開する2種別の件数。タブのバッジ表示に使う（1回のリクエストで揃う）。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileEventCounts"
+                        }
+                    ]
+                },
+                "events": {
+                    "description": "Events はイベントサマリーの一覧（リクエストの type に対応する）。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventSummary"
+                    }
+                },
+                "limit": {
+                    "description": "Limit は正規化後の実際に使われた取得件数。",
+                    "type": "integer",
+                    "example": 20
+                },
+                "offset": {
+                    "description": "Offset は正規化後の実際に使われた取得開始位置。",
+                    "type": "integer",
+                    "example": 0
+                },
+                "totalCount": {
+                    "description": "TotalCount はリクエストした種別の総件数（counts の該当値と一致する）。",
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },
