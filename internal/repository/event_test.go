@@ -757,6 +757,7 @@ func TestEventPostgres_ListMySummaries_Hosted(t *testing.T) {
 
 // TestEventPostgres_ListMySummaries_AppliedAttended は applied/attended 種別の境界
 // （end_date と now() の比較）、匿名申込（profile_id NULL）が誰の一覧にも出ないこと、
+// キャンセル済みイベントも end_date で振り分けられること（ADR-0024）、
 // 参加行削除（leave 相当）後は applied にも attended にも出ないことを検証する。
 func TestEventPostgres_ListMySummaries_AppliedAttended(t *testing.T) {
 	db := requireTestDB(t)
@@ -825,6 +826,34 @@ func TestEventPostgres_ListMySummaries_AppliedAttended(t *testing.T) {
 		got := listApplied(t, ownerID)
 		if _, ok := findSummaryByID(got, anonOnlyEvent.String()); ok {
 			t.Error("匿名申込のみのイベントは他人の一覧にも含まれるべきではない")
+		}
+	})
+
+	t.Run("キャンセル済みイベントも end_date で applied/attended に振り分けられる", func(t *testing.T) {
+		cancelledFutureEvent := insertTestEventWithEndDate(t, db, ownerID, time.Now().Add(24*time.Hour))
+		cancelledPastEvent := insertTestEventWithEndDate(t, db, ownerID, time.Now().Add(-24*time.Hour))
+		insertTestMember(t, db, cancelledFutureEvent, uuid.NullUUID{UUID: meID, Valid: true})
+		insertTestMember(t, db, cancelledPastEvent, uuid.NullUUID{UUID: meID, Valid: true})
+
+		if _, err := repo.CancelWithNotification(context.Background(), cancelledFutureEvent, "件名", "本文"); err != nil {
+			t.Fatalf("CancelWithNotification() returned error: %v", err)
+		}
+		if _, err := repo.CancelWithNotification(context.Background(), cancelledPastEvent, "件名", "本文"); err != nil {
+			t.Fatalf("CancelWithNotification() returned error: %v", err)
+		}
+
+		appliedSummary, ok := findSummaryByID(listApplied(t, meID), cancelledFutureEvent.String())
+		if !ok {
+			t.Error("end_dateが未到来のキャンセル済みイベントは applied に含まれるべき")
+		} else if appliedSummary.CancelledAt == nil {
+			t.Error("CancelledAt が nil, want non-nil")
+		}
+
+		attendedSummary, ok := findSummaryByID(listAttended(t, meID), cancelledPastEvent.String())
+		if !ok {
+			t.Error("end_dateを過ぎたキャンセル済みイベントは attended に含まれるべき")
+		} else if attendedSummary.CancelledAt == nil {
+			t.Error("CancelledAt が nil, want non-nil")
 		}
 	})
 
