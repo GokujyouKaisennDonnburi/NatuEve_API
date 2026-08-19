@@ -58,6 +58,13 @@ type EventRepository interface {
 	// CountSearchSummaries は filter に一致するイベントの件数を返す。
 	// filter は条件を 1 つ以上含むことを前提とする（IsEmpty() が false）。
 	CountSearchSummaries(ctx context.Context, filter model.EventSearchFilter) (int, error)
+	// ListMySummaries は filter（プロフィール＋種別）に一致するイベントサマリーを指定ソート順で取得する。
+	// 種別ごとの絞り込み条件は myEventClauses を参照（種別の定義は ADR-0024）。
+	// filter.Kind は呼び出し元（service 層）で検証済みであることを前提とする。
+	ListMySummaries(ctx context.Context, filter model.MyEventFilter, sort, order string, limit, offset int) ([]model.EventSummary, error)
+	// CountMyEventKinds は指定プロフィールの種別ごとの件数を1クエリで返す。
+	// profileID はパース済みの uuid.UUID を受け取り、正規化文字列でクエリする。
+	CountMyEventKinds(ctx context.Context, profileID uuid.UUID) (model.MyEventCounts, error)
 	// GetByID は指定されたイベント ID の詳細情報を取得する。
 	GetByID(ctx context.Context, id string) (*model.EventResponse, error)
 	// Create はイベントを関連テーブルとともにトランザクション内で一括登録する。
@@ -92,56 +99,18 @@ func NewEventRepository(db *sql.DB) EventRepository {
 	return &eventPostgres{db: db}
 }
 
-// listSummariesQueries は (sort, order) の組み合わせから安全なクエリ文字列へのマップ。
-// ユーザー入力を直接 SQL に埋め込まず、ホワイトリストから固定文字列を選ぶ。
-var listSummariesQueries = map[string]string{
-	"event_date:asc": `
-		SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
-		       p.id, p.display_name, p.avatar_url
-		FROM events e
-		LEFT JOIN profiles p ON p.id = e.profile_id
-		ORDER BY e.event_date ASC, e.id
-		LIMIT $1 OFFSET $2`,
-	"event_date:desc": `
-		SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
-		       p.id, p.display_name, p.avatar_url
-		FROM events e
-		LEFT JOIN profiles p ON p.id = e.profile_id
-		ORDER BY e.event_date DESC, e.id
-		LIMIT $1 OFFSET $2`,
-	"created_at:asc": `
-		SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
-		       p.id, p.display_name, p.avatar_url
-		FROM events e
-		LEFT JOIN profiles p ON p.id = e.profile_id
-		ORDER BY e.created_at ASC, e.id
-		LIMIT $1 OFFSET $2`,
-	"created_at:desc": `
-		SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
-		       p.id, p.display_name, p.avatar_url
-		FROM events e
-		LEFT JOIN profiles p ON p.id = e.profile_id
-		ORDER BY e.created_at DESC, e.id
-		LIMIT $1 OFFSET $2`,
-}
+// eventSummarySelect は一覧系クエリが共通で使う SELECT 句。
+// 一覧表示に必要なカラムのみ取得し、description / external_url / capacity / updated_at は含めない。
+// 列の並びは scanEventSummaries の Scan 順と対応する。
+const eventSummarySelect = `
+	SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
+	       p.id, p.display_name, p.avatar_url
+	FROM events e
+	LEFT JOIN profiles p ON p.id = e.profile_id`
 
-// ListSummaries は一覧表示に必要なカラムのみ SELECT する。
-// description / external_url / capacity / updated_at は取得しない。
-// sort・order は呼び出し元（service 層）でホワイトリスト検証済みであることを前提とする。
-func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
-	key := sort + ":" + order
-	query, ok := listSummariesQueries[key]
-	if !ok {
-		// フォールバック: created_at DESC（service 層で正規化済みのため通常到達しない）。
-		query = listSummariesQueries["created_at:desc"]
-	}
-
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("list event summaries: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
+// scanEventSummaries は eventSummarySelect の列順で rows を読み出す。
+// レコードが 0 件でも nil ではなく空スライスを返す。
+func scanEventSummaries(rows *sql.Rows) ([]model.EventSummary, error) {
 	var summaries []model.EventSummary
 	for rows.Next() {
 		var s model.EventSummary
@@ -184,9 +153,30 @@ func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, l
 		return nil, fmt.Errorf("iterate event summaries: %w", err)
 	}
 
-	// レコードが 0 件でも nil ではなく空スライスを返す。
 	if summaries == nil {
 		summaries = []model.EventSummary{}
+	}
+	return summaries, nil
+}
+
+// ListSummaries は全イベントのサマリーを指定ソート順で取得する。
+// sort・order は呼び出し元（service 層）でホワイトリスト検証済みであることを前提とする。
+func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
+	// G201: 埋め込むのはホワイトリスト由来の ORDER BY のみ。limit / offset は args 経由で渡す。
+	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
+	query := fmt.Sprintf(`%s
+		ORDER BY %s
+		LIMIT $1 OFFSET $2`, eventSummarySelect, orderByClause(sort, order))
+
+	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list event summaries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	summaries, err := scanEventSummaries(rows)
+	if err != nil {
+		return nil, err
 	}
 	if err := r.attachTagsToSummaries(ctx, summaries); err != nil {
 		return nil, err
@@ -266,14 +256,24 @@ func escapeLike(s string) string {
 	return s
 }
 
-// searchOrderByClauses は (sort, order) の組み合わせから安全な ORDER BY 句へのマップ。
+// eventOrderByClauses は (sort, order) の組み合わせから安全な ORDER BY 句へのマップ。
 // ユーザー入力を直接 SQL に埋め込まず、ホワイトリストから固定文字列を選ぶ。
 // 同一ソートキーは id 昇順で安定ソートする。
-var searchOrderByClauses = map[string]string{
+var eventOrderByClauses = map[string]string{
 	"event_date:asc":  "e.event_date ASC, e.id",
 	"event_date:desc": "e.event_date DESC, e.id",
 	"created_at:asc":  "e.created_at ASC, e.id",
 	"created_at:desc": "e.created_at DESC, e.id",
+}
+
+// orderByClause は (sort, order) に対応する ORDER BY 句を返す。
+// 未知の組み合わせは created_at DESC にフォールバックする
+// （service 層で正規化済みのため通常到達しない）。
+func orderByClause(sort, order string) string {
+	if clause, ok := eventOrderByClauses[sort+":"+order]; ok {
+		return clause
+	}
+	return eventOrderByClauses["created_at:desc"]
 }
 
 // normalizeSearchText は照合基準を全角/半角で揃えるため NFKC 正規化する。
@@ -340,12 +340,6 @@ func buildSearchWhere(filter model.EventSearchFilter, startIdx int) (string, []a
 func (r *eventPostgres) SearchSummaries(ctx context.Context, filter model.EventSearchFilter, sort, order string, limit, offset int) ([]model.EventSummary, error) {
 	where, args := buildSearchWhere(filter, 1)
 
-	orderBy, ok := searchOrderByClauses[sort+":"+order]
-	if !ok {
-		// フォールバック: created_at DESC（service 層で正規化済みのため通常到達しない）。
-		orderBy = searchOrderByClauses["created_at:desc"]
-	}
-
 	// limit / offset はキーワード分のプレースホルダの後ろに割り当てる。
 	limitIdx := len(args) + 1
 	offsetIdx := len(args) + 2
@@ -353,14 +347,10 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, filter model.EventS
 	// ホワイトリスト由来の ORDER BY、int のインデックスのみ。キーワード・タグID等のユーザー入力は
 	// 一切文字列連結せず args 経由でのみ渡すため SQL インジェクションは発生しない。
 	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
-	query := fmt.Sprintf(`
-		SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
-		       p.id, p.display_name, p.avatar_url
-		FROM events e
-		LEFT JOIN profiles p ON p.id = e.profile_id
+	query := fmt.Sprintf(`%s
 		WHERE %s
 		ORDER BY %s
-		LIMIT $%d OFFSET $%d`, where, orderBy, limitIdx, offsetIdx)
+		LIMIT $%d OFFSET $%d`, eventSummarySelect, where, orderByClause(sort, order), limitIdx, offsetIdx)
 	args = append(args, limit, offset)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -369,51 +359,9 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, filter model.EventS
 	}
 	defer func() { _ = rows.Close() }()
 
-	var summaries []model.EventSummary
-	for rows.Next() {
-		var s model.EventSummary
-		var (
-			location    sql.NullString
-			profileID   sql.NullString
-			cancelledAt sql.NullTime
-			pID         sql.NullString
-			displayName sql.NullString
-			avatarURL   sql.NullString
-		)
-		if err := rows.Scan(
-			&s.ID,
-			&s.Title,
-			&s.EventDate,
-			&s.EndDate,
-			&location,
-			&profileID,
-			&cancelledAt,
-			&s.CreatedAt,
-			&pID,
-			&displayName,
-			&avatarURL,
-		); err != nil {
-			return nil, fmt.Errorf("scan event summary: %w", err)
-		}
-		s.Location = location.String
-		s.ProfileID = profileID.String
-		if cancelledAt.Valid {
-			s.CancelledAt = &cancelledAt.Time
-		}
-		s.Profile = model.ProfileSummary{
-			ID:          pID.String,
-			DisplayName: displayName.String,
-			AvatarURL:   avatarURL.String,
-		}
-		summaries = append(summaries, s)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate event summaries: %w", err)
-	}
-
-	// レコードが 0 件でも nil ではなく空スライスを返す。
-	if summaries == nil {
-		summaries = []model.EventSummary{}
+	summaries, err := scanEventSummaries(rows)
+	if err != nil {
+		return nil, err
 	}
 	if err := r.attachTagsToSummaries(ctx, summaries); err != nil {
 		return nil, err
@@ -440,6 +388,92 @@ func (r *eventPostgres) CountSearchSummaries(ctx context.Context, filter model.E
 		return 0, fmt.Errorf("count search event summaries: %w", err)
 	}
 	return count, nil
+}
+
+// myEventClause は種別ごとの JOIN と WHERE を保持する。プレースホルダ $1 は profile_id。
+type myEventClause struct {
+	join  string
+	where string
+}
+
+// myEventClauses は種別ごとの絞り込み条件。一覧（ListMySummaries）と
+// 件数（CountMyEventKinds）の両方がこの定義を参照する。
+//
+// applied / attended は event_members に自分の行がある（＝現在申込中の）イベントだけを対象とする。
+// 参加キャンセル（leave）で行が削除されたイベントはどちらにも現れない。
+// 種別の定義と設計判断は ADR-0024 を参照。
+var myEventClauses = map[model.MyEventKind]myEventClause{
+	model.MyEventKindHosted: {
+		where: "e.profile_id = $1",
+	},
+	model.MyEventKindApplied: {
+		join:  "JOIN event_members m ON m.event_id = e.id AND m.profile_id = $1",
+		where: "e.end_date >= now()",
+	},
+	model.MyEventKindAttended: {
+		join:  "JOIN event_members m ON m.event_id = e.id AND m.profile_id = $1",
+		where: "e.end_date < now()",
+	},
+}
+
+// ListMySummaries は filter（プロフィール＋種別）に一致するイベントサマリーを取得する。
+// filter.Kind・sort・order は呼び出し元（service 層）で検証済みであることを前提とする。
+func (r *eventPostgres) ListMySummaries(ctx context.Context, filter model.MyEventFilter, sort, order string, limit, offset int) ([]model.EventSummary, error) {
+	clause, ok := myEventClauses[filter.Kind]
+	if !ok {
+		return nil, fmt.Errorf("list my event summaries: unknown kind %q", filter.Kind)
+	}
+
+	// G201: 埋め込むのは myEventClauses とホワイトリスト由来の固定文字列のみ。
+	// profile_id / limit / offset は args 経由でのみ渡すため SQL インジェクションは発生しない。
+	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
+	query := fmt.Sprintf(`%s
+		%s
+		WHERE %s
+		ORDER BY %s
+		LIMIT $2 OFFSET $3`, eventSummarySelect, clause.join, clause.where, orderByClause(sort, order))
+
+	rows, err := r.db.QueryContext(ctx, query, filter.ProfileID.String(), limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list my event summaries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	summaries, err := scanEventSummaries(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.attachTagsToSummaries(ctx, summaries); err != nil {
+		return nil, err
+	}
+	return summaries, nil
+}
+
+// CountMyEventKinds は指定プロフィールの種別ごとの件数を1クエリ（種別ごとのスカラーサブクエリ）で返す。
+func (r *eventPostgres) CountMyEventKinds(ctx context.Context, profileID uuid.UUID) (model.MyEventCounts, error) {
+	countSubquery := func(kind model.MyEventKind) string {
+		clause := myEventClauses[kind]
+		return fmt.Sprintf("(SELECT COUNT(*) FROM events e %s WHERE %s)", clause.join, clause.where)
+	}
+
+	// G201: 埋め込むのは myEventClauses 由来の固定文字列のみ。
+	// profile_id は args 経由でのみ渡すため SQL インジェクションは発生しない。
+	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
+	query := fmt.Sprintf(`SELECT %s, %s, %s`,
+		countSubquery(model.MyEventKindHosted),
+		countSubquery(model.MyEventKindApplied),
+		countSubquery(model.MyEventKindAttended),
+	)
+
+	var counts model.MyEventCounts
+	if err := r.db.QueryRowContext(ctx, query, profileID.String()).Scan(
+		&counts.Hosted,
+		&counts.Applied,
+		&counts.Attended,
+	); err != nil {
+		return model.MyEventCounts{}, fmt.Errorf("count my events: %w", err)
+	}
+	return counts, nil
 }
 
 // Create はイベントを関連テーブル（費用・持ち物・画像・PDF）とともに

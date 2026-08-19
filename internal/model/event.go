@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // EventCostInput はイベント費用の入力 DTO（カテゴリと金額）。
 type EventCostInput struct {
@@ -212,4 +216,75 @@ type CancelEventResponse struct {
 	ID string `json:"id" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
 	// CancelledAt はキャンセル日時(RFC3339)。
 	CancelledAt time.Time `json:"cancelledAt" example:"2026-06-25T10:00:00Z"`
+}
+
+// MyEventKind はプロフィール単位で取得するイベントの種別。
+type MyEventKind string
+
+const (
+	// MyEventKindHosted は自分が主催したイベント（過去・未来・キャンセル済みを含む）。
+	MyEventKindHosted MyEventKind = "hosted"
+	// MyEventKindApplied は申し込み済みで、終了日時(end_date)が未到来のイベント。
+	MyEventKindApplied MyEventKind = "applied"
+	// MyEventKindAttended は申し込み済みで、終了日時(end_date)を過ぎたイベント。
+	MyEventKindAttended MyEventKind = "attended"
+)
+
+// IsValid は定義済みの種別かどうかを返す。
+func (k MyEventKind) IsValid() bool {
+	switch k {
+	case MyEventKindHosted, MyEventKindApplied, MyEventKindAttended:
+		return true
+	default:
+		return false
+	}
+}
+
+// MyEventFilter はプロフィール単位のイベント一覧の絞り込み条件をまとめた検証済みの内部型。
+// service 層で検証してから repository 層へ渡す（HTTP には露出しない）。
+type MyEventFilter struct {
+	// ProfileID は対象プロフィールの UUID（handler 層でパース済み・ADR-0010）。
+	ProfileID uuid.UUID
+	// Kind は取得する種別。IsValid() が true であることを前提とする。
+	Kind MyEventKind
+}
+
+// MyEventCounts は種別ごとのイベント件数。マイページのタブ表示に使う。
+type MyEventCounts struct {
+	// Hosted は主催したイベントの件数。
+	Hosted int `json:"hosted" example:"4"`
+	// Applied は申し込み中のイベントの件数。
+	Applied int `json:"applied" example:"2"`
+	// Attended は参加済みのイベントの件数。
+	Attended int `json:"attended" example:"3"`
+}
+
+// Of は指定した種別の件数を返す。未知の種別は 0 を返す。
+func (c MyEventCounts) Of(kind MyEventKind) int {
+	switch kind {
+	case MyEventKindHosted:
+		return c.Hosted
+	case MyEventKindApplied:
+		return c.Applied
+	case MyEventKindAttended:
+		return c.Attended
+	default:
+		return 0
+	}
+}
+
+// MyEventListResponse はマイページのイベント一覧取得エンドポイントのレスポンス型。
+//
+//	@Description	指定種別のイベント一覧と、3種別すべての件数。
+type MyEventListResponse struct {
+	// Events はイベントサマリーの一覧（種別は counts ではなくリクエストの type に対応する）。
+	Events []EventSummary `json:"events"`
+	// Counts は3種別すべての件数。タブのバッジ表示に使う（1回のリクエストで揃う）。
+	Counts MyEventCounts `json:"counts"`
+	// TotalCount はリクエストした種別の総件数（counts の該当値と一致する）。
+	TotalCount int `json:"totalCount" example:"2"`
+	// Limit は正規化後の実際に使われた取得件数。
+	Limit int `json:"limit" example:"20"`
+	// Offset は正規化後の実際に使われた取得開始位置。
+	Offset int `json:"offset" example:"0"`
 }

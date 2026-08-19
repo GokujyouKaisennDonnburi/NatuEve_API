@@ -173,6 +173,7 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.N
 
 	v1.GET("/me", userHandler.GetMe)
 	v1.PATCH("/me", userHandler.UpdateMe)
+	v1.GET("/me/events", eventHandler.ListMine)
 	v1.POST("/events", eventHandler.Create)
 	v1.POST("/tags", tagHandler.Create)
 
