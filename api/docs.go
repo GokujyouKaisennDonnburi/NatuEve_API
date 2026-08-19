@@ -156,7 +156,7 @@ const docTemplate = `{
         },
         "/api/v1/events/{id}": {
             "get": {
-                "description": "指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。",
+                "description": "指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。\nparticipantCount は現在申込中の参加人数の合計で、定員未設定（capacity=0）でも返す。\n定員がある場合の残り人数は capacity - participantCount で算出する。",
                 "produces": [
                     "application/json"
                 ],
@@ -1595,6 +1595,11 @@ const docTemplate = `{
                 },
                 "location": {
                     "type": "string"
+                },
+                "participantCount": {
+                    "description": "ParticipantCount は現在申込中の参加人数の合計（各申込の partySize の合計）。\n定員未設定（capacity=0）でも値を返す。定員がある場合の残り人数は\ncapacity - participantCount で算出する（ADR-0024）。",
+                    "type": "integer",
+                    "example": 20
                 },
                 "pdfFilenames": {
                     "description": "PdfFilenames は PdfObjectKeys に対応する元ファイル名（未設定は空文字）。",

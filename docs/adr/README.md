@@ -39,3 +39,4 @@
 | [0021](./0021-reject-invalid-query-string.md) | 不正なクエリ文字列はミドルウェアで 400 を返す | Accepted |
 | [0022](./0022-event-member-profile-summary.md) | イベント参加者一覧にプロフィールサマリーを公開し、匿名参加は null で表す | Accepted |
 | [0023](./0023-participant-category-breakdown.md) | 参加者カテゴリ別人数の内訳は event_costs を参照して保持する | Accepted |
+| [0024](./0024-event-detail-participant-count.md) | イベント詳細で参加人数を公開し、残り人数はクライアントで算出する | Accepted |

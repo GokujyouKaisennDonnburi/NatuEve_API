@@ -145,19 +145,23 @@ type EventListResponse struct {
 
 // EventResponse はイベント詳細取得エンドポイントのレスポンス型。
 type EventResponse struct {
-	ID              string              `json:"id"`
-	Profile         ProfileSummary      `json:"profile"`
-	Title           string              `json:"title"`
-	Description     string              `json:"description"`
-	Location        string              `json:"location"`
-	EventDate       time.Time           `json:"eventDate"`
-	EndDate         time.Time           `json:"endDate"`
-	Capacity        int                 `json:"capacity"`
-	ExternalURL     string              `json:"externalUrl"`
-	Costs           []EventCostResponse `json:"costs"`
-	Items           []EventItemResponse `json:"items"`
-	ImageObjectKeys []string            `json:"imageObjectKeys"`
-	PdfObjectKeys   []string            `json:"pdfObjectKeys"`
+	ID          string         `json:"id"`
+	Profile     ProfileSummary `json:"profile"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Location    string         `json:"location"`
+	EventDate   time.Time      `json:"eventDate"`
+	EndDate     time.Time      `json:"endDate"`
+	Capacity    int            `json:"capacity"`
+	// ParticipantCount は現在申込中の参加人数の合計（各申込の partySize の合計）。
+	// 定員未設定（capacity=0）でも値を返す。定員がある場合の残り人数は
+	// capacity - participantCount で算出する（ADR-0024）。
+	ParticipantCount int                 `json:"participantCount" example:"20"`
+	ExternalURL      string              `json:"externalUrl"`
+	Costs            []EventCostResponse `json:"costs"`
+	Items            []EventItemResponse `json:"items"`
+	ImageObjectKeys  []string            `json:"imageObjectKeys"`
+	PdfObjectKeys    []string            `json:"pdfObjectKeys"`
 	// ImageFilenames は ImageObjectKeys に対応する元ファイル名（未設定は空文字）。
 	ImageFilenames []string `json:"imageFilenames"`
 	// PdfFilenames は PdfObjectKeys に対応する元ファイル名（未設定は空文字）。

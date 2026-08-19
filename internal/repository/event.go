@@ -648,9 +648,16 @@ func (r *eventPostgres) CancelWithNotification(ctx context.Context, eventID uuid
 }
 
 func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventResponse, error) {
+	// 参加人数は event_members.party_size の合計（参加キャンセル時は行ごと削除される）。
+	// 集計方針は ADR-0024 を参照。
 	const query = `
 		SELECT		e.id, e.title, e.description, e.location, e.event_date, e.end_date,
 					e.capacity, e.external_url, e.cancelled_at, e.created_at, e.updated_at,
+					COALESCE((
+						SELECT	SUM(m.party_size)
+						FROM	event_members m
+						WHERE	m.event_id = e.id
+					), 0),
 					p.id, p.display_name, p.avatar_url
 		FROM 		events e
 		LEFT JOIN  	profiles p ON p.id = e.profile_id
@@ -691,6 +698,7 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 		&cancelledAt,
 		&e.CreatedAt,
 		&e.UpdatedAt,
+		&e.ParticipantCount,
 		&pID,
 		&displayName,
 		&avatarURL,
