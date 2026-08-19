@@ -275,3 +275,42 @@ func (s *EventQueryService) ListByProfile(ctx context.Context, profileID uuid.UU
 		Offset:     offset,
 	}, nil
 }
+
+// ListPublicByProfile は指定プロフィールのイベント一覧を、公開してよい種別に限って返す。
+//
+// kind は "hosted"（主催）/ "attended"（参加済み）のいずれか。"applied"（申し込み中）は
+// 本人限定のため公開対象外で、指定された場合は未知の値と同じく *ValidationError を返す
+// （handler 層が 400 にする）。公開範囲の判断は ADR-0025 を参照。
+//
+// 取得そのものは ListByProfile に委譲し、公開対象外の件数（applied）を落とした
+// レスポンスへ詰め替える。IsPublic を満たす種別は IsValid も満たすため、委譲先の
+// 検証で弾かれることはない。
+//
+// profileID は handler 層でパース済みの uuid.UUID を受け取る（ADR-0010）。
+// limit / offset / sort / order の正規化ルールは List と同じ。
+func (s *EventQueryService) ListPublicByProfile(ctx context.Context, profileID uuid.UUID, kind, sort, order string, limit, offset int) (model.ProfileEventListResponse, error) {
+	eventKind := model.MyEventKind(kind)
+	if !eventKind.IsPublic() {
+		return model.ProfileEventListResponse{}, &ValidationError{
+			Message: "種別(type)は hosted / attended のいずれかを指定してください",
+		}
+	}
+
+	resp, err := s.ListByProfile(ctx, profileID, kind, sort, order, limit, offset)
+	if err != nil {
+		return model.ProfileEventListResponse{}, err
+	}
+
+	counts := model.ProfileEventCounts{
+		Hosted:   resp.Counts.Hosted,
+		Attended: resp.Counts.Attended,
+	}
+
+	return model.ProfileEventListResponse{
+		Events:     resp.Events,
+		Counts:     counts,
+		TotalCount: counts.Of(eventKind),
+		Limit:      resp.Limit,
+		Offset:     resp.Offset,
+	}, nil
+}

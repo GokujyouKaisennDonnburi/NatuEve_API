@@ -288,3 +288,51 @@ type MyEventListResponse struct {
 	// Offset は正規化後の実際に使われた取得開始位置。
 	Offset int `json:"offset" example:"0"`
 }
+
+// IsPublic は他人のプロフィールで公開してよい種別かどうかを返す。
+// applied（申し込み中）は本人限定のため false になる。公開範囲の判断は ADR-0025 を参照。
+func (k MyEventKind) IsPublic() bool {
+	switch k {
+	case MyEventKindHosted, MyEventKindAttended:
+		return true
+	default:
+		return false
+	}
+}
+
+// ProfileEventCounts はプロフィールページで公開する種別ごとのイベント件数。
+// 申し込み中（applied）は本人限定のため含めない。
+type ProfileEventCounts struct {
+	// Hosted は主催したイベントの件数。
+	Hosted int `json:"hosted" example:"4"`
+	// Attended は参加済みのイベントの件数。
+	Attended int `json:"attended" example:"3"`
+}
+
+// Of は指定した種別の件数を返す。公開対象外の種別は 0 を返す。
+func (c ProfileEventCounts) Of(kind MyEventKind) int {
+	switch kind {
+	case MyEventKindHosted:
+		return c.Hosted
+	case MyEventKindAttended:
+		return c.Attended
+	default:
+		return 0
+	}
+}
+
+// ProfileEventListResponse はプロフィールのイベント一覧取得エンドポイントのレスポンス型。
+//
+//	@Description	指定種別のイベント一覧と、公開する2種別の件数。
+type ProfileEventListResponse struct {
+	// Events はイベントサマリーの一覧（リクエストの type に対応する）。
+	Events []EventSummary `json:"events"`
+	// Counts は公開する2種別の件数。タブのバッジ表示に使う（1回のリクエストで揃う）。
+	Counts ProfileEventCounts `json:"counts"`
+	// TotalCount はリクエストした種別の総件数（counts の該当値と一致する）。
+	TotalCount int `json:"totalCount" example:"3"`
+	// Limit は正規化後の実際に使われた取得件数。
+	Limit int `json:"limit" example:"20"`
+	// Offset は正規化後の実際に使われた取得開始位置。
+	Offset int `json:"offset" example:"0"`
+}

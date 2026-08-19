@@ -145,6 +145,10 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.N
 
 	v1Public.GET("/profiles/:id", userHandler.GetProfile)
 
+	// profiles/{id}/events は公開エンドポイント。申し込み中（applied）は本人限定のため
+	// ここでは返さない（本人向けは認証が必要な /me/events）。判断は ADR-0025 を参照。
+	v1Public.GET("/profiles/:id/events", eventHandler.ListByProfile)
+
 	// events/{id}/report は公開エンドポイント（1イベント1レポート）。
 	v1Public.GET("/events/:id/report", reportHandler.GetByEventID)
 

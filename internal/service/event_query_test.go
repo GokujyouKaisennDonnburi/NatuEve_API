@@ -982,3 +982,232 @@ func TestEventQueryServiceListByProfile_RepositoryErrors(t *testing.T) {
 		}
 	})
 }
+
+// TestEventQueryServiceListPublicByProfile_InvalidKind は type が公開対象外
+// （applied・空文字・未知の値）の場合に *ValidationError を返し、repository の
+// いずれのメソッドも呼ばれないことを検証する。
+func TestEventQueryServiceListPublicByProfile_InvalidKind(t *testing.T) {
+	t.Helper()
+
+	tests := []struct {
+		name string
+		kind string
+	}{
+		{name: "applied は本人限定のため不正", kind: "applied"},
+		{name: "空文字は不正", kind: ""},
+		{name: "大文字は不正(小文字定義のみ許可)", kind: "HOSTED"},
+		{name: "未定義の種別は不正", kind: "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stub := &stubEventRepository{}
+			svc := NewEventQueryService(stub, "")
+
+			_, err := svc.ListPublicByProfile(context.Background(), testMyEventProfileID, tt.kind, "", "", 0, 0)
+
+			var ve *ValidationError
+			if !errors.As(err, &ve) {
+				t.Fatalf("*ValidationError を期待したが got=%v", err)
+			}
+			if stub.listMyCalled || stub.countMyCalled {
+				t.Errorf("検証エラー時は repository が呼ばれないべき: listMyCalled=%v countMyCalled=%v", stub.listMyCalled, stub.countMyCalled)
+			}
+		})
+	}
+}
+
+// TestEventQueryServiceListPublicByProfile_FilterByKind は公開対象の種別(hosted/attended)
+// ごとに repository へ渡す model.MyEventFilter（ProfileID・Kind）が期待どおりであること、
+// CountMyEventKinds に渡る profileID が一致することを検証する。
+func TestEventQueryServiceListPublicByProfile_FilterByKind(t *testing.T) {
+	t.Helper()
+
+	profileID := testMyEventProfileID
+
+	tests := []struct {
+		name     string
+		kind     string
+		wantKind model.MyEventKind
+	}{
+		{name: "hosted", kind: "hosted", wantKind: model.MyEventKindHosted},
+		{name: "attended", kind: "attended", wantKind: model.MyEventKindAttended},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stub := &stubEventRepository{}
+			svc := NewEventQueryService(stub, "")
+
+			_, err := svc.ListPublicByProfile(context.Background(), profileID, tt.kind, "", "", 0, 0)
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+
+			wantFilter := model.MyEventFilter{ProfileID: profileID, Kind: tt.wantKind}
+			if stub.gotMyFilter != wantFilter {
+				t.Errorf("filter: got %#v, want %#v", stub.gotMyFilter, wantFilter)
+			}
+			if stub.gotMyCountProfileID != profileID {
+				t.Errorf("CountMyEventKinds の profileID: got %q, want %q", stub.gotMyCountProfileID, profileID)
+			}
+		})
+	}
+}
+
+// TestEventQueryServiceListPublicByProfile_Normalization は limit/offset/sort/order の
+// 正規化結果が repository の ListMySummaries に渡ることを検証する。
+func TestEventQueryServiceListPublicByProfile_Normalization(t *testing.T) {
+	t.Helper()
+
+	tests := []struct {
+		name        string
+		inputSort   string
+		inputOrder  string
+		inputLimit  int
+		inputOffset int
+		wantSort    string
+		wantOrder   string
+		wantLimit   int
+		wantOffset  int
+	}{
+		{
+			name:       "limit/offset がデフォルト値(0)の場合は default20/0 に正規化",
+			wantSort:   "created_at",
+			wantOrder:  "desc",
+			wantLimit:  20,
+			wantOffset: 0,
+		},
+		{
+			name:       "limit が 101 の場合は 100 に丸める",
+			inputLimit: 101,
+			wantSort:   "created_at",
+			wantOrder:  "desc",
+			wantLimit:  100,
+		},
+		{
+			name:        "offset が負値の場合は 0 に丸める",
+			inputOffset: -1,
+			wantSort:    "created_at",
+			wantOrder:   "desc",
+			wantLimit:   20,
+			wantOffset:  0,
+		},
+		{
+			name:      "sort が不正値の場合は created_at にデフォルト",
+			inputSort: "invalid_column",
+			wantSort:  "created_at",
+			wantOrder: "desc",
+			wantLimit: 20,
+		},
+		{
+			name:       "order が不正値の場合は desc にデフォルト",
+			inputOrder: "invalid_order",
+			wantSort:   "created_at",
+			wantOrder:  "desc",
+			wantLimit:  20,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stub := &stubEventRepository{}
+			svc := NewEventQueryService(stub, "")
+
+			got, err := svc.ListPublicByProfile(context.Background(), testMyEventProfileID, "hosted", tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+
+			if stub.gotMySort != tt.wantSort {
+				t.Errorf("sort: got %q, want %q", stub.gotMySort, tt.wantSort)
+			}
+			if stub.gotMyOrder != tt.wantOrder {
+				t.Errorf("order: got %q, want %q", stub.gotMyOrder, tt.wantOrder)
+			}
+			if stub.gotMyLimit != tt.wantLimit {
+				t.Errorf("limit: got %d, want %d", stub.gotMyLimit, tt.wantLimit)
+			}
+			if stub.gotMyOffset != tt.wantOffset {
+				t.Errorf("offset: got %d, want %d", stub.gotMyOffset, tt.wantOffset)
+			}
+			if got.Limit != tt.wantLimit {
+				t.Errorf("response.Limit: got %d, want %d", got.Limit, tt.wantLimit)
+			}
+			if got.Offset != tt.wantOffset {
+				t.Errorf("response.Offset: got %d, want %d", got.Offset, tt.wantOffset)
+			}
+		})
+	}
+}
+
+// TestEventQueryServiceListPublicByProfile_Counts は repository が返す
+// MyEventCounts から applied を除いた ProfileEventCounts がレスポンスに入ること、
+// TotalCount がリクエストした種別の counts.Of(kind) と一致することを検証する。
+func TestEventQueryServiceListPublicByProfile_Counts(t *testing.T) {
+	t.Helper()
+
+	repoCounts := model.MyEventCounts{Hosted: 4, Applied: 2, Attended: 3}
+	wantCounts := model.ProfileEventCounts{Hosted: 4, Attended: 3}
+
+	tests := []struct {
+		name      string
+		kind      string
+		wantTotal int
+	}{
+		{name: "hosted", kind: "hosted", wantTotal: 4},
+		{name: "attended", kind: "attended", wantTotal: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stub := &stubEventRepository{myCounts: repoCounts}
+			svc := NewEventQueryService(stub, "")
+
+			got, err := svc.ListPublicByProfile(context.Background(), testMyEventProfileID, tt.kind, "", "", 0, 0)
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+
+			if got.Counts != wantCounts {
+				t.Errorf("Counts: got %#v, want %#v(applied を含まないこと)", got.Counts, wantCounts)
+			}
+			if got.TotalCount != tt.wantTotal {
+				t.Errorf("TotalCount: got %d, want %d", got.TotalCount, tt.wantTotal)
+			}
+		})
+	}
+}
+
+// TestEventQueryServiceListPublicByProfile_RepositoryErrors は ListMySummaries /
+// CountMyEventKinds のエラーがそのまま呼び出し元に伝播することを検証する。
+// ListMySummaries がエラーの場合は CountMyEventKinds が呼ばれないことも確認する。
+func TestEventQueryServiceListPublicByProfile_RepositoryErrors(t *testing.T) {
+	t.Helper()
+
+	t.Run("ListMySummaries のエラーが伝播し CountMyEventKinds は呼ばれない", func(t *testing.T) {
+		stub := &stubEventRepository{myErr: errors.New("list my db error")}
+		svc := NewEventQueryService(stub, "")
+
+		_, err := svc.ListPublicByProfile(context.Background(), testMyEventProfileID, "hosted", "", "", 0, 0)
+		if err == nil {
+			t.Fatal("エラーを期待したが nil だった")
+		}
+		if stub.countMyCalled {
+			t.Error("ListMySummaries がエラーの場合 CountMyEventKinds は呼ばれないべき")
+		}
+	})
+
+	t.Run("CountMyEventKinds のエラーが伝播する", func(t *testing.T) {
+		stub := &stubEventRepository{myCountsErr: errors.New("count my db error")}
+		svc := NewEventQueryService(stub, "")
+
+		_, err := svc.ListPublicByProfile(context.Background(), testMyEventProfileID, "hosted", "", "", 0, 0)
+		if err == nil {
+			t.Fatal("エラーを期待したが nil だった")
+		}
+		if !stub.listMyCalled {
+			t.Error("CountMyEventKinds のエラー検証前に ListMySummaries が呼ばれているべき")
+		}
+	})
+}
