@@ -218,6 +218,159 @@ func TestEventJoinPostgres_Leave_DeletesMemberAndWritesLog(t *testing.T) {
 	})
 }
 
+// TestEventJoinPostgres_GetMemberByProfile は GetMemberByProfile が
+// (event_id, profile_id) に一致する申込1件をカテゴリ内訳（昇順）付きで返すこと、
+// 未申込・イベント不存在・匿名申込では対応する sentinel エラーを返すことを検証する。
+func TestEventJoinPostgres_GetMemberByProfile(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+
+	t.Run("正常: 内訳2件の申込をカテゴリ名昇順で取得できる", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "大人", 500)
+		insertTestCost(t, db, eventID, "学生", 300)
+		profileID := insertTestProfile(t, db)
+
+		member := &model.EventMember{
+			EventID:     eventID,
+			ProfileID:   uuid.NullUUID{UUID: profileID, Valid: true},
+			Username:    "山田太郎",
+			MailAddress: uuid.NewString() + "@example.com",
+			PartySize:   3,
+			Categories: []model.MemberCategory{
+				{Category: "学生", HeadCount: 1},
+				{Category: "大人", HeadCount: 2},
+			},
+		}
+		if err := repo.Join(context.Background(), member); err != nil {
+			t.Fatalf("Join() returned error: %v", err)
+		}
+
+		got, err := repo.GetMemberByProfile(context.Background(), eventID, profileID)
+		if err != nil {
+			t.Fatalf("GetMemberByProfile() returned error: %v", err)
+		}
+		if got.Username != "山田太郎" {
+			t.Errorf("Username: got %q, want %q", got.Username, "山田太郎")
+		}
+		if got.MailAddress != member.MailAddress {
+			t.Errorf("MailAddress: got %q, want %q", got.MailAddress, member.MailAddress)
+		}
+		if got.PartySize != 3 {
+			t.Errorf("PartySize: got %d, want 3", got.PartySize)
+		}
+		if !got.CreatedAt.Equal(member.CreatedAt) {
+			t.Errorf("CreatedAt: got %v, want %v", got.CreatedAt, member.CreatedAt)
+		}
+		wantCategories := []model.MemberCategory{
+			{Category: "大人", HeadCount: 2},
+			{Category: "学生", HeadCount: 1},
+		}
+		if len(got.Categories) != len(wantCategories) {
+			t.Fatalf("Categories: got %d件, want %d件", len(got.Categories), len(wantCategories))
+		}
+		for i, want := range wantCategories {
+			if got.Categories[i].Category != want.Category || got.Categories[i].HeadCount != want.HeadCount {
+				t.Errorf(
+					"Categories[%d]: got {%q %d}, want {%q %d}",
+					i, got.Categories[i].Category, got.Categories[i].HeadCount, want.Category, want.HeadCount,
+				)
+			}
+		}
+	})
+
+	t.Run("正常: 同一イベントに複数人の申込があっても自分の行だけを返す", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "大人", 500)
+		insertTestCost(t, db, eventID, "学生", 300)
+
+		// join は同一イベントへの申込を1件作る。2人の人数・カテゴリを変えておくことで、
+		// 行を取り違えた場合に値の比較で必ず落ちるようにする。
+		join := func(t *testing.T, profileID uuid.UUID, username string, category model.MemberCategory) *model.EventMember {
+			t.Helper()
+			member := &model.EventMember{
+				EventID:     eventID,
+				ProfileID:   uuid.NullUUID{UUID: profileID, Valid: true},
+				Username:    username,
+				MailAddress: uuid.NewString() + "@example.com",
+				PartySize:   category.HeadCount,
+				Categories:  []model.MemberCategory{category},
+			}
+			if err := repo.Join(context.Background(), member); err != nil {
+				t.Fatalf("Join() returned error: %v", err)
+			}
+			return member
+		}
+
+		meID := insertTestProfile(t, db)
+		otherID := insertTestProfile(t, db)
+		me := join(t, meID, "自分", model.MemberCategory{Category: "大人", HeadCount: 2})
+		other := join(t, otherID, "他人", model.MemberCategory{Category: "学生", HeadCount: 4})
+
+		got, err := repo.GetMemberByProfile(context.Background(), eventID, meID)
+		if err != nil {
+			t.Fatalf("GetMemberByProfile() returned error: %v", err)
+		}
+		if got.Username != "自分" || got.MailAddress != me.MailAddress {
+			t.Errorf(
+				"他人の申込が返っている: got (%q, %q), want (%q, %q)",
+				got.Username, got.MailAddress, "自分", me.MailAddress,
+			)
+		}
+		if got.PartySize != 2 {
+			t.Errorf("PartySize: got %d, want 2（他人の人数が混ざっていないこと）", got.PartySize)
+		}
+		if len(got.Categories) != 1 || got.Categories[0].Category != "大人" || got.Categories[0].HeadCount != 2 {
+			t.Errorf("Categories: got %+v, want [{大人 2}]（他人の内訳が混ざっていないこと）", got.Categories)
+		}
+
+		// profileID を変えれば同じイベントでもう一方の申込が返る（WHERE 句が profile_id で
+		// 絞れていることの裏返しの確認）。
+		gotOther, err := repo.GetMemberByProfile(context.Background(), eventID, otherID)
+		if err != nil {
+			t.Fatalf("GetMemberByProfile() returned error: %v", err)
+		}
+		if gotOther.Username != "他人" || gotOther.MailAddress != other.MailAddress || gotOther.PartySize != 4 {
+			t.Errorf(
+				"gotOther = (%q, %q, %d), want (%q, %q, 4)",
+				gotOther.Username, gotOther.MailAddress, gotOther.PartySize, "他人", other.MailAddress,
+			)
+		}
+	})
+
+	t.Run("異常: 未申込なら ErrNotJoined を返す", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		profileID := insertTestProfile(t, db)
+
+		_, err := repo.GetMemberByProfile(context.Background(), eventID, profileID)
+		if !errors.Is(err, ErrNotJoined) {
+			t.Errorf("GetMemberByProfile() error = %v, want ErrNotJoined", err)
+		}
+	})
+
+	t.Run("異常: イベント不存在なら ErrEventNotFound を返す", func(t *testing.T) {
+		profileID := insertTestProfile(t, db)
+
+		_, err := repo.GetMemberByProfile(context.Background(), uuid.New(), profileID)
+		if !errors.Is(err, ErrEventNotFound) {
+			t.Errorf("GetMemberByProfile() error = %v, want ErrEventNotFound", err)
+		}
+	})
+
+	t.Run("異常: 匿名申込の行は別profileIDで引いてもヒットせず ErrNotJoined", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestEventMember(t, db, eventID, uuid.NewString()+"@example.com", 1)
+		profileID := insertTestProfile(t, db)
+
+		_, err := repo.GetMemberByProfile(context.Background(), eventID, profileID)
+		if !errors.Is(err, ErrNotJoined) {
+			t.Errorf("GetMemberByProfile() error = %v, want ErrNotJoined", err)
+		}
+	})
+}
+
 // updateTestProfileDetails はテスト用の profiles 行の display_name・avatar_url を更新する。
 // insertTestProfile はメールアドレスのみ設定するため、プロフィールサマリーの検証に
 // display_name・avatar_url が必要なテストではこのヘルパーで追加設定する。
