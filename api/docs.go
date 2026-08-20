@@ -482,7 +482,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証必須。ログイン中ユーザー自身の、指定イベントに対する申込内容を返す。\n参加費（金額）は含まない。カテゴリごとの金額はイベント詳細（GET /api/v1/events/{id}）の costs を参照する。\nparticipants はカテゴリ名の昇順。\n未申込・参加キャンセル済み・匿名で申し込んだ場合は 404 を返す。",
+                "description": "認証必須。ログイン中ユーザー自身の、指定イベントに対する申込内容を返す。\n参加費（金額）は含まない。カテゴリごとの金額はイベント詳細（GET /api/v1/events/{id}）の costs を参照する。\nparticipants はカテゴリ名の昇順。申込時にカテゴリ別の内訳が必須のため1件以上返る。\n未申込・参加キャンセル済み・匿名で申し込んだ場合は 404 を返す。",
                 "produces": [
                     "application/json"
                 ],
@@ -2135,7 +2135,7 @@ const docTemplate = `{
                     "example": "yamada@example.com"
                 },
                 "participants": {
-                    "description": "Participants はカテゴリ別人数の内訳（カテゴリ名の昇順）。",
+                    "description": "Participants はカテゴリ別人数の内訳（カテゴリ名の昇順）。\nAPI 経由の申込では必ず1件以上入る。DB は内訳0件を禁じていないため、\n直接 INSERT された行では空配列になりうる（ADR-0026）。",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse"

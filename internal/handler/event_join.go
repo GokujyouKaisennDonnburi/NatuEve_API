@@ -201,7 +201,7 @@ func (h *EventHandler) Leave(c *gin.Context) {
 //	@Summary		イベント申込内容取得
 //	@Description	認証必須。ログイン中ユーザー自身の、指定イベントに対する申込内容を返す。
 //	@Description	参加費（金額）は含まない。カテゴリごとの金額はイベント詳細（GET /api/v1/events/{id}）の costs を参照する。
-//	@Description	participants はカテゴリ名の昇順。
+//	@Description	participants はカテゴリ名の昇順。申込時にカテゴリ別の内訳が必須のため1件以上返る。
 //	@Description	未申込・参加キャンセル済み・匿名で申し込んだ場合は 404 を返す。
 //	@Tags			event
 //	@Produce		json

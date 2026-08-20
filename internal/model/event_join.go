@@ -68,6 +68,8 @@ type MyEventApplicationResponse struct {
 	// PartySize は代表者を含む参加人数。participants の合計と一致する。
 	PartySize int `json:"partySize" example:"3"`
 	// Participants はカテゴリ別人数の内訳（カテゴリ名の昇順）。
+	// API 経由の申込では必ず1件以上入る。DB は内訳0件を禁じていないため、
+	// 直接 INSERT された行では空配列になりうる（ADR-0026）。
 	Participants []ParticipantResponse `json:"participants"`
 	// CreatedAt は参加申込日時。
 	CreatedAt time.Time `json:"createdAt" example:"2026-08-01T12:34:56Z"`
