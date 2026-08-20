@@ -81,6 +81,13 @@ type EventJoinRepository interface {
 	// 匿名参加（profile_id NULL）は EventMember.Profile が nil になる。
 	// 0件の場合は nil ではなく空スライスを返す（呼び出し元の totalCount 計算で安全側に倒すため）。
 	ListMembers(ctx context.Context, eventID uuid.UUID) ([]model.EventMember, error)
+
+	// GetMemberByProfile は指定 eventID・profileID のログイン参加者の申込1件を返す。
+	// Categories はカテゴリ名の昇順で返す。0件でも nil ではなく空スライスを返す。
+	// 失敗時は次の sentinel エラーを %w でラップして返す:
+	//   - ErrEventNotFound: イベントが存在しない
+	//   - ErrNotJoined: そのイベントに参加していない（未申込・キャンセル済み・匿名申込を含む）
+	GetMemberByProfile(ctx context.Context, eventID, profileID uuid.UUID) (model.EventMember, error)
 }
 
 // eventJoinPostgres は PostgreSQL実装。
@@ -518,6 +525,77 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 	}
 
 	return members, nil
+}
+
+// GetMemberByProfile は指定 eventID・profileID のログイン参加者の申込1件を返す。
+// 参照のみで更新を伴わないため（申込後に内訳が変わる更新経路が無いため）、
+// トランザクションは使わない。
+func (r *eventJoinPostgres) GetMemberByProfile(
+	ctx context.Context,
+	eventID, profileID uuid.UUID,
+) (model.EventMember, error) {
+	const query = `
+	SELECT id, username, mail_address, party_size, created_at
+	FROM event_members
+	WHERE event_id = $1
+	AND profile_id = $2
+	`
+
+	member := model.EventMember{
+		EventID:   eventID,
+		ProfileID: uuid.NullUUID{UUID: profileID, Valid: true},
+	}
+	err := r.db.QueryRowContext(ctx, query, eventID, profileID).Scan(
+		&member.ID,
+		&member.Username,
+		&member.MailAddress,
+		&member.PartySize,
+		&member.CreatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		const existsEvent = `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)`
+		var exists bool
+		if err := r.db.QueryRowContext(ctx, existsEvent, eventID).Scan(&exists); err != nil {
+			return model.EventMember{}, fmt.Errorf("exists event: %w", err)
+		}
+		if !exists {
+			return model.EventMember{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+		}
+		return model.EventMember{}, fmt.Errorf("event %s: %w", eventID, ErrNotJoined)
+	}
+	if err != nil {
+		return model.EventMember{}, fmt.Errorf("get member by profile: %w", err)
+	}
+
+	const categoriesQuery = `
+	SELECT mc.cost_id, c.category, mc.head_count
+	FROM event_member_categories mc
+	JOIN event_costs c ON c.id = mc.cost_id
+	WHERE mc.member_id = $1
+	ORDER BY c.category
+	`
+
+	rows, err := r.db.QueryContext(ctx, categoriesQuery, member.ID)
+	if err != nil {
+		return model.EventMember{}, fmt.Errorf("list member categories: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	// 0件でも空スライスを返す（呼び出し元の Participants を null ではなく [] にするため）。
+	categories := []model.MemberCategory{}
+	for rows.Next() {
+		var c model.MemberCategory
+		if err := rows.Scan(&c.CostID, &c.Category, &c.HeadCount); err != nil {
+			return model.EventMember{}, fmt.Errorf("scan member category: %w", err)
+		}
+		categories = append(categories, c)
+	}
+	if err := rows.Err(); err != nil {
+		return model.EventMember{}, fmt.Errorf("list member categories rows: %w", err)
+	}
+	member.Categories = categories
+
+	return member, nil
 }
 
 // listMemberCategories は指定 eventID の参加者内訳を member_id ごとにまとめて返す。

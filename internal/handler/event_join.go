@@ -196,6 +196,76 @@ func (h *EventHandler) Leave(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// GetMyApplication はログイン中ユーザー自身の申込内容取得 API。
+//
+//	@Summary		イベント申込内容取得
+//	@Description	認証必須。ログイン中ユーザー自身の、指定イベントに対する申込内容を返す。
+//	@Description	参加費（金額）は含まない。カテゴリごとの金額はイベント詳細（GET /api/v1/events/{id}）の costs を参照する。
+//	@Description	participants はカテゴリ名の昇順。
+//	@Description	未申込・参加キャンセル済み・匿名で申し込んだ場合は 404 を返す。
+//	@Tags			event
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			id	path		string	true	"イベントID"
+//	@Success		200	{object}	model.MyEventApplicationResponse
+//	@Failure		400	{object}	model.ValidationErrorResponse
+//	@Failure		401	{object}	model.UnauthorizedErrorResponse
+//	@Failure		404	{object}	model.NotFoundErrorResponse	"not_found: イベント不存在 または 未申込"
+//	@Failure		500	{object}	model.InternalErrorResponse
+//	@Router			/api/v1/events/{id}/members/me [get]
+func (h *EventHandler) GetMyApplication(c *gin.Context) {
+
+	// パスパラメータからイベントID取得
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			model.NewErrorResponse("invalid_request", "イベントIDが不正です"),
+		)
+		return
+	}
+
+	// 認証必須。RequireAuth ミドルウェア配下だが、防御的に確認する。
+	authUser, ok := middleware.AuthFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, model.NewErrorResponse("unauthorized", "認証が必要です"))
+		return
+	}
+	profileID, err := uuid.Parse(authUser.ID)
+	if err != nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			model.NewErrorResponse("unauthorized", "ユーザーIDが不正です"),
+		)
+		return
+	}
+
+	resp, err := h.joinSvc.GetMyApplication(c.Request.Context(), eventID, profileID)
+	if err != nil {
+		var nfe *service.NotFoundError
+		if errors.As(err, &nfe) {
+			c.JSON(
+				http.StatusNotFound,
+				model.NewErrorResponse("not_found", nfe.Message),
+			)
+			return
+		}
+
+		// 想定外エラー（DB エラー等）は真因をログに残す。
+		slog.Error("申込内容の取得に失敗しました",
+			slog.String("event_id", eventID.String()),
+			slog.Any("error", err),
+		)
+		c.JSON(
+			http.StatusInternalServerError,
+			model.NewErrorResponse("internal_error", "申込内容の取得に失敗しました"),
+		)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
 // ListMembers godoc
 //
 //	@Summary		イベント参加者一覧取得

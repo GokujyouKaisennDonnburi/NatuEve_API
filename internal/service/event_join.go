@@ -172,6 +172,36 @@ func (s *EventJoinService) Leave(
 	}, nil
 }
 
+// GetMyApplication はログイン中ユーザー自身の、指定イベントに対する申込内容を返す。
+//
+// repository が返す sentinel エラーをここで HTTP 向けエラーに変換する。
+// 匿名申込は profile_id で識別できず、本メソッドの対象外（未申込と同じ扱いで NotFoundError）。
+func (s *EventJoinService) GetMyApplication(
+	ctx context.Context,
+	eventID, profileID uuid.UUID,
+) (model.MyEventApplicationResponse, error) {
+
+	member, err := s.joinRepo.GetMemberByProfile(ctx, eventID, profileID)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrEventNotFound):
+			return model.MyEventApplicationResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
+		case errors.Is(err, repository.ErrNotJoined):
+			return model.MyEventApplicationResponse{}, &NotFoundError{Message: "このイベントに参加していません"}
+		}
+		return model.MyEventApplicationResponse{}, fmt.Errorf("get my application: %w", err)
+	}
+
+	return model.MyEventApplicationResponse{
+		EventID:      eventID,
+		Username:     member.Username,
+		MailAddress:  member.MailAddress,
+		PartySize:    member.PartySize,
+		Participants: toParticipantResponses(member.Categories),
+		CreatedAt:    member.CreatedAt,
+	}, nil
+}
+
 // ListMembers はイベント主催者が参加者一覧を取得する。
 //
 // 認可・バリデーションは requireEventOwner ヘルパーに集約。
