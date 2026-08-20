@@ -468,6 +468,64 @@
                 }
             }
         },
+        "/api/v1/events/{id}/members/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "認証必須。ログイン中ユーザー自身の、指定イベントに対する申込内容を返す。\n参加費（金額）は含まない。カテゴリごとの金額はイベント詳細（GET /api/v1/events/{id}）の costs を参照する。\nparticipants はカテゴリ名の昇順。\n未申込・参加キャンセル済み・匿名で申し込んだ場合は 404 を返す。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event"
+                ],
+                "summary": "イベント申込内容取得",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "イベントID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.MyEventApplicationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "not_found: イベント不存在 または 未申込",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/events/{id}/notifications": {
             "post": {
                 "security": [
@@ -2048,6 +2106,43 @@
                     "description": "ProfileID はキャンセルしたユーザーのUUID。leave は認証必須のため常に値が入る。",
                     "type": "string",
                     "example": "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.MyEventApplicationResponse": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "description": "CreatedAt は参加申込日時。",
+                    "type": "string",
+                    "example": "2026-08-01T12:34:56Z"
+                },
+                "eventId": {
+                    "description": "EventID は申込先イベントのUUID。",
+                    "type": "string",
+                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                },
+                "mailAddress": {
+                    "description": "MailAddress は申込時に入力されたメールアドレス。",
+                    "type": "string",
+                    "example": "yamada@example.com"
+                },
+                "participants": {
+                    "description": "Participants はカテゴリ別人数の内訳（カテゴリ名の昇順）。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse"
+                    }
+                },
+                "partySize": {
+                    "description": "PartySize は代表者を含む参加人数。participants の合計と一致する。",
+                    "type": "integer",
+                    "example": 3
+                },
+                "username": {
+                    "description": "Username は申込時にフォームへ入力された名前。",
+                    "type": "string",
+                    "example": "山田太郎"
                 }
             }
         },
