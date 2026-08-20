@@ -528,8 +528,7 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 }
 
 // GetMemberByProfile は指定 eventID・profileID のログイン参加者の申込1件を返す。
-// 参照のみで更新を伴わないため（申込後に内訳が変わる更新経路が無いため）、
-// トランザクションは使わない。
+// 申込行と内訳は別クエリで取得し、トランザクションは使わない（ADR-0026）。
 func (r *eventJoinPostgres) GetMemberByProfile(
 	ctx context.Context,
 	eventID, profileID uuid.UUID,

@@ -57,7 +57,7 @@ type JoinEventResponse struct {
 }
 
 // MyEventApplicationResponse はログイン中ユーザー自身の申込内容取得エンドポイントのレスポンス DTO。
-// 金額は含まない。参加費はイベント詳細（costs）を参照する。
+// 金額は含まない（ADR-0026）。参加費はイベント詳細（costs）を参照する。
 type MyEventApplicationResponse struct {
 	// EventID は申込先イベントのUUID。
 	EventID uuid.UUID `json:"eventId" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`

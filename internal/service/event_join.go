@@ -175,7 +175,7 @@ func (s *EventJoinService) Leave(
 // GetMyApplication はログイン中ユーザー自身の、指定イベントに対する申込内容を返す。
 //
 // repository が返す sentinel エラーをここで HTTP 向けエラーに変換する。
-// 匿名申込は profile_id で識別できず、本メソッドの対象外（未申込と同じ扱いで NotFoundError）。
+// 匿名申込は profile_id で識別できず、本メソッドの対象外（未申込と同じ扱い。ADR-0026）。
 func (s *EventJoinService) GetMyApplication(
 	ctx context.Context,
 	eventID, profileID uuid.UUID,
