@@ -340,6 +340,23 @@ func TestEventJoinPostgres_GetMemberByProfile(t *testing.T) {
 		}
 	})
 
+	t.Run("正常: 内訳を持たない申込は Categories が空スライスになる", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		profileID := insertTestProfile(t, db)
+		insertTestEventMemberWithProfile(t, db, eventID, profileID, uuid.NewString()+"@example.com", 1)
+
+		got, err := repo.GetMemberByProfile(context.Background(), eventID, profileID)
+		if err != nil {
+			t.Fatalf("GetMemberByProfile() returned error: %v", err)
+		}
+		if got.Categories == nil {
+			t.Error("Categories = nil, want empty slice")
+		}
+		if len(got.Categories) != 0 {
+			t.Errorf("Categories = %#v, want empty", got.Categories)
+		}
+	})
+
 	t.Run("異常: 未申込なら ErrNotJoined を返す", func(t *testing.T) {
 		eventID := insertTestEvent(t, db, ownerID)
 		profileID := insertTestProfile(t, db)
@@ -644,4 +661,37 @@ func TestEventJoinPostgres_Join_ResolvesCategories(t *testing.T) {
 			t.Errorf("参加行が %d 件残っている, want 0", n)
 		}
 	})
+}
+
+// insertTestEventMemberWithProfile はテスト用の event_members 行を1件、profile_id 付きで
+// 内訳なしで作成する。insertTestEventMember（internal/repository/event_test.go）は
+// profile_id を NULL にするため、ログイン参加者の申込を GetMemberByProfile で
+// 引けるようにするにはこちらを使う。
+func insertTestEventMemberWithProfile(
+	t *testing.T,
+	db *sql.DB,
+	eventID, profileID uuid.UUID,
+	mailAddress string,
+	partySize int,
+) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	const insertMember = `
+	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size)
+	VALUES($1, $2, $3, $4, $5, $6)
+	`
+	if _, err := db.ExecContext(
+		context.Background(),
+		insertMember,
+		id,
+		eventID,
+		profileID,
+		"テスト参加者",
+		mailAddress,
+		partySize,
+	); err != nil {
+		t.Fatalf("insert test event member with profile: %v", err)
+	}
+	return id
 }
