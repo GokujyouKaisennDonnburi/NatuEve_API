@@ -1353,6 +1353,11 @@
                 "title"
             ],
             "properties": {
+                "applicationDeadline": {
+                    "description": "ApplicationDeadline は申込期限(RFC3339)（任意）。省略時は期限なし。終了日時以前であること。",
+                    "type": "string",
+                    "example": "2026-06-25T23:59:59Z"
+                },
                 "capacity": {
                     "description": "Capacity は定員（任意・0=未設定・正数=定員）。",
                     "type": "integer",

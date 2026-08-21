@@ -922,3 +922,75 @@ func TestEventPostgres_ListMySummaries_EmptyReturnsEmptySlice(t *testing.T) {
 		t.Errorf("len(got) = %d, want 0", len(got))
 	}
 }
+
+// queryApplicationDeadline はテスト用に events.application_deadline を取得する。
+func queryApplicationDeadline(t *testing.T, db *sql.DB, eventID string) sql.NullTime {
+	t.Helper()
+
+	var got sql.NullTime
+	const query = `SELECT application_deadline FROM events WHERE id = $1`
+	if err := db.QueryRowContext(context.Background(), query, eventID).Scan(&got); err != nil {
+		t.Fatalf("query application_deadline: %v", err)
+	}
+	return got
+}
+
+// TestEventPostgres_Create_ApplicationDeadline は Create が application_deadline を
+// 指定時はその値で、未指定時は NULL で保存することを検証する。
+func TestEventPostgres_Create_ApplicationDeadline(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+
+	eventDate := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	endDate := time.Date(2026, 7, 1, 17, 0, 0, 0, time.UTC)
+	deadline := time.Date(2026, 6, 25, 23, 59, 59, 0, time.UTC)
+
+	tests := []struct {
+		name                string
+		applicationDeadline time.Time
+		want                sql.NullTime
+	}{
+		{
+			name:                "指定時は DB にその値が保存される",
+			applicationDeadline: deadline,
+			want:                sql.NullTime{Time: deadline, Valid: true},
+		},
+		{
+			name:                "未指定時は DB で NULL になる",
+			applicationDeadline: time.Time{},
+			want:                sql.NullTime{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &model.NewEvent{
+				ProfileID:           profileID.String(),
+				Title:               "テストイベント",
+				Description:         "説明",
+				Location:            "場所",
+				EventDate:           eventDate,
+				EndDate:             endDate,
+				ApplicationDeadline: tt.applicationDeadline,
+				Costs: []model.EventCostInput{
+					{Category: "参加費", Cost: 500},
+				},
+			}
+
+			resp, err := repo.Create(context.Background(), e)
+			if err != nil {
+				t.Fatalf("Create() returned error: %v", err)
+			}
+
+			got := queryApplicationDeadline(t, db, resp.ID)
+			if got.Valid != tt.want.Valid {
+				t.Fatalf("application_deadline.Valid = %v, want %v", got.Valid, tt.want.Valid)
+			}
+			if tt.want.Valid && !got.Time.Equal(tt.want.Time) {
+				t.Errorf("application_deadline = %v, want %v", got.Time, tt.want.Time)
+			}
+		})
+	}
+}
