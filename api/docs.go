@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/api/v1/events": {
             "get": {
-                "description": "公開イベントを指定ソート順で返す。認証不要。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。\nprifileはProfileSummaryを返す。\nq は検索キーワード。反復指定で AND 検索になる（例: ?q=桜\u0026q=東京）。各語はタイトル/イベント詳細/\n主催者名/地域名/持ち物を横断して部分一致で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。\n照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。全角数字↔半角数字・全角英字↔半角英字・半角カナ↔全角カナ）。\ntagId はタグでの絞り込み。反復指定は OR 検索になる（例: ?tagId=A\u0026tagId=B なら A または B が付いたイベント）。\nq と同時に指定した場合は AND（キーワード条件かつタグ条件）で絞り込む。\nUUID 形式でない値・21件以上の指定は 400 を返す（値が空の tagId は未指定として無視する）。",
+                "description": "公開イベントを指定ソート順で返す。認証不要。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。\nprifileはProfileSummaryを返す。\nq は検索キーワード。反復指定で AND 検索になる（例: ?q=桜\u0026q=東京）。各語はタイトル/イベント詳細/\n主催者名/地域名/持ち物を横断して部分一致で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。\n照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。全角数字↔半角数字・全角英字↔半角英字・半角カナ↔全角カナ）。\ntagId はタグでの絞り込み。反復指定は OR 検索になる（例: ?tagId=A\u0026tagId=B なら A または B が付いたイベント）。\nq と同時に指定した場合は AND（キーワード条件かつタグ条件）で絞り込む。\nUUID 形式でない値・21件以上の指定は 400 を返す（値が空の tagId は未指定として無視する）。\nstatus は開催状況での絞り込み。反復指定は OR 検索になる（例: ?status=upcoming\u0026status=ongoing）。\n値は upcoming(開催前: event_date \u003e now())・ongoing(開催中: event_date \u003c= now() かつ\nend_date \u003e= now())・ended(開催後: end_date \u003c now()) の3値で、排他かつ網羅（どのイベントも必ず1つに該当）。\nq・tagId と同時に指定した場合は AND で絞り込む。許可値以外（大文字表記等）は 400 を返す\n（値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表し、\nキャンセル済みイベントの判別は含まない（各 status の結果にキャンセル済みイベントも混在するため、\nクライアントは cancelledAt で判別する）。",
                 "produces": [
                     "application/json"
                 ],
@@ -44,6 +44,16 @@ const docTemplate = `{
                         "collectionFormat": "multi",
                         "description": "絞り込むタグID(UUID。反復指定でOR検索。最大20件)",
                         "name": "tagId",
+                        "in": "query"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "multi",
+                        "description": "開催状況(upcoming|ongoing|ended。反復指定でOR検索)",
+                        "name": "status",
                         "in": "query"
                     },
                     {
@@ -1675,7 +1685,7 @@ const docTemplate = `{
                     "example": 0
                 },
                 "totalCount": {
-                    "description": "TotalCount は現在の絞り込み条件（q / tagId）に一致する総件数。\n条件を指定しない場合は全件数になる。クライアントが最終ページ offset を算出するために使う。",
+                    "description": "TotalCount は現在の絞り込み条件（q / tagId / status）に一致する総件数。\n条件を指定しない場合は全件数になる。クライアントが最終ページ offset を算出するために使う。",
                     "type": "integer",
                     "example": 153
                 }
