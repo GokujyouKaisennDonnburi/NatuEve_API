@@ -390,6 +390,57 @@ func TestEventPostgres_GetByID_ParticipantCount(t *testing.T) {
 	})
 }
 
+// TestEventPostgres_GetByID_ApplicationDeadline は GetByID が application_deadline を
+// 設定時は非nilでその値を、未設定時は nil を返すことを検証する（ADR-0029）。
+func TestEventPostgres_GetByID_ApplicationDeadline(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+	deadline := time.Now().Add(30 * time.Minute).UTC().Truncate(time.Microsecond)
+
+	tests := []struct {
+		name     string
+		deadline sql.NullTime
+		want     *time.Time
+	}{
+		{
+			name:     "申込期限を設定したイベントは非nilでその値を返す",
+			deadline: sql.NullTime{Time: deadline, Valid: true},
+			want:     &deadline,
+		},
+		{
+			name:     "申込期限なしのイベントはnilを返す",
+			deadline: sql.NullTime{},
+			want:     nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventID := insertTestEventWithApplicationDeadline(t, db, profileID, tt.deadline)
+
+			got, err := repo.GetByID(context.Background(), eventID.String())
+			if err != nil {
+				t.Fatalf("GetByID() returned error: %v", err)
+			}
+
+			if tt.want == nil {
+				if got.ApplicationDeadline != nil {
+					t.Errorf("ApplicationDeadline = %v, want nil", got.ApplicationDeadline)
+				}
+				return
+			}
+			if got.ApplicationDeadline == nil {
+				t.Fatal("ApplicationDeadline = nil, want non-nil")
+			}
+			if !got.ApplicationDeadline.Equal(*tt.want) {
+				t.Errorf("ApplicationDeadline = %v, want %v", got.ApplicationDeadline, *tt.want)
+			}
+		})
+	}
+}
+
 // findSummaryByID は summaries から id に一致する要素を返す。
 // 見つかった場合は ok が true になる。
 func findSummaryByID(summaries []model.EventSummary, id string) (summary model.EventSummary, ok bool) {
@@ -548,6 +599,33 @@ func insertTestEventWithEndDate(t *testing.T, db *sql.DB, profileID uuid.UUID, e
 		"テストイベント",
 		endDate.Add(-1*time.Hour),
 		endDate,
+	); err != nil {
+		t.Fatalf("insert test event: %v", err)
+	}
+	return id
+}
+
+// insertTestEventWithApplicationDeadline はテスト用の events 行を1件、
+// 指定した application_deadline で作成する。deadline.Valid が false の場合は NULL で作成する。
+func insertTestEventWithApplicationDeadline(t *testing.T, db *sql.DB, profileID uuid.UUID, deadline sql.NullTime) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	eventDate := time.Now()
+	endDate := eventDate.Add(1 * time.Hour)
+	const insertEvent = `
+	INSERT INTO events(id, profile_id, title, event_date, end_date, application_deadline)
+	VALUES($1, $2, $3, $4, $5, $6)
+	`
+	if _, err := db.ExecContext(
+		context.Background(),
+		insertEvent,
+		id,
+		profileID,
+		"テストイベント",
+		eventDate,
+		endDate,
+		deadline,
 	); err != nil {
 		t.Fatalf("insert test event: %v", err)
 	}

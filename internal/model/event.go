@@ -160,7 +160,9 @@ type EventResponse struct {
 	Location    string         `json:"location"`
 	EventDate   time.Time      `json:"eventDate"`
 	EndDate     time.Time      `json:"endDate"`
-	Capacity    int            `json:"capacity"`
+	// ApplicationDeadline は申込期限(RFC3339)。nil の場合は期限なし（ADR-0029）。
+	ApplicationDeadline *time.Time `json:"applicationDeadline,omitempty"`
+	Capacity            int        `json:"capacity"`
 	// ParticipantCount は現在申込中の参加人数の合計（各申込の partySize の合計）。
 	// 定員未設定（capacity=0）でも値を返す。定員がある場合の残り人数は
 	// capacity - participantCount で算出する（ADR-0024）。
