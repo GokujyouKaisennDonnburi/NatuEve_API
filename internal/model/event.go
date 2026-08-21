@@ -36,6 +36,8 @@ type CreateEventRequest struct {
 	EventDate time.Time `json:"eventDate" example:"2026-07-01T10:00:00Z" validate:"required"`
 	// EndDate はイベント終了日時(RFC3339)（任意）。省略時は EventDate と同値を補完する。
 	EndDate time.Time `json:"endDate" example:"2026-07-01T17:00:00Z" validate:"omitempty"`
+	// ApplicationDeadline は申込期限(RFC3339)（任意）。省略時は期限なし。終了日時以前であること。
+	ApplicationDeadline time.Time `json:"applicationDeadline" example:"2026-06-25T23:59:59Z" validate:"omitempty"`
 	// Capacity は定員（任意・0=未設定・正数=定員）。
 	Capacity int `json:"capacity,omitempty" example:"30" validate:"min=0"`
 	// ExternalURL は関連URLs（任意・255文字以内・http/https）。
@@ -65,13 +67,15 @@ type NewEvent struct {
 	Location    string
 	EventDate   time.Time
 	// EndDate は補完・検証済みの終了日時（必ず EventDate 以上）。
-	EndDate         time.Time
-	Capacity        int
-	ExternalURL     string
-	Costs           []EventCostInput
-	Items           []EventItemInput
-	ImageObjectKeys []string
-	PdfObjectKeys   []string
+	EndDate time.Time
+	// ApplicationDeadline は検証済みの申込期限。ゼロ値は期限なし（DB では NULL）。
+	ApplicationDeadline time.Time
+	Capacity            int
+	ExternalURL         string
+	Costs               []EventCostInput
+	Items               []EventItemInput
+	ImageObjectKeys     []string
+	PdfObjectKeys       []string
 	// ImageFilenames は ImageObjectKeys と同順の元ファイル名（未指定は空文字）。
 	ImageFilenames []string
 	// PdfFilenames は PdfObjectKeys と同順の元ファイル名（未指定は空文字）。

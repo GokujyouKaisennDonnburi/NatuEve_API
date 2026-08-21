@@ -281,6 +281,99 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 			},
 		},
 		{
+			name: "異常: applicationDeadline が endDate より後",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.EndDate = r.EventDate.Add(1 * time.Hour)
+				r.ApplicationDeadline = r.EndDate.Add(1 * time.Hour)
+				return r
+			}(),
+			wantValErr: true,
+		},
+		{
+			name: "異常: endDate 省略時に applicationDeadline が eventDate より後",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.ApplicationDeadline = r.EventDate.Add(1 * time.Hour)
+				return r
+			}(),
+			wantValErr: true,
+		},
+		{
+			name: "正常: applicationDeadline 省略",
+			req:  validRequest(),
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				if !e.ApplicationDeadline.IsZero() {
+					t.Errorf("ApplicationDeadline: got %v, want zero value", e.ApplicationDeadline)
+				}
+			},
+		},
+		{
+			name: "正常: applicationDeadline が endDate と同値",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.EndDate = r.EventDate.Add(1 * time.Hour)
+				r.ApplicationDeadline = r.EndDate
+				return r
+			}(),
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				want := validRequest().EventDate.Add(1 * time.Hour).UTC()
+				if !e.ApplicationDeadline.Equal(want) {
+					t.Errorf("ApplicationDeadline: got %v, want %v", e.ApplicationDeadline, want)
+				}
+			},
+		},
+		{
+			name: "正常: endDate 省略時に applicationDeadline が eventDate と同値（境界）",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.ApplicationDeadline = r.EventDate
+				return r
+			}(),
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				want := validRequest().EventDate.UTC()
+				if !e.ApplicationDeadline.Equal(want) {
+					t.Errorf("ApplicationDeadline: got %v, want %v", e.ApplicationDeadline, want)
+				}
+			},
+		},
+		{
+			// ADR-0029 決定5: 申込期限に下限チェックはなく、eventDate より前（過去日時）でも許可する。
+			name: "正常: applicationDeadline が eventDate より前（過去日時）でも許可される（ADR-0029 決定5の回帰検知）",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.ApplicationDeadline = r.EventDate.Add(-24 * time.Hour)
+				return r
+			}(),
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				want := validRequest().EventDate.Add(-24 * time.Hour).UTC()
+				if !e.ApplicationDeadline.Equal(want) {
+					t.Errorf("ApplicationDeadline: got %v, want %v", e.ApplicationDeadline, want)
+				}
+			},
+		},
+		{
+			// EventDate（validRequest）は 2026-07-01T10:00:00Z。ApplicationDeadline は JST 表記で
+			// 絶対時刻として EventDate 以前（2026-07-01T09:00:00Z 相当）になる値を指定する。
+			name: "正常: applicationDeadline 指定時はその値が UTC で伝播する",
+			req: func() model.CreateEventRequest {
+				r := validRequest()
+				r.ApplicationDeadline = time.Date(2026, 7, 1, 18, 0, 0, 0, time.FixedZone("JST", 9*60*60))
+				return r
+			}(),
+			checkNewEvent: func(t *testing.T, e *model.NewEvent) {
+				t.Helper()
+				want := time.Date(2026, 7, 1, 18, 0, 0, 0, time.FixedZone("JST", 9*60*60)).UTC()
+				if !e.ApplicationDeadline.Equal(want) || e.ApplicationDeadline.Location() != time.UTC {
+					t.Errorf("ApplicationDeadline: got %v (loc=%v), want %v (UTC)", e.ApplicationDeadline, e.ApplicationDeadline.Location(), want)
+				}
+			},
+		},
+		{
 			name: "異常: costs が空配列",
 			req: func() model.CreateEventRequest {
 				r := validRequest()

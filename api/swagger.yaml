@@ -49,6 +49,10 @@ definitions:
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest:
     description: イベント投稿に必要な情報。
     properties:
+      applicationDeadline:
+        description: ApplicationDeadline は申込期限(RFC3339)（任意）。省略時は期限なし。終了日時以前であること。
+        example: "2026-06-25T23:59:59Z"
+        type: string
       capacity:
         description: Capacity は定員（任意・0=未設定・正数=定員）。
         example: 30
