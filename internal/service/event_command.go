@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -238,6 +239,13 @@ func validateCreateEventRequest(req model.CreateEventRequest) error {
 		return &ValidationError{Message: "終了日時は開催日時以降を指定してください"}
 	}
 
+	// ApplicationDeadline（任意）: ゼロ値は未指定（期限なし）。
+	// 指定時は終了日時（省略時は EventDate で補完した値）以前であることを検証する
+	// （DB の CHECK 違反による 500 を防ぐため）。
+	if !req.ApplicationDeadline.IsZero() && req.ApplicationDeadline.After(resolveEndDate(req)) {
+		return &ValidationError{Message: "申込期限は終了日時以前を指定してください"}
+	}
+
 	// Costs: 1件以上必須。各 Category は trim 後必須・255文字以内、Cost は 0 以上。
 	if len(req.Costs) == 0 {
 		return &ValidationError{Message: "費用情報は1件以上入力してください"}
@@ -346,28 +354,32 @@ func buildNewEvent(profileID string, req model.CreateEventRequest) *model.NewEve
 	// TagIDs: trim した値で重複除去（順序保持）して詰め替える。
 	tagIDs := dedupeTagIDs(req.TagIDs)
 
-	// EndDate: 未指定（ゼロ値）なら EventDate と同値を補完する。
-	endDate := req.EndDate
-	if endDate.IsZero() {
-		endDate = req.EventDate
-	}
-
 	// ImageObjectKeys / PdfObjectKeys は呼び出し元が昇格済みキーをセットするため空で初期化。
 	return &model.NewEvent{
-		ProfileID:       profileID,
-		Title:           strings.TrimSpace(req.Title),
-		Description:     strings.TrimSpace(req.Description),
-		Location:        strings.TrimSpace(req.Location),
-		EventDate:       req.EventDate.UTC(),
-		EndDate:         endDate.UTC(),
-		Capacity:        req.Capacity,
-		ExternalURL:     strings.TrimSpace(req.ExternalURL),
-		Costs:           costs,
-		Items:           items,
-		ImageObjectKeys: nil,
-		PdfObjectKeys:   nil,
-		TagIDs:          tagIDs,
+		ProfileID:           profileID,
+		Title:               strings.TrimSpace(req.Title),
+		Description:         strings.TrimSpace(req.Description),
+		Location:            strings.TrimSpace(req.Location),
+		EventDate:           req.EventDate.UTC(),
+		EndDate:             resolveEndDate(req).UTC(),
+		ApplicationDeadline: req.ApplicationDeadline.UTC(),
+		Capacity:            req.Capacity,
+		ExternalURL:         strings.TrimSpace(req.ExternalURL),
+		Costs:               costs,
+		Items:               items,
+		ImageObjectKeys:     nil,
+		PdfObjectKeys:       nil,
+		TagIDs:              tagIDs,
 	}
+}
+
+// resolveEndDate は req.EndDate が未指定（ゼロ値）の場合に req.EventDate で補完した値を返す。
+// validateCreateEventRequest と buildNewEvent の双方から呼び、検証と保存で補完規則を一致させる。
+func resolveEndDate(req model.CreateEventRequest) time.Time {
+	if req.EndDate.IsZero() {
+		return req.EventDate
+	}
+	return req.EndDate
 }
 
 // dedupeTagIDs は tagIDs を UUID 正準形（小文字ハイフン区切り）へ正規化したうえで、

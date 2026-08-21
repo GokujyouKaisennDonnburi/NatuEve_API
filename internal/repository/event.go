@@ -32,6 +32,14 @@ func nullInt32(n int) sql.NullInt32 {
 	return sql.NullInt32{Int32: int32(n), Valid: true} //nolint:gosec
 }
 
+// nullTime はゼロ値を NULL として扱う（未設定を表す）。
+func nullTime(t time.Time) sql.NullTime {
+	if t.IsZero() {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: t, Valid: true}
+}
+
 // filenameAt は names[i] を返す。範囲外なら空文字を返す（ファイル名は任意のため）。
 // 画像・PDF のオブジェクトキーと元ファイル名を同順で対応付ける際に使う。
 func filenameAt(names []string, i int) string {
@@ -487,8 +495,8 @@ func (r *eventPostgres) Create(ctx context.Context, e *model.NewEvent) (model.Cr
 
 	// events テーブルへ INSERT し、生成 ID と作成日時を取得する。
 	const insertEvent = `
-		INSERT INTO events (id, profile_id, title, description, location, event_date, end_date, capacity, external_url)
-		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO events (id, profile_id, title, description, location, event_date, end_date, application_deadline, capacity, external_url)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9)
 		RETURNING id, created_at`
 
 	var resp model.CreateEventResponse
@@ -499,6 +507,7 @@ func (r *eventPostgres) Create(ctx context.Context, e *model.NewEvent) (model.Cr
 		nullString(e.Location),
 		e.EventDate,
 		e.EndDate,
+		nullTime(e.ApplicationDeadline),
 		nullInt32(e.Capacity),
 		nullString(e.ExternalURL),
 	).Scan(&resp.ID, &resp.CreatedAt)
