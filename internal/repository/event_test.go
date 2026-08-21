@@ -104,6 +104,8 @@ func TestNormalizeSearchText(t *testing.T) {
 // 1グループとし、グループ間を AND で連結すること、タグ条件を EXISTS + IN の1グループに
 // まとめること、プレースホルダを startIdx から連番で割り当てること（キーワード→タグの順）、
 // ILIKE パターン・タグID引数を順序どおり生成することを検証する。
+// 開催状況(status)は statusClauses 由来の条件式を OR で連結した1グループになり、
+// プレースホルダを消費しないこと（ADR-0027）も併せて検証する。
 func TestBuildSearchWhere(t *testing.T) {
 	t.Helper()
 
@@ -209,11 +211,69 @@ func TestBuildSearchWhere(t *testing.T) {
 			wantAndCount: 0,
 			wantArgs:     []any{"%a%", "tag-1"},
 		},
+		{
+			name:     "status単独(upcoming): プレースホルダを消費せずOR句にならない",
+			filter:   model.EventSearchFilter{Statuses: []model.EventStatus{model.EventStatusUpcoming}},
+			startIdx: 1,
+			wantContains: []string{
+				"(e.event_date > now())",
+			},
+			wantNotContains: []string{"ILIKE", "EXISTS", "OR"},
+			wantAndCount:    0,
+			wantArgs:        []any{},
+		},
+		{
+			name: "status複数(upcoming,ongoing): OR で連結され ongoing は括弧で囲まれる",
+			filter: model.EventSearchFilter{
+				Statuses: []model.EventStatus{model.EventStatusUpcoming, model.EventStatusOngoing},
+			},
+			startIdx: 1,
+			wantContains: []string{
+				"(e.event_date > now() OR (e.event_date <= now() AND e.end_date >= now()))",
+			},
+			wantAndCount: 0,
+			wantArgs:     []any{},
+		},
+		{
+			name: "status3値すべて: 定義順で3条件がORで連結される",
+			filter: model.EventSearchFilter{
+				Statuses: []model.EventStatus{
+					model.EventStatusUpcoming, model.EventStatusOngoing, model.EventStatusEnded,
+				},
+			},
+			startIdx: 1,
+			wantContains: []string{
+				"(e.event_date > now() OR (e.event_date <= now() AND e.end_date >= now()) OR e.end_date < now())",
+			},
+			wantAndCount: 0,
+			wantArgs:     []any{},
+		},
+		{
+			name: "キーワード1+タグ1+status1: プレースホルダはキーワード→タグの順のみでstatusは消費せず末尾にAND連結される",
+			filter: model.EventSearchFilter{
+				Keywords: []string{"a"},
+				TagIDs:   []string{"tag-1"},
+				Statuses: []model.EventStatus{model.EventStatusUpcoming},
+			},
+			startIdx: 1,
+			wantContains: []string{
+				"ILIKE $1",
+				"IN ($2)",
+				") AND EXISTS (",
+				") AND (e.event_date > now())",
+			},
+			wantNotContains: []string{"ILIKE $3", "IN ($3)"},
+			wantAndCount:    1,
+			wantArgs:        []any{"%a%", "tag-1"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			where, args := buildSearchWhere(tt.filter, tt.startIdx)
+			where, args, err := buildSearchWhere(tt.filter, tt.startIdx)
+			if err != nil {
+				t.Fatalf("buildSearchWhere() returned error: %v", err)
+			}
 
 			for _, sub := range tt.wantContains {
 				if !strings.Contains(where, sub) {
@@ -232,6 +292,41 @@ func TestBuildSearchWhere(t *testing.T) {
 			}
 			if !reflect.DeepEqual(args, tt.wantArgs) {
 				t.Errorf("args: got %#v, want %#v", args, tt.wantArgs)
+			}
+		})
+	}
+}
+
+// TestBuildSearchWhere_UnknownStatus は statusClauses に無い開催状況が渡された場合に
+// エラーを返し、WHERE 句を組み立てないことを確認する（ADR-0027）。
+// service 層の normalizeStatuses を経由すれば到達しない経路の防御にあたる。
+func TestBuildSearchWhere_UnknownStatus(t *testing.T) {
+	tests := []struct {
+		name   string
+		status model.EventStatus
+	}{
+		{name: "statusClauses に無い値", status: model.EventStatus("cancelled")},
+		{name: "空文字", status: model.EventStatus("")},
+		{name: "大文字表記は別の値として扱われる", status: model.EventStatus("UPCOMING")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filter := model.EventSearchFilter{Statuses: []model.EventStatus{tt.status}}
+
+			where, args, err := buildSearchWhere(filter, 1)
+			if err == nil {
+				t.Fatalf("未知の status ではエラーを返すべき\nwhere=%s", where)
+			}
+			// エラー時に組み立て途中の WHERE 句を返すと、呼び出し元が不正な SQL を発行しうる。
+			if where != "" {
+				t.Errorf("エラー時の WHERE 句は空であるべき: got %q", where)
+			}
+			if args != nil {
+				t.Errorf("エラー時の引数は nil であるべき: got %#v", args)
+			}
+			if !strings.Contains(err.Error(), string(tt.status)) {
+				t.Errorf("エラーメッセージに未知の値が含まれるべき: %v", err)
 			}
 		})
 	}
@@ -554,6 +649,33 @@ func insertTestEventWithEndDate(t *testing.T, db *sql.DB, profileID uuid.UUID, e
 	return id
 }
 
+// insertTestEventWithDates はテスト用の events 行を1件、指定した event_date/end_date で作成する。
+// insertTestEventWithEndDate は event_date を endDate の1時間前に固定するため、
+// event_date と end_date の両方を独立に指定したいテスト（開催中(ongoing)の境界検証等）では
+// こちらを使う。呼び出し元は events_end_date_after_event_date 制約(end_date >= event_date)を
+// 満たす値を渡すこと。
+func insertTestEventWithDates(t *testing.T, db *sql.DB, profileID uuid.UUID, eventDate, endDate time.Time) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	const insertEvent = `
+	INSERT INTO events(id, profile_id, title, event_date, end_date)
+	VALUES($1, $2, $3, $4, $5)
+	`
+	if _, err := db.ExecContext(
+		context.Background(),
+		insertEvent,
+		id,
+		profileID,
+		"テストイベント",
+		eventDate,
+		endDate,
+	); err != nil {
+		t.Fatalf("insert test event: %v", err)
+	}
+	return id
+}
+
 // insertTestMember はテスト用の event_members 行を1件作成する（参加申込を表す）。
 // profileID.Valid が false の場合は匿名申込（profile_id は NULL）として登録する。
 func insertTestMember(t *testing.T, db *sql.DB, eventID uuid.UUID, profileID uuid.NullUUID) uuid.UUID {
@@ -703,6 +825,165 @@ func TestEventPostgres_SearchSummaries_TagFilter(t *testing.T) {
 		if len(got) != 0 {
 			t.Errorf("SearchSummaries() 件数 = %d, want 0", len(got))
 		}
+	})
+}
+
+// TestEventPostgres_SearchSummaries_StatusFilter は SearchSummaries/CountSearchSummaries の
+// 開催状況(status)絞り込み（3値それぞれ・複数指定のOR・q/tagIdとのAND・3値すべての指定が
+// status未指定と一致すること）を検証する（ADR-0027）。
+//
+// insertTestTag は毎回新規の UUID を採番するため、このテストで使うスコープ用タグを条件に含む
+// 検索はこのテスト内で作成したイベントにしか一致しない。そのため他テストの既存データと干渉しない。
+// event_date/end_date は now() 基準の相対値で作成し、境界から十分離すことで時間経過による
+// テストのflakinessを避ける。
+func TestEventPostgres_SearchSummaries_StatusFilter(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+	scopeTagID, _ := insertTestTag(t, db, "ステータス絞り込みスコープ")
+
+	now := time.Now()
+	upcomingEvent := insertTestEventWithDates(t, db, profileID, now.Add(24*time.Hour), now.Add(48*time.Hour))
+	linkEventTag(t, db, upcomingEvent, scopeTagID)
+
+	ongoingEvent := insertTestEventWithDates(t, db, profileID, now.Add(-24*time.Hour), now.Add(24*time.Hour))
+	linkEventTag(t, db, ongoingEvent, scopeTagID)
+
+	endedEvent := insertTestEventWithDates(t, db, profileID, now.Add(-48*time.Hour), now.Add(-24*time.Hour))
+	linkEventTag(t, db, endedEvent, scopeTagID)
+
+	// scopeFilter はスコープ用タグで絞り込んだ上で status を上書きするベース。
+	scopeFilter := func(statuses ...model.EventStatus) model.EventSearchFilter {
+		return model.EventSearchFilter{
+			TagIDs:   []string{scopeTagID.String()},
+			Statuses: statuses,
+		}
+	}
+
+	runAndAssert := func(t *testing.T, filter model.EventSearchFilter, wantIDs, dontWantIDs []uuid.UUID) {
+		t.Helper()
+
+		got, err := repo.SearchSummaries(context.Background(), filter, "created_at", "desc", 100, 0)
+		if err != nil {
+			t.Fatalf("SearchSummaries() returned error: %v", err)
+		}
+		for _, id := range wantIDs {
+			if _, ok := findSummaryByID(got, id.String()); !ok {
+				t.Errorf("%s が結果に含まれるべき", id)
+			}
+		}
+		for _, id := range dontWantIDs {
+			if _, ok := findSummaryByID(got, id.String()); ok {
+				t.Errorf("%s は結果に含まれるべきではない", id)
+			}
+		}
+
+		count, err := repo.CountSearchSummaries(context.Background(), filter)
+		if err != nil {
+			t.Fatalf("CountSearchSummaries() returned error: %v", err)
+		}
+		if count != len(got) {
+			t.Errorf("CountSearchSummaries() = %d, SearchSummaries() 件数 = %d: 不整合", count, len(got))
+		}
+	}
+
+	t.Run("upcoming: event_date > now() のイベントのみ該当する", func(t *testing.T) {
+		runAndAssert(t,
+			scopeFilter(model.EventStatusUpcoming),
+			[]uuid.UUID{upcomingEvent},
+			[]uuid.UUID{ongoingEvent, endedEvent},
+		)
+	})
+
+	t.Run("ongoing: event_date <= now() かつ end_date >= now() のイベントのみ該当する", func(t *testing.T) {
+		runAndAssert(t,
+			scopeFilter(model.EventStatusOngoing),
+			[]uuid.UUID{ongoingEvent},
+			[]uuid.UUID{upcomingEvent, endedEvent},
+		)
+	})
+
+	t.Run("ended: end_date < now() のイベントのみ該当する", func(t *testing.T) {
+		runAndAssert(t,
+			scopeFilter(model.EventStatusEnded),
+			[]uuid.UUID{endedEvent},
+			[]uuid.UUID{upcomingEvent, ongoingEvent},
+		)
+	})
+
+	t.Run("複数指定はOR: upcomingとendedを指定するとongoingだけ除外される", func(t *testing.T) {
+		runAndAssert(t,
+			scopeFilter(model.EventStatusUpcoming, model.EventStatusEnded),
+			[]uuid.UUID{upcomingEvent, endedEvent},
+			[]uuid.UUID{ongoingEvent},
+		)
+	})
+
+	t.Run("3値すべて指定はstatus未指定と結果が一致する（排他かつ網羅）", func(t *testing.T) {
+		allStatuses := scopeFilter(model.EventStatusUpcoming, model.EventStatusOngoing, model.EventStatusEnded)
+		noStatus := scopeFilter()
+
+		gotAll, err := repo.SearchSummaries(context.Background(), allStatuses, "created_at", "desc", 100, 0)
+		if err != nil {
+			t.Fatalf("SearchSummaries(3値すべて) returned error: %v", err)
+		}
+		gotNone, err := repo.SearchSummaries(context.Background(), noStatus, "created_at", "desc", 100, 0)
+		if err != nil {
+			t.Fatalf("SearchSummaries(status未指定) returned error: %v", err)
+		}
+		if len(gotAll) != len(gotNone) {
+			t.Fatalf("件数が不一致: 3値すべて=%d, status未指定=%d", len(gotAll), len(gotNone))
+		}
+		for _, s := range gotAll {
+			if _, ok := findSummaryByID(gotNone, s.ID); !ok {
+				t.Errorf("3値すべての結果にあるイベント %s が status未指定の結果に含まれるべき", s.ID)
+			}
+		}
+
+		countAll, err := repo.CountSearchSummaries(context.Background(), allStatuses)
+		if err != nil {
+			t.Fatalf("CountSearchSummaries(3値すべて) returned error: %v", err)
+		}
+		countNone, err := repo.CountSearchSummaries(context.Background(), noStatus)
+		if err != nil {
+			t.Fatalf("CountSearchSummaries(status未指定) returned error: %v", err)
+		}
+		if countAll != countNone {
+			t.Errorf("CountSearchSummaries(3値すべて) = %d, CountSearchSummaries(status未指定) = %d: 不一致", countAll, countNone)
+		}
+	})
+
+	t.Run("q・tagIdとのAND: statusに一致してもキーワードが不一致なら除外される", func(t *testing.T) {
+		keyword := "status_and_test" + uuid.NewString()[:8]
+
+		matchEvent := insertTestEventWithTitle(t, db, profileID, keyword+"の終了済みイベント")
+		linkEventTag(t, db, matchEvent, scopeTagID)
+		if _, err := db.ExecContext(context.Background(),
+			`UPDATE events SET event_date = $2, end_date = $3 WHERE id = $1`,
+			matchEvent, now.Add(-48*time.Hour), now.Add(-24*time.Hour),
+		); err != nil {
+			t.Fatalf("update test event dates: %v", err)
+		}
+
+		tagOnlyEvent := insertTestEventWithTitle(t, db, profileID, "キーワード不一致イベント")
+		linkEventTag(t, db, tagOnlyEvent, scopeTagID)
+		if _, err := db.ExecContext(context.Background(),
+			`UPDATE events SET event_date = $2, end_date = $3 WHERE id = $1`,
+			tagOnlyEvent, now.Add(-48*time.Hour), now.Add(-24*time.Hour),
+		); err != nil {
+			t.Fatalf("update test event dates: %v", err)
+		}
+
+		filter := model.EventSearchFilter{
+			Keywords: []string{keyword},
+			TagIDs:   []string{scopeTagID.String()},
+			Statuses: []model.EventStatus{model.EventStatusEnded},
+		}
+		runAndAssert(t, filter,
+			[]uuid.UUID{matchEvent},
+			[]uuid.UUID{tagOnlyEvent, upcomingEvent, ongoingEvent},
+		)
 	})
 }
 

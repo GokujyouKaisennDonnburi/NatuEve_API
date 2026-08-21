@@ -52,10 +52,18 @@ func NewEventHandler(
 //	@Description	tagId はタグでの絞り込み。反復指定は OR 検索になる（例: ?tagId=A&tagId=B なら A または B が付いたイベント）。
 //	@Description	q と同時に指定した場合は AND（キーワード条件かつタグ条件）で絞り込む。
 //	@Description	UUID 形式でない値・21件以上の指定は 400 を返す（値が空の tagId は未指定として無視する）。
+//	@Description	status は開催状況での絞り込み。反復指定は OR 検索になる（例: ?status=upcoming&status=ongoing）。
+//	@Description	値は upcoming(開催前: event_date > now())・ongoing(開催中: event_date <= now() かつ
+//	@Description	end_date >= now())・ended(開催後: end_date < now()) の3値で、排他かつ網羅（どのイベントも必ず1つに該当）。
+//	@Description	q・tagId と同時に指定した場合は AND で絞り込む。許可値以外（大文字表記等）は 400 を返す
+//	@Description	（値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表し、
+//	@Description	キャンセル済みイベントの判別は含まない（各 status の結果にキャンセル済みイベントも混在するため、
+//	@Description	クライアントは cancelledAt で判別する）。
 //	@Tags			event
 //	@Produce		json
 //	@Param			q		query		[]string	false	"検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)"	collectionFormat(multi)
 //	@Param			tagId	query		[]string	false	"絞り込むタグID(UUID。反復指定でOR検索。最大20件)"	collectionFormat(multi)
+//	@Param			status	query		[]string	false	"開催状況(upcoming|ongoing|ended。反復指定でOR検索)"	collectionFormat(multi)
 //	@Param			sort	query		string	false	"ソートカラム(created_at|event_date, default: created_at)"
 //	@Param			order	query		string	false	"ソート順(asc|desc, default: desc)"
 //	@Param			limit	query		int		false	"取得件数(default 20, 最大 100)"
@@ -67,15 +75,17 @@ func NewEventHandler(
 func (h *EventHandler) List(c *gin.Context) {
 	// クエリパラメータを取得する（sort/order/limit/offset の不正値は service 層で安全側に丸める）。
 	// q は反復クエリ(?q=a&q=b)で複数受け取り AND 検索する（正規化は service 層）。
-	// tagId も反復クエリで複数受け取るが、こちらは OR 検索。形式不正・件数超過は 400 になる。
+	// tagId・status も反復クエリで複数受け取るが、こちらは OR 検索。不正値・件数超過は 400 になる
+	// （ADR-0020、status は ADR-0027）。
 	keywords := c.QueryArray("q")
 	tagIDs := c.QueryArray("tagId")
+	statuses := c.QueryArray("status")
 	sort := c.Query("sort")
 	order := c.Query("order")
 	limit := queryInt(c, "limit", 0)
 	offset := queryInt(c, "offset", 0)
 
-	resp, err := h.querySvc.List(c.Request.Context(), keywords, tagIDs, sort, order, limit, offset)
+	resp, err := h.querySvc.List(c.Request.Context(), keywords, tagIDs, statuses, sort, order, limit, offset)
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {

@@ -53,24 +53,32 @@ func NewEventQueryService(repo repository.EventRepository, publicBaseURL string)
 
 // List は limit / offset / sort / order を正規化してからイベント一覧レスポンスを返す。
 //
-// keywords・tagIDs がともに空（正規化後に条件が無い）の場合は全件一覧を返す。
+// keywords・tagIDs・statuses がすべて空（正規化後に条件が無い）の場合は全件一覧を返す。
 // いずれかに条件がある場合は絞り込み検索を行う:
 //   - キーワード: 各語は title/description/主催者名(display_name)/location/持ち物(event_item) を
 //     横断（OR・部分一致・大文字小文字無視）し、語どうしは AND で結合する
 //   - タグ: 複数指定時は OR（いずれかのタグを持つイベントが該当）
-//   - キーワード条件とタグ条件は AND で結合する
+//   - 開催状況(status): 複数指定時は OR（いずれかの状況に該当するイベントが該当）（ADR-0027）
+//   - キーワード条件・タグ条件・開催状況条件は互いに AND で結合する
 //
 // 正規化ルール:
 //   - keywords は各要素を前後トリムし、空要素を除去。maxSearchKeywords(10) 件を超えた分は切り捨てる
 //   - tagIDs は空要素を除去し UUID 正準形へ正規化・重複除去する。形式不正・maxFilterTagIDs(20)
 //     件超過は *ValidationError を返す（切り捨てない）
+//   - statuses は空要素を除去し、upcoming/ongoing/ended の完全一致以外は *ValidationError を
+//     返す。重複除去後は定義順（upcoming → ongoing → ended）へ並べ替える（ADR-0027）
 //   - limit が 0 以下 → defaultLimit(20)
 //   - limit が maxLimit(100) 超過 → maxLimit(100)
 //   - offset が負値 → 0
 //   - sort が許可値("created_at"/"event_date")以外 → defaultSort("created_at")
 //   - order が許可値("asc"/"desc")以外 → defaultOrder("desc")
-func (s *EventQueryService) List(ctx context.Context, keywords, tagIDs []string, sort, order string, limit, offset int) (model.EventListResponse, error) {
+func (s *EventQueryService) List(ctx context.Context, keywords, tagIDs, statuses []string, sort, order string, limit, offset int) (model.EventListResponse, error) {
 	normalizedTagIDs, err := normalizeTagIDs(tagIDs)
+	if err != nil {
+		return model.EventListResponse{}, err
+	}
+
+	normalizedStatuses, err := normalizeStatuses(statuses)
 	if err != nil {
 		return model.EventListResponse{}, err
 	}
@@ -78,6 +86,7 @@ func (s *EventQueryService) List(ctx context.Context, keywords, tagIDs []string,
 	filter := model.EventSearchFilter{
 		Keywords: normalizeKeywords(keywords),
 		TagIDs:   normalizedTagIDs,
+		Statuses: normalizedStatuses,
 	}
 	limit = normalizeLimit(limit)
 	offset = normalizeOffset(offset)
@@ -174,6 +183,53 @@ func normalizeTagIDs(tagIDs []string) ([]string, error) {
 		return nil, &ValidationError{Message: fmt.Sprintf("タグIDは%d件以内で指定してください", maxFilterTagIDs)}
 	}
 	return deduped, nil
+}
+
+// statusOrder は normalizeStatuses が重複除去後に並べ替える定義順（ADR-0027）。
+var statusOrder = []model.EventStatus{
+	model.EventStatusUpcoming,
+	model.EventStatusOngoing,
+	model.EventStatusEnded,
+}
+
+// normalizeStatuses は開催状況絞り込みの statuses を検証し、重複除去のうえ
+// 定義順（upcoming → ongoing → ended）へ並べ替えて返す。
+// 有効な要素が無い場合は nil を返す（呼び出し元は開催状況条件なしとして扱う）。
+//
+// 空要素（?status= のように値が空）は「未指定」とみなして除去する。normalizeTagIDs と
+// 同じ扱いにしている。
+//
+// 許可値（upcoming/ongoing/ended）との照合は完全一致で行う。大文字表記等の許可値以外は
+// *ValidationError として返す（handler 層が 400 にする）。
+// 値は3種のみのため、tagIDs のような件数上限は設けない。
+func normalizeStatuses(statuses []string) ([]model.EventStatus, error) {
+	if len(statuses) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[model.EventStatus]struct{}, len(statuses))
+	for i, raw := range statuses {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			continue
+		}
+		status := model.EventStatus(v)
+		if !status.IsValid() {
+			return nil, &ValidationError{Message: fmt.Sprintf("開催状況(status)[%d]の値が不正です", i)}
+		}
+		seen[status] = struct{}{}
+	}
+	if len(seen) == 0 {
+		return nil, nil
+	}
+
+	out := make([]model.EventStatus, 0, len(seen))
+	for _, status := range statusOrder {
+		if _, ok := seen[status]; ok {
+			out = append(out, status)
+		}
+	}
+	return out, nil
 }
 
 // normalizeLimit は limit を有効範囲(1〜maxLimit)に丸める。

@@ -341,7 +341,7 @@ func TestEventQueryServiceList_Normalization(t *testing.T) {
 			}
 			svc := NewEventQueryService(stub, "")
 
-			got, err := svc.List(context.Background(), nil, nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
+			got, err := svc.List(context.Background(), nil, nil, nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
 
 			if tt.wantErr {
 				if err == nil {
@@ -523,7 +523,7 @@ func TestEventQueryServiceList_Search(t *testing.T) {
 			}
 			svc := NewEventQueryService(stub, "")
 
-			got, err := svc.List(context.Background(), tt.inputKeywords, nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
+			got, err := svc.List(context.Background(), tt.inputKeywords, nil, nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
 
 			if tt.wantErr {
 				if err == nil {
@@ -698,7 +698,7 @@ func TestEventQueryServiceList_TagFilter(t *testing.T) {
 			}
 			svc := NewEventQueryService(stub, "")
 
-			got, err := svc.List(context.Background(), tt.inputKeywords, tt.inputTagIDs, "", "", 0, 0)
+			got, err := svc.List(context.Background(), tt.inputKeywords, tt.inputTagIDs, nil, "", "", 0, 0)
 
 			if tt.wantErr {
 				var ve *ValidationError
@@ -733,6 +733,222 @@ func TestEventQueryServiceList_TagFilter(t *testing.T) {
 				}
 				if !reflect.DeepEqual(stub.gotCountFilter.TagIDs, tt.wantTagIDs) {
 					t.Errorf("count filter.TagIDs: got %#v, want %#v", stub.gotCountFilter.TagIDs, tt.wantTagIDs)
+				}
+				if got.TotalCount != searchTotal {
+					t.Errorf("totalCount: got %d, want %d", got.TotalCount, searchTotal)
+				}
+			} else {
+				if !stub.listCalled || !stub.countCalled {
+					t.Errorf("全件経路が呼ばれるべき: listCalled=%v countCalled=%v", stub.listCalled, stub.countCalled)
+				}
+				if stub.searchCalled || stub.countSearchCalled {
+					t.Errorf("検索経路は呼ばれるべきではない: searchCalled=%v countSearchCalled=%v", stub.searchCalled, stub.countSearchCalled)
+				}
+				if got.TotalCount != listTotal {
+					t.Errorf("totalCount: got %d, want %d", got.TotalCount, listTotal)
+				}
+			}
+		})
+	}
+}
+
+// TestNormalizeStatuses は開催状況(status)の正規化ルール（ADR-0027）を検証する。
+// trim・空要素除去、許可値との完全一致判定、重複除去、定義順（upcoming→ongoing→ended）への
+// 並べ替え、許可値以外が *ValidationError になることを網羅する。
+func TestNormalizeStatuses(t *testing.T) {
+	t.Helper()
+
+	tests := []struct {
+		name           string
+		input          []string
+		want           []model.EventStatus
+		wantErr        bool
+		wantErrMessage string
+	}{
+		{
+			name:  "正常: 空スライスは未指定としてnilを返す",
+			input: nil,
+			want:  nil,
+		},
+		{
+			name:  "正常: 空要素・空白のみの要素は未指定として除去されnilを返す",
+			input: []string{"", "   "},
+			want:  nil,
+		},
+		{
+			name:  "正常: 単一指定はそのまま1件になる",
+			input: []string{"ongoing"},
+			want:  []model.EventStatus{model.EventStatusOngoing},
+		},
+		{
+			name:  "正常: 複数指定は入力順に依らず定義順(upcoming→ongoing→ended)へ並べ替える",
+			input: []string{"ended", "upcoming"},
+			want:  []model.EventStatus{model.EventStatusUpcoming, model.EventStatusEnded},
+		},
+		{
+			name:  "正常: 3値すべて指定すると定義順3件になる",
+			input: []string{"ended", "ongoing", "upcoming"},
+			want: []model.EventStatus{
+				model.EventStatusUpcoming, model.EventStatusOngoing, model.EventStatusEnded,
+			},
+		},
+		{
+			name:  "正常: 同一値の重複指定は除去され1件になる",
+			input: []string{"upcoming", "upcoming", "upcoming"},
+			want:  []model.EventStatus{model.EventStatusUpcoming},
+		},
+		{
+			name:  "正常: 空要素と有効値が混在する場合は有効値だけ残る",
+			input: []string{"", "ongoing", "  "},
+			want:  []model.EventStatus{model.EventStatusOngoing},
+		},
+		{
+			name:           "異常: 許可値以外は ValidationError になる",
+			input:          []string{"invalid"},
+			wantErr:        true,
+			wantErrMessage: "開催状況(status)[0]の値が不正です",
+		},
+		{
+			name:           "異常: 大文字表記(UPCOMING)は完全一致でないため不正値になる",
+			input:          []string{"UPCOMING"},
+			wantErr:        true,
+			wantErrMessage: "開催状況(status)[0]の値が不正です",
+		},
+		{
+			name:           "異常: エラーメッセージのインデックスは元スライス基準(先頭が空文字・2番目が不正値)",
+			input:          []string{"", "invalid"},
+			wantErr:        true,
+			wantErrMessage: "開催状況(status)[1]の値が不正です",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeStatuses(tt.input)
+
+			if tt.wantErr {
+				var ve *ValidationError
+				if !errors.As(err, &ve) {
+					t.Fatalf("*ValidationError を期待したが got=%v", err)
+				}
+				if ve.Message != tt.wantErrMessage {
+					t.Errorf("message: got %q, want %q", ve.Message, tt.wantErrMessage)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("normalizeStatuses(%#v) = %#v, want %#v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEventQueryServiceList_StatusFilter は status（開催状況）の有無による経路切り替えと、
+// 正規化後の値（重複除去・定義順への並べ替え）が repository へ渡ること、
+// q・tagId との併用時も AND で検索経路に入ることを検証する（ADR-0027）。
+func TestEventQueryServiceList_StatusFilter(t *testing.T) {
+	t.Helper()
+
+	searchResults := []model.EventSummary{
+		{ID: "id-3", Title: "開催状況絞り込みテストイベント", EventDate: time.Now().UTC(), CreatedAt: time.Now().UTC()},
+	}
+	const searchTotal = 5
+
+	listResults := []model.EventSummary{
+		{ID: "id-1", Title: "全件テストイベント", EventDate: time.Now().UTC(), CreatedAt: time.Now().UTC()},
+	}
+	const listTotal = 42
+
+	tests := []struct {
+		name             string
+		inputKeywords    []string
+		inputTagIDs      []string
+		inputStatuses    []string
+		wantErr          bool
+		wantErrMessage   string
+		wantSearchCalled bool
+		wantStatuses     []model.EventStatus
+	}{
+		{
+			name:             "正常: statusのみ指定すると検索経路に入る(Keywords/TagIDsは空)",
+			inputStatuses:    []string{"upcoming"},
+			wantSearchCalled: true,
+			wantStatuses:     []model.EventStatus{model.EventStatusUpcoming},
+		},
+		{
+			name:             "正常: statusを複数指定すると重複除去・定義順で渡る",
+			inputStatuses:    []string{"ended", "upcoming", "ended"},
+			wantSearchCalled: true,
+			wantStatuses:     []model.EventStatus{model.EventStatusUpcoming, model.EventStatusEnded},
+		},
+		{
+			name:             "正常: q・tagId・statusを併用すると3条件とも検索経路に渡る(AND)",
+			inputKeywords:    []string{"桜"},
+			inputTagIDs:      []string{"a1b2c3d4-e5f6-7890-abcd-ef1234567890"},
+			inputStatuses:    []string{"ongoing"},
+			wantSearchCalled: true,
+			wantStatuses:     []model.EventStatus{model.EventStatusOngoing},
+		},
+		{
+			name:             "正常: statusが空文字・空白のみは未指定として扱われ他に条件が無ければ全件経路になる",
+			inputStatuses:    []string{"", "  "},
+			wantSearchCalled: false,
+		},
+		{
+			name:           "異常: 許可値以外は ValidationError になり repository は呼ばれない",
+			inputStatuses:  []string{"UPCOMING"},
+			wantErr:        true,
+			wantErrMessage: "開催状況(status)[0]の値が不正です",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			makeHelper(t)
+
+			stub := &stubEventRepository{
+				results:          listResults,
+				totalCount:       listTotal,
+				searchResults:    searchResults,
+				searchTotalCount: searchTotal,
+			}
+			svc := NewEventQueryService(stub, "")
+
+			got, err := svc.List(context.Background(), tt.inputKeywords, tt.inputTagIDs, tt.inputStatuses, "", "", 0, 0)
+
+			if tt.wantErr {
+				var ve *ValidationError
+				if !errors.As(err, &ve) {
+					t.Fatalf("*ValidationError を期待したが got=%v", err)
+				}
+				if ve.Message != tt.wantErrMessage {
+					t.Errorf("message: got %q, want %q", ve.Message, tt.wantErrMessage)
+				}
+				if stub.listCalled || stub.countCalled || stub.searchCalled || stub.countSearchCalled {
+					t.Errorf("検証エラー時は repository が一度も呼ばれないべき: list=%v count=%v search=%v countSearch=%v",
+						stub.listCalled, stub.countCalled, stub.searchCalled, stub.countSearchCalled)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+
+			if tt.wantSearchCalled {
+				if !stub.searchCalled || !stub.countSearchCalled {
+					t.Errorf("検索経路が呼ばれるべき: searchCalled=%v countSearchCalled=%v", stub.searchCalled, stub.countSearchCalled)
+				}
+				if stub.listCalled || stub.countCalled {
+					t.Errorf("全件経路は呼ばれるべきではない: listCalled=%v countCalled=%v", stub.listCalled, stub.countCalled)
+				}
+				if !reflect.DeepEqual(stub.gotSearchFilter.Statuses, tt.wantStatuses) {
+					t.Errorf("filter.Statuses: got %#v, want %#v", stub.gotSearchFilter.Statuses, tt.wantStatuses)
+				}
+				if !reflect.DeepEqual(stub.gotCountFilter.Statuses, tt.wantStatuses) {
+					t.Errorf("count filter.Statuses: got %#v, want %#v", stub.gotCountFilter.Statuses, tt.wantStatuses)
 				}
 				if got.TotalCount != searchTotal {
 					t.Errorf("totalCount: got %d, want %d", got.TotalCount, searchTotal)
