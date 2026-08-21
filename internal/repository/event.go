@@ -113,7 +113,7 @@ func NewEventRepository(db *sql.DB) EventRepository {
 // 一覧表示に必要なカラムのみ取得し、description / external_url / capacity / updated_at は含めない。
 // 列の並びは scanEventSummaries の Scan 順と対応する。
 const eventSummarySelect = `
-	SELECT e.id, e.title, e.event_date, e.end_date, e.location, e.profile_id, e.cancelled_at, e.created_at,
+	SELECT e.id, e.title, e.event_date, e.end_date, e.application_deadline, e.location, e.profile_id, e.cancelled_at, e.created_at,
 	       p.id, p.display_name, p.avatar_url
 	FROM events e
 	LEFT JOIN profiles p ON p.id = e.profile_id`
@@ -125,18 +125,20 @@ func scanEventSummaries(rows *sql.Rows) ([]model.EventSummary, error) {
 	for rows.Next() {
 		var s model.EventSummary
 		var (
-			location    sql.NullString
-			profileID   sql.NullString
-			cancelledAt sql.NullTime
-			pID         sql.NullString
-			displayName sql.NullString
-			avatarURL   sql.NullString
+			location            sql.NullString
+			profileID           sql.NullString
+			cancelledAt         sql.NullTime
+			applicationDeadline sql.NullTime
+			pID                 sql.NullString
+			displayName         sql.NullString
+			avatarURL           sql.NullString
 		)
 		if err := rows.Scan(
 			&s.ID,
 			&s.Title,
 			&s.EventDate,
 			&s.EndDate,
+			&applicationDeadline,
 			&location,
 			&profileID,
 			&cancelledAt,
@@ -151,6 +153,9 @@ func scanEventSummaries(rows *sql.Rows) ([]model.EventSummary, error) {
 		s.ProfileID = profileID.String
 		if cancelledAt.Valid {
 			s.CancelledAt = &cancelledAt.Time
+		}
+		if applicationDeadline.Valid {
+			s.ApplicationDeadline = &applicationDeadline.Time
 		}
 		s.Profile = model.ProfileSummary{
 			ID:          pID.String,
