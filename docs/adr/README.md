@@ -45,4 +45,6 @@
 | [0026](./0026-my-event-application-lookup.md) | 自分の申込内容は本人スコープの単一リソースで返し、参加費は含めない | Accepted |
 | [0027](./0027-event-list-status-filter.md) | イベント一覧の開催状況絞り込みは排他な 3 値の status で表す | Accepted |
 | [0028](./0028-event-list-location-filter.md) | イベント一覧の地域絞り込みは location への部分一致で行う | Accepted |
+| [0029](./0029-event-application-deadline-nullable.md) | イベントの申込期限は NULL 許容の単一カラムで表現する | Accepted |
 | [0030](./0030-location-filter-limit-and-trgm-index.md) | 地域絞り込みの上限を 200 件へ引き上げ、pg_trgm の GIN インデックスを導入する | Accepted |
+
