@@ -117,12 +117,15 @@ type EventSearchFilter struct {
 	// Statuses は絞り込み対象の開催状況（重複除去済み・定義順に整列済み）。
 	// 複数指定時は OR（いずれかの状況に該当するイベントが該当する）。
 	Statuses []EventStatus
+	// Locations は絞り込み対象の地域文字列（trim・空要素除去・重複除去済み）。
+	// 複数指定時は OR（いずれかに部分一致するイベントが該当する）（ADR-0028）。
+	Locations []string
 }
 
 // IsEmpty は絞り込み条件が 1 つも無いことを返す。
 // true の場合、呼び出し元は検索ではなく全件一覧の経路を使う。
 func (f EventSearchFilter) IsEmpty() bool {
-	return len(f.Keywords) == 0 && len(f.TagIDs) == 0 && len(f.Statuses) == 0
+	return len(f.Keywords) == 0 && len(f.TagIDs) == 0 && len(f.Statuses) == 0 && len(f.Locations) == 0
 }
 
 // CreateEventResponse はイベント投稿エンドポイントのレスポンス DTO。
@@ -163,7 +166,7 @@ type EventSummary struct {
 type EventListResponse struct {
 	// Events はイベントサマリーの一覧。
 	Events []EventSummary `json:"events"`
-	// TotalCount は現在の絞り込み条件（q / tagId / status）に一致する総件数。
+	// TotalCount は現在の絞り込み条件（q / tagId / status / location）に一致する総件数。
 	// 条件を指定しない場合は全件数になる。クライアントが最終ページ offset を算出するために使う。
 	TotalCount int `json:"totalCount" example:"153"`
 	// Limit は正規化後の実際に使われた取得件数。

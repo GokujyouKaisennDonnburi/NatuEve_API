@@ -72,7 +72,7 @@ func TestEscapeLike(t *testing.T) {
 	}
 }
 
-// TestNormalizeSearchText は normalizeSearchText(NFKC) が半角/全角の表記ゆれを
+// TestNormalizeSearchText は NormalizeSearchText(NFKC) が半角/全角の表記ゆれを
 // 吸収すること、および ひらがな↔カタカナは変換しないことを検証する。
 func TestNormalizeSearchText(t *testing.T) {
 	t.Helper()
@@ -93,8 +93,8 @@ func TestNormalizeSearchText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := normalizeSearchText(tt.input); got != tt.want {
-				t.Errorf("normalizeSearchText(%q) = %q, want %q", tt.input, got, tt.want)
+			if got := NormalizeSearchText(tt.input); got != tt.want {
+				t.Errorf("NormalizeSearchText(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -102,10 +102,12 @@ func TestNormalizeSearchText(t *testing.T) {
 
 // TestBuildSearchWhere は buildSearchWhere が各キーワードを5フィールド OR の
 // 1グループとし、グループ間を AND で連結すること、タグ条件を EXISTS + IN の1グループに
-// まとめること、プレースホルダを startIdx から連番で割り当てること（キーワード→タグの順）、
-// ILIKE パターン・タグID引数を順序どおり生成することを検証する。
+// まとめること、プレースホルダを startIdx から連番で割り当てること（キーワード→タグ→地域の順）、
+// ILIKE パターン・タグID・地域引数を順序どおり生成することを検証する。
 // 開催状況(status)は statusClauses 由来の条件式を OR で連結した1グループになり、
 // プレースホルダを消費しないこと（ADR-0027）も併せて検証する。
+// 地域(location)は e.location への ILIKE 条件を OR で連結した1グループになり、
+// プレースホルダを消費すること（ADR-0028）も併せて検証する。
 func TestBuildSearchWhere(t *testing.T) {
 	t.Helper()
 
@@ -265,6 +267,47 @@ func TestBuildSearchWhere(t *testing.T) {
 			wantNotContains: []string{"ILIKE $3", "IN ($3)"},
 			wantAndCount:    1,
 			wantArgs:        []any{"%a%", "tag-1"},
+		},
+		{
+			name:     "location単独1件: プレースホルダを消費し normalize(e.location, NFKC) ILIKE $1 になる（ORなし）",
+			filter:   model.EventSearchFilter{Locations: []string{"東京都"}},
+			startIdx: 1,
+			wantContains: []string{
+				"normalize(e.location, NFKC) ILIKE $1",
+			},
+			wantNotContains: []string{"EXISTS", " OR "},
+			wantAndCount:    0,
+			wantArgs:        []any{"%東京都%"},
+		},
+		{
+			name:     "location複数: 連番プレースホルダがORで連結される（他条件とはANDにならない）",
+			filter:   model.EventSearchFilter{Locations: []string{"東京都", "神奈川県"}},
+			startIdx: 1,
+			wantContains: []string{
+				"(normalize(e.location, NFKC) ILIKE $1 OR normalize(e.location, NFKC) ILIKE $2)",
+			},
+			wantAndCount: 0,
+			wantArgs:     []any{"%東京都%", "%神奈川県%"},
+		},
+		{
+			name: "キーワード1+タグ1+status1+location1: プレースホルダはキーワード→タグ→locationの順で連番になりstatusは消費しない",
+			filter: model.EventSearchFilter{
+				Keywords:  []string{"a"},
+				TagIDs:    []string{"tag-1"},
+				Statuses:  []model.EventStatus{model.EventStatusUpcoming},
+				Locations: []string{"東京都"},
+			},
+			startIdx: 1,
+			wantContains: []string{
+				"ILIKE $1",
+				"IN ($2)",
+				") AND EXISTS (",
+				") AND (e.event_date > now())",
+				") AND (normalize(e.location, NFKC) ILIKE $3)",
+			},
+			wantNotContains: []string{"ILIKE $4", "IN ($3)"},
+			wantAndCount:    2,
+			wantArgs:        []any{"%a%", "tag-1", "%東京都%"},
 		},
 	}
 
@@ -676,6 +719,31 @@ func insertTestEventWithDates(t *testing.T, db *sql.DB, profileID uuid.UUID, eve
 	return id
 }
 
+// insertTestEventWithLocation はテスト用の events 行を1件、指定した location で作成する。
+func insertTestEventWithLocation(t *testing.T, db *sql.DB, profileID uuid.UUID, location string) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	eventDate := time.Now()
+	const insertEvent = `
+	INSERT INTO events(id, profile_id, title, location, event_date, end_date)
+	VALUES($1, $2, $3, $4, $5, $6)
+	`
+	if _, err := db.ExecContext(
+		context.Background(),
+		insertEvent,
+		id,
+		profileID,
+		"テストイベント",
+		location,
+		eventDate,
+		eventDate,
+	); err != nil {
+		t.Fatalf("insert test event: %v", err)
+	}
+	return id
+}
+
 // insertTestMember はテスト用の event_members 行を1件作成する（参加申込を表す）。
 // profileID.Valid が false の場合は匿名申込（profile_id は NULL）として登録する。
 func insertTestMember(t *testing.T, db *sql.DB, eventID uuid.UUID, profileID uuid.NullUUID) uuid.UUID {
@@ -985,6 +1053,201 @@ func TestEventPostgres_SearchSummaries_StatusFilter(t *testing.T) {
 			[]uuid.UUID{tagOnlyEvent, upcomingEvent, ongoingEvent},
 		)
 	})
+}
+
+// TestEventPostgres_SearchSummaries_LocationFilter は SearchSummaries/CountSearchSummaries の
+// 地域(location)絞り込み（部分一致・NFKC正規化・複数指定のOR・q/tagIdとのAND）を検証する（ADR-0028）。
+//
+// scope は毎回一意な文字列を location の先頭に付与し、このテストで作成したイベントにしか
+// 一致しないようにする。そのため他テストの既存データと干渉しない。
+func TestEventPostgres_SearchSummaries_LocationFilter(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+	scope := "地域絞り込みスコープ" + uuid.NewString()[:8]
+
+	tokyoEvent := insertTestEventWithLocation(t, db, profileID, scope+"東京都新宿区")
+	kanagawaEvent := insertTestEventWithLocation(t, db, profileID, scope+"神奈川県横浜市")
+	osakaEvent := insertTestEventWithLocation(t, db, profileID, scope+"大阪府大阪市")
+	noLocationEvent := insertTestEvent(t, db, profileID)
+
+	runAndAssert := func(t *testing.T, filter model.EventSearchFilter, wantIDs, dontWantIDs []uuid.UUID) {
+		t.Helper()
+
+		got, err := repo.SearchSummaries(context.Background(), filter, "created_at", "desc", 100, 0)
+		if err != nil {
+			t.Fatalf("SearchSummaries() returned error: %v", err)
+		}
+		for _, id := range wantIDs {
+			if _, ok := findSummaryByID(got, id.String()); !ok {
+				t.Errorf("%s が結果に含まれるべき", id)
+			}
+		}
+		for _, id := range dontWantIDs {
+			if _, ok := findSummaryByID(got, id.String()); ok {
+				t.Errorf("%s は結果に含まれるべきではない", id)
+			}
+		}
+
+		count, err := repo.CountSearchSummaries(context.Background(), filter)
+		if err != nil {
+			t.Fatalf("CountSearchSummaries() returned error: %v", err)
+		}
+		if count != len(got) {
+			t.Errorf("CountSearchSummaries() = %d, SearchSummaries() 件数 = %d: 不整合", count, len(got))
+		}
+	}
+
+	t.Run("部分一致: locationの一部を指定すると該当イベントのみ返る", func(t *testing.T) {
+		runAndAssert(t,
+			model.EventSearchFilter{Locations: []string{scope + "東京都"}},
+			[]uuid.UUID{tokyoEvent},
+			[]uuid.UUID{kanagawaEvent, osakaEvent, noLocationEvent},
+		)
+	})
+
+	t.Run("複数指定はOR: 東京都と神奈川県を指定すると大阪府は除外される", func(t *testing.T) {
+		runAndAssert(t,
+			model.EventSearchFilter{Locations: []string{scope + "東京都", scope + "神奈川県"}},
+			[]uuid.UUID{tokyoEvent, kanagawaEvent},
+			[]uuid.UUID{osakaEvent, noLocationEvent},
+		)
+	})
+
+	t.Run("NFKC正規化: 全角/半角の表記ゆれを吸収する", func(t *testing.T) {
+		fullwidthEvent := insertTestEventWithLocation(t, db, profileID, scope+"ＴＯＫＹＯ地区")
+
+		runAndAssert(t,
+			model.EventSearchFilter{Locations: []string{scope + "TOKYO"}},
+			[]uuid.UUID{fullwidthEvent},
+			[]uuid.UUID{tokyoEvent, kanagawaEvent, osakaEvent},
+		)
+	})
+
+	t.Run("q・tagIdとのAND: locationに一致してもキーワードが不一致なら除外される", func(t *testing.T) {
+		keyword := "location_and_test" + uuid.NewString()[:8]
+		tagID, _ := insertTestTag(t, db, "地域AND検証タグ")
+		andScopeLocation := scope + "AND検証東京都"
+
+		matchEvent := insertTestEventWithTitle(t, db, profileID, keyword+"の説明")
+		linkEventTag(t, db, matchEvent, tagID)
+		if _, err := db.ExecContext(context.Background(),
+			`UPDATE events SET location = $2 WHERE id = $1`, matchEvent, andScopeLocation,
+		); err != nil {
+			t.Fatalf("update test event location: %v", err)
+		}
+
+		locationOnlyEvent := insertTestEventWithLocation(t, db, profileID, andScopeLocation)
+		linkEventTag(t, db, locationOnlyEvent, tagID)
+
+		filter := model.EventSearchFilter{
+			Keywords:  []string{keyword},
+			TagIDs:    []string{tagID.String()},
+			Locations: []string{andScopeLocation},
+		}
+		runAndAssert(t, filter,
+			[]uuid.UUID{matchEvent},
+			[]uuid.UUID{locationOnlyEvent, tokyoEvent, kanagawaEvent, osakaEvent},
+		)
+	})
+}
+
+// TestEventPostgres_SearchSummaries_CombinedFilters は q・tagId・status・location を
+// 同時指定した場合に buildSearchWhere が生成する SQL を実際に PostgreSQL へ発行し、AND で
+// 結合されることを検証する。プレースホルダはKeywords→TagIDs→Locationsの順で連番になり
+// Statuses は消費しない（ADR-0027, ADR-0028）。
+//
+// スコープ用タグ・キーワード・location はいずれも毎回一意な値を使うため、このテストで
+// 作成したイベントにしか一致しない。日時は now() 基準の相対値で作成し、時間経過による
+// テストのflakinessを避ける。
+func TestEventPostgres_SearchSummaries_CombinedFilters(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+	scopeTagID, _ := insertTestTag(t, db, "4条件同時指定スコープ")
+	keyword := "combined_filter_test" + uuid.NewString()[:8]
+	scopeLocation := "4条件同時指定スコープ" + uuid.NewString()[:8] + "東京都"
+
+	now := time.Now()
+	ongoingEventDate, ongoingEndDate := now.Add(-24*time.Hour), now.Add(24*time.Hour)
+	endedEventDate, endedEndDate := now.Add(-48*time.Hour), now.Add(-24*time.Hour)
+
+	setDates := func(t *testing.T, eventID uuid.UUID, eventDate, endDate time.Time) {
+		t.Helper()
+		if _, err := db.ExecContext(context.Background(),
+			`UPDATE events SET event_date = $2, end_date = $3 WHERE id = $1`,
+			eventID, eventDate, endDate,
+		); err != nil {
+			t.Fatalf("update test event dates: %v", err)
+		}
+	}
+	setLocation := func(t *testing.T, eventID uuid.UUID, location string) {
+		t.Helper()
+		if _, err := db.ExecContext(context.Background(),
+			`UPDATE events SET location = $2 WHERE id = $1`, eventID, location,
+		); err != nil {
+			t.Fatalf("update test event location: %v", err)
+		}
+	}
+
+	// matchEvent は4条件(q・tagId・status=ongoing・location)すべてに一致する。
+	matchEvent := insertTestEventWithTitle(t, db, profileID, keyword+"の説明")
+	linkEventTag(t, db, matchEvent, scopeTagID)
+	setDates(t, matchEvent, ongoingEventDate, ongoingEndDate)
+	setLocation(t, matchEvent, scopeLocation)
+
+	// missingKeywordEvent はタイトルにkeywordを含まず、qで除外される。
+	missingKeywordEvent := insertTestEventWithTitle(t, db, profileID, "キーワード不一致イベント")
+	linkEventTag(t, db, missingKeywordEvent, scopeTagID)
+	setDates(t, missingKeywordEvent, ongoingEventDate, ongoingEndDate)
+	setLocation(t, missingKeywordEvent, scopeLocation)
+
+	// missingTagEvent はscopeTagIDに紐づかず、tagIdで除外される。
+	missingTagEvent := insertTestEventWithTitle(t, db, profileID, keyword+"のタグ不一致イベント")
+	setDates(t, missingTagEvent, ongoingEventDate, ongoingEndDate)
+	setLocation(t, missingTagEvent, scopeLocation)
+
+	// missingStatusEvent は終了済みで、status=ongoingで除外される。
+	missingStatusEvent := insertTestEventWithTitle(t, db, profileID, keyword+"のステータス不一致イベント")
+	linkEventTag(t, db, missingStatusEvent, scopeTagID)
+	setDates(t, missingStatusEvent, endedEventDate, endedEndDate)
+	setLocation(t, missingStatusEvent, scopeLocation)
+
+	// missingLocationEvent はlocationが一致せず、locationで除外される。
+	missingLocationEvent := insertTestEventWithTitle(t, db, profileID, keyword+"の地域不一致イベント")
+	linkEventTag(t, db, missingLocationEvent, scopeTagID)
+	setDates(t, missingLocationEvent, ongoingEventDate, ongoingEndDate)
+	setLocation(t, missingLocationEvent, "地域不一致"+uuid.NewString()[:8])
+
+	filter := model.EventSearchFilter{
+		Keywords:  []string{keyword},
+		TagIDs:    []string{scopeTagID.String()},
+		Statuses:  []model.EventStatus{model.EventStatusOngoing},
+		Locations: []string{scopeLocation},
+	}
+
+	got, err := repo.SearchSummaries(context.Background(), filter, "created_at", "desc", 100, 0)
+	if err != nil {
+		t.Fatalf("SearchSummaries() returned error: %v", err)
+	}
+	if _, ok := findSummaryByID(got, matchEvent.String()); !ok {
+		t.Errorf("%s が結果に含まれるべき", matchEvent)
+	}
+	for _, id := range []uuid.UUID{missingKeywordEvent, missingTagEvent, missingStatusEvent, missingLocationEvent} {
+		if _, ok := findSummaryByID(got, id.String()); ok {
+			t.Errorf("%s は結果に含まれるべきではない", id)
+		}
+	}
+
+	count, err := repo.CountSearchSummaries(context.Background(), filter)
+	if err != nil {
+		t.Fatalf("CountSearchSummaries() returned error: %v", err)
+	}
+	if count != len(got) {
+		t.Errorf("CountSearchSummaries() = %d, SearchSummaries() 件数 = %d: 不整合", count, len(got))
+	}
 }
 
 // TestEventPostgres_ListMySummaries_Hosted は hosted 種別が自分が主催したイベントのみを
