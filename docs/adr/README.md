@@ -43,3 +43,4 @@
 | [0024](./0024-my-page-event-lists.md) | マイページのイベント一覧は種別つきの単一エンドポイントで返し、参加済みは終了日時で判定する | Accepted |
 | [0025](./0025-profile-event-lists-public-scope.md) | プロフィールのイベント一覧は主催・参加済みのみ公開し、申し込み中は本人限定にする | Accepted |
 | [0026](./0026-my-event-application-lookup.md) | 自分の申込内容は本人スコープの単一リソースで返し、参加費は含めない | Accepted |
+| [0029](./0029-event-application-deadline-nullable.md) | イベントの申込期限は NULL 許容の単一カラムで表現する | Accepted |
