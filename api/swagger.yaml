@@ -288,7 +288,7 @@ definitions:
         type: integer
       totalCount:
         description: |-
-          TotalCount は現在の絞り込み条件（q / tagId / status）に一致する総件数。
+          TotalCount は現在の絞り込み条件（q / tagId / status / location）に一致する総件数。
           条件を指定しない場合は全件数になる。クライアントが最終ページ offset を算出するために使う。
         example: 153
         type: integer
@@ -1125,6 +1125,12 @@ paths:
         （値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表し、
         キャンセル済みイベントの判別は含まない（各 status の結果にキャンセル済みイベントも混在するため、
         クライアントは cancelledAt で判別する）。
+        location は地域での絞り込み。反復指定は OR 検索になる（例: ?location=東京都&location=神奈川県）。
+        q が5項目（タイトル/詳細/主催者名/地域名/持ち物）を横断するのに対し、location は地域名のみを
+        対象に部分一致で判定する。q・tagId・status と同時に指定した場合は AND で絞り込む。
+        照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。q と同じ規則）。
+        重複指定は1件として扱い、重複除去後の件数が51件以上、または1件あたり256文字以上の指定は
+        400 を返す（値が空の location は未指定として無視する）。
       parameters:
       - collectionFormat: multi
         description: 検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)
@@ -1146,6 +1152,13 @@ paths:
         items:
           type: string
         name: status
+        type: array
+      - collectionFormat: multi
+        description: 絞り込む地域(location への部分一致。反復指定でOR検索。最大50件・1件255文字以内)
+        in: query
+        items:
+          type: string
+        name: location
         type: array
       - description: 'ソートカラム(created_at|event_date, default: created_at)'
         in: query

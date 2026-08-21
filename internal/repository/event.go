@@ -52,8 +52,9 @@ type EventRepository interface {
 	// SearchSummaries は filter に一致するイベントサマリーを指定ソート順で取得する。
 	// 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item)
 	// を横断（OR）し、キーワード間は AND で結合する（AND 検索）。
-	// タグは複数指定時 OR（いずれかを持てば該当）、開催状況(status)も複数指定時 OR（ADR-0027）で、
-	// キーワード条件・タグ条件・開催状況条件は互いに AND で結合する。
+	// タグは複数指定時 OR（いずれかを持てば該当）、開催状況(status)も複数指定時 OR（ADR-0027）、
+	// 地域(location)は e.location への部分一致で複数指定時 OR（ADR-0028）で、
+	// キーワード条件・タグ条件・開催状況条件・地域条件は互いに AND で結合する。
 	// filter は条件を 1 つ以上含むことを前提とする（IsEmpty() が false）。
 	SearchSummaries(ctx context.Context, filter model.EventSearchFilter, sort, order string, limit, offset int) ([]model.EventSummary, error)
 	// CountSearchSummaries は filter に一致するイベントの件数を返す。
@@ -277,11 +278,14 @@ func orderByClause(sort, order string) string {
 	return eventOrderByClauses["created_at:desc"]
 }
 
-// normalizeSearchText は照合基準を全角/半角で揃えるため NFKC 正規化する。
+// NormalizeSearchText は照合基準を全角/半角で揃えるため NFKC 正規化する。
 // 全角数字→半角数字、全角英字→半角英字、半角カナ→全角カナ 等を吸収する
 // （ひらがな↔カタカナは対象外）。SQL 側の normalize(col, NFKC) と同一の正規化形を用いることで、
 // 保存値とキーワードの表記ゆれ（半角/全角）を一致させる。
-func normalizeSearchText(s string) string {
+//
+// service 層（重複除去キーの生成）と repository 層（ILIKE 用パターンの生成）は
+// 同じ正規化形を共有する（ADR-0028）。
+func NormalizeSearchText(s string) string {
 	return norm.NFKC.String(s)
 }
 
@@ -299,20 +303,21 @@ var statusClauses = map[model.EventStatus]string{
 // 横断する1グループとなり、グループ間は AND で連結する（全語に一致するものだけが該当）。
 // タグは1つの EXISTS にまとめ、tag_id を IN で並べることで OR（いずれかのタグを持てば該当）とする。
 // 開催状況(status)は statusClauses の条件式を OR で連結した1グループにする。
-// キーワード条件・タグ条件・開催状況条件は互いに AND で結合する。
+// 地域(location)は e.location 単独への ILIKE 条件を OR で連結した1グループにする（ADR-0028）。
+// キーワード条件・タグ条件・開催状況条件・地域条件は互いに AND で結合する。
 //
-// プレースホルダは $startIdx から連番で割り当てる。キーワード・タグIDは常にプレースホルダ経由で
-// 渡し、SQL 文字列へ直接埋め込まない（SQLインジェクション対策）。開催状況は statusClauses という
-// ホワイトリスト由来の定数文字列のみを使うため、プレースホルダを消費しない。
-// 半角/全角を同一視するため、カラム側は normalize(col, NFKC)、キーワード側は
-// normalizeSearchText で NFKC 正規化する（両辺を同じ正規化形にそろえる）。
+// プレースホルダは $startIdx から連番で割り当てる。キーワード・タグID・地域は常にプレースホルダ
+// 経由で渡し、SQL 文字列へ直接埋め込まない（SQLインジェクション対策）。開催状況は statusClauses
+// というホワイトリスト由来の定数文字列のみを使うため、プレースホルダを消費しない。
+// 半角/全角を同一視するため、カラム側は normalize(col, NFKC)、キーワード・地域側は
+// NormalizeSearchText で NFKC 正規化する（両辺を同じ正規化形にそろえる）。
 //
 // filter は条件を 1 つ以上含むことを前提とする（0 件だと空の WHERE となり不正な SQL になる）。
 // filter.Statuses は statusClauses に存在する値のみを含むことを前提とする
 // （未知の値が含まれる場合はエラーを返す）。
 func buildSearchWhere(filter model.EventSearchFilter, startIdx int) (string, []any, error) {
-	conds := make([]string, 0, len(filter.Keywords)+2)
-	args := make([]any, 0, len(filter.Keywords)+len(filter.TagIDs))
+	conds := make([]string, 0, len(filter.Keywords)+3)
+	args := make([]any, 0, len(filter.Keywords)+len(filter.TagIDs)+len(filter.Locations))
 
 	for _, kw := range filter.Keywords {
 		ph := fmt.Sprintf("$%d", startIdx+len(args))
@@ -326,7 +331,7 @@ func buildSearchWhere(filter model.EventSearchFilter, startIdx int) (string, []a
 		))
 		// NFKC 正規化 → LIKE エスケープ → % で囲む の順。全角％(U+FF05)は NFKC で ASCII '%' に
 		// なるため、正規化を先に行い escapeLike でワイルドカードとして無効化する必要がある。
-		args = append(args, "%"+escapeLike(normalizeSearchText(kw))+"%")
+		args = append(args, "%"+escapeLike(NormalizeSearchText(kw))+"%")
 	}
 
 	if len(filter.TagIDs) > 0 {
@@ -355,13 +360,24 @@ func buildSearchWhere(filter model.EventSearchFilter, startIdx int) (string, []a
 		conds = append(conds, "("+strings.Join(statusConds, " OR ")+")")
 	}
 
+	if len(filter.Locations) > 0 {
+		locConds := make([]string, len(filter.Locations))
+		for i, loc := range filter.Locations {
+			ph := fmt.Sprintf("$%d", startIdx+len(args))
+			locConds[i] = fmt.Sprintf("normalize(e.location, NFKC) ILIKE %s", ph)
+			// NFKC 正規化 → LIKE エスケープ → % で囲む の順（キーワードと同じ。ADR-0028）。
+			args = append(args, "%"+escapeLike(NormalizeSearchText(loc))+"%")
+		}
+		conds = append(conds, "("+strings.Join(locConds, " OR ")+")")
+	}
+
 	return strings.Join(conds, " AND "), args, nil
 }
 
 // SearchSummaries は filter に一致するイベントサマリーを指定ソート順で取得する。
 // 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item) を横断（OR）し、
-// キーワード間は AND で結合する。タグ・開催状況(status)は複数指定時 OR で、
-// キーワード条件・タグ条件・開催状況条件は互いに AND で結合する（ADR-0027）。
+// キーワード間は AND で結合する。タグ・開催状況(status)・地域(location)は複数指定時 OR で、
+// キーワード条件・タグ条件・開催状況条件・地域条件は互いに AND で結合する（ADR-0027, ADR-0028）。
 // sort・order は呼び出し元（service 層）でホワイトリスト検証済みであることを前提とする。
 func (r *eventPostgres) SearchSummaries(ctx context.Context, filter model.EventSearchFilter, sort, order string, limit, offset int) ([]model.EventSummary, error) {
 	where, args, err := buildSearchWhere(filter, 1)

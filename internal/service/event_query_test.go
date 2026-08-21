@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -341,7 +343,7 @@ func TestEventQueryServiceList_Normalization(t *testing.T) {
 			}
 			svc := NewEventQueryService(stub, "")
 
-			got, err := svc.List(context.Background(), nil, nil, nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
+			got, err := svc.List(context.Background(), nil, nil, nil, nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
 
 			if tt.wantErr {
 				if err == nil {
@@ -523,7 +525,7 @@ func TestEventQueryServiceList_Search(t *testing.T) {
 			}
 			svc := NewEventQueryService(stub, "")
 
-			got, err := svc.List(context.Background(), tt.inputKeywords, nil, nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
+			got, err := svc.List(context.Background(), tt.inputKeywords, nil, nil, nil, tt.inputSort, tt.inputOrder, tt.inputLimit, tt.inputOffset)
 
 			if tt.wantErr {
 				if err == nil {
@@ -698,7 +700,7 @@ func TestEventQueryServiceList_TagFilter(t *testing.T) {
 			}
 			svc := NewEventQueryService(stub, "")
 
-			got, err := svc.List(context.Background(), tt.inputKeywords, tt.inputTagIDs, nil, "", "", 0, 0)
+			got, err := svc.List(context.Background(), tt.inputKeywords, tt.inputTagIDs, nil, nil, "", "", 0, 0)
 
 			if tt.wantErr {
 				var ve *ValidationError
@@ -917,7 +919,7 @@ func TestEventQueryServiceList_StatusFilter(t *testing.T) {
 			}
 			svc := NewEventQueryService(stub, "")
 
-			got, err := svc.List(context.Background(), tt.inputKeywords, tt.inputTagIDs, tt.inputStatuses, "", "", 0, 0)
+			got, err := svc.List(context.Background(), tt.inputKeywords, tt.inputTagIDs, tt.inputStatuses, nil, "", "", 0, 0)
 
 			if tt.wantErr {
 				var ve *ValidationError
@@ -949,6 +951,264 @@ func TestEventQueryServiceList_StatusFilter(t *testing.T) {
 				}
 				if !reflect.DeepEqual(stub.gotCountFilter.Statuses, tt.wantStatuses) {
 					t.Errorf("count filter.Statuses: got %#v, want %#v", stub.gotCountFilter.Statuses, tt.wantStatuses)
+				}
+				if got.TotalCount != searchTotal {
+					t.Errorf("totalCount: got %d, want %d", got.TotalCount, searchTotal)
+				}
+			} else {
+				if !stub.listCalled || !stub.countCalled {
+					t.Errorf("全件経路が呼ばれるべき: listCalled=%v countCalled=%v", stub.listCalled, stub.countCalled)
+				}
+				if stub.searchCalled || stub.countSearchCalled {
+					t.Errorf("検索経路は呼ばれるべきではない: searchCalled=%v countSearchCalled=%v", stub.searchCalled, stub.countSearchCalled)
+				}
+				if got.TotalCount != listTotal {
+					t.Errorf("totalCount: got %d, want %d", got.TotalCount, listTotal)
+				}
+			}
+		})
+	}
+}
+
+// TestNormalizeLocations は地域(location)絞り込みの正規化ルール（ADR-0028）を検証する。
+// trim・空要素除去、NFKC正規化＋小文字化を判定キーとした重複除去、1要素あたりの文字数上限
+// （maxLocationLength）超過・重複除去後の件数上限（maxFilterLocations）超過が
+// *ValidationError になることを網羅する。
+func TestNormalizeLocations(t *testing.T) {
+	t.Helper()
+
+	// 上限ちょうど・超過ケース用の一意な値群を用意する。
+	exactlyMaxLocations := make([]string, 0, maxFilterLocations)
+	for i := range maxFilterLocations {
+		exactlyMaxLocations = append(exactlyMaxLocations, "loc"+strconv.Itoa(i))
+	}
+	overMaxLocations := make([]string, 0, maxFilterLocations+1)
+	overMaxLocations = append(overMaxLocations, exactlyMaxLocations...)
+	overMaxLocations = append(overMaxLocations, "loc"+strconv.Itoa(maxFilterLocations))
+
+	// 同一語(全角/半角・大文字小文字違い)を51回以上重複指定するケース用
+	// （重複除去後は1件になり上限に達しない。ADR-0028 決定4）。
+	duplicateManyLocationVariants := []string{"Ｔｏｋｙｏ", "TOKYO", "tokyo"}
+	duplicateManyLocations := make([]string, 0, maxFilterLocations+3)
+	for i := range maxFilterLocations + 3 {
+		duplicateManyLocations = append(duplicateManyLocations, duplicateManyLocationVariants[i%len(duplicateManyLocationVariants)])
+	}
+
+	// 一意な値50件に、それらの大文字小文字違いの重複を追加するケース用
+	// （合計は51件を超えるが、重複除去後は50件のまま上限に達しない。ADR-0028 決定4）。
+	uniqueLocationsWithDuplicates := make([]string, 0, len(exactlyMaxLocations)+3)
+	uniqueLocationsWithDuplicates = append(uniqueLocationsWithDuplicates, exactlyMaxLocations...)
+	uniqueLocationsWithDuplicates = append(uniqueLocationsWithDuplicates, "LOC0", "Loc1", "LOC2")
+
+	exactlyMaxLength := strings.Repeat("あ", maxLocationLength)
+	overMaxLength := strings.Repeat("あ", maxLocationLength+1)
+
+	tests := []struct {
+		name           string
+		input          []string
+		want           []string
+		wantErr        bool
+		wantErrMessage string
+	}{
+		{
+			name:  "正常: 空スライスは未指定としてnilを返す",
+			input: nil,
+			want:  nil,
+		},
+		{
+			name:  "正常: 空要素・空白のみの要素は未指定として除去されnilを返す",
+			input: []string{"", "   "},
+			want:  nil,
+		},
+		{
+			name:  "正常: 単一指定はトリムされて1件になる",
+			input: []string{"  東京都  "},
+			want:  []string{"東京都"},
+		},
+		{
+			name:  "正常: 複数指定は入力順のまま複数件になる",
+			input: []string{"東京都", "神奈川県"},
+			want:  []string{"東京都", "神奈川県"},
+		},
+		{
+			name:  "正常: 全角/半角・大文字小文字が異なる同一語は重複除去され最初の入力値が残る",
+			input: []string{"Ｔｏｋｙｏ", "TOKYO", "tokyo"},
+			want:  []string{"Ｔｏｋｙｏ"},
+		},
+		{
+			name:  "正常: 完全一致の重複指定は除去され1件になる",
+			input: []string{"東京都", "東京都", "東京都"},
+			want:  []string{"東京都"},
+		},
+		{
+			name:  "正常: 地域がちょうど50件は成功する",
+			input: exactlyMaxLocations,
+			want:  exactlyMaxLocations,
+		},
+		{
+			name:           "異常: 地域が51件はValidationErrorになる",
+			input:          overMaxLocations,
+			wantErr:        true,
+			wantErrMessage: fmt.Sprintf("地域(location)は%d件以内で指定してください", maxFilterLocations),
+		},
+		{
+			name:  "正常: 全角/半角・大文字小文字違いを含む同一語を51回以上重複指定しても重複除去後1件なのでエラーにならない",
+			input: duplicateManyLocations,
+			want:  []string{duplicateManyLocationVariants[0]},
+		},
+		{
+			name:  "正常: 一意な値50件+それらの大文字小文字違いの重複で合計が51件を超えても重複除去後50件以内ならエラーにならない",
+			input: uniqueLocationsWithDuplicates,
+			want:  exactlyMaxLocations,
+		},
+		{
+			name:  "正常: 1要素がちょうど255文字は成功する",
+			input: []string{exactlyMaxLength},
+			want:  []string{exactlyMaxLength},
+		},
+		{
+			name:           "異常: 1要素が256文字はValidationErrorになる",
+			input:          []string{overMaxLength},
+			wantErr:        true,
+			wantErrMessage: fmt.Sprintf("地域(location)[0]は%d文字以内で指定してください", maxLocationLength),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := normalizeLocations(tt.input)
+
+			if tt.wantErr {
+				var ve *ValidationError
+				if !errors.As(err, &ve) {
+					t.Fatalf("*ValidationError を期待したが got=%v", err)
+				}
+				if ve.Message != tt.wantErrMessage {
+					t.Errorf("message: got %q, want %q", ve.Message, tt.wantErrMessage)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("normalizeLocations(%#v) = %#v, want %#v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEventQueryServiceList_LocationFilter は location（地域）の有無による経路切り替えと、
+// 正規化後の値（trim・重複除去）が repository へ渡ること、q・tagId・status との併用時も
+// AND で検索経路に入ることを検証する（ADR-0028）。
+func TestEventQueryServiceList_LocationFilter(t *testing.T) {
+	t.Helper()
+
+	// 上限超過ケース用の一意な値群を用意する。
+	overMaxLocations := make([]string, 0, maxFilterLocations+1)
+	for i := range maxFilterLocations + 1 {
+		overMaxLocations = append(overMaxLocations, "loc"+strconv.Itoa(i))
+	}
+
+	searchResults := []model.EventSummary{
+		{ID: "id-4", Title: "地域絞り込みテストイベント", EventDate: time.Now().UTC(), CreatedAt: time.Now().UTC()},
+	}
+	const searchTotal = 5
+
+	listResults := []model.EventSummary{
+		{ID: "id-1", Title: "全件テストイベント", EventDate: time.Now().UTC(), CreatedAt: time.Now().UTC()},
+	}
+	const listTotal = 42
+
+	tests := []struct {
+		name             string
+		inputKeywords    []string
+		inputTagIDs      []string
+		inputStatuses    []string
+		inputLocations   []string
+		wantErr          bool
+		wantErrMessage   string
+		wantSearchCalled bool
+		wantLocations    []string
+	}{
+		{
+			name:             "正常: locationのみ指定すると検索経路に入る(Keywords/TagIDs/Statusesは空)",
+			inputLocations:   []string{"東京都"},
+			wantSearchCalled: true,
+			wantLocations:    []string{"東京都"},
+		},
+		{
+			name:             "正常: locationを複数指定するとORで検索経路に入る",
+			inputLocations:   []string{"東京都", "神奈川県"},
+			wantSearchCalled: true,
+			wantLocations:    []string{"東京都", "神奈川県"},
+		},
+		{
+			name:             "正常: q・tagId・status・locationを併用すると4条件とも検索経路に渡る(AND)",
+			inputKeywords:    []string{"桜"},
+			inputTagIDs:      []string{"a1b2c3d4-e5f6-7890-abcd-ef1234567890"},
+			inputStatuses:    []string{"ongoing"},
+			inputLocations:   []string{"東京都"},
+			wantSearchCalled: true,
+			wantLocations:    []string{"東京都"},
+		},
+		{
+			name:             "正常: locationが空文字・空白のみは未指定として扱われ他に条件が無ければ全件経路になる",
+			inputLocations:   []string{"", "  "},
+			wantSearchCalled: false,
+		},
+		{
+			name:           "異常: 51件以上の指定はValidationErrorになり repository は呼ばれない",
+			inputLocations: overMaxLocations,
+			wantErr:        true,
+			wantErrMessage: fmt.Sprintf("地域(location)は%d件以内で指定してください", maxFilterLocations),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			makeHelper(t)
+
+			stub := &stubEventRepository{
+				results:          listResults,
+				totalCount:       listTotal,
+				searchResults:    searchResults,
+				searchTotalCount: searchTotal,
+			}
+			svc := NewEventQueryService(stub, "")
+
+			got, err := svc.List(context.Background(), tt.inputKeywords, tt.inputTagIDs, tt.inputStatuses, tt.inputLocations, "", "", 0, 0)
+
+			if tt.wantErr {
+				var ve *ValidationError
+				if !errors.As(err, &ve) {
+					t.Fatalf("*ValidationError を期待したが got=%v", err)
+				}
+				if ve.Message != tt.wantErrMessage {
+					t.Errorf("message: got %q, want %q", ve.Message, tt.wantErrMessage)
+				}
+				if stub.listCalled || stub.countCalled || stub.searchCalled || stub.countSearchCalled {
+					t.Errorf("検証エラー時は repository が一度も呼ばれないべき: list=%v count=%v search=%v countSearch=%v",
+						stub.listCalled, stub.countCalled, stub.searchCalled, stub.countSearchCalled)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+
+			if tt.wantSearchCalled {
+				if !stub.searchCalled || !stub.countSearchCalled {
+					t.Errorf("検索経路が呼ばれるべき: searchCalled=%v countSearchCalled=%v", stub.searchCalled, stub.countSearchCalled)
+				}
+				if stub.listCalled || stub.countCalled {
+					t.Errorf("全件経路は呼ばれるべきではない: listCalled=%v countCalled=%v", stub.listCalled, stub.countCalled)
+				}
+				if !reflect.DeepEqual(stub.gotSearchFilter.Locations, tt.wantLocations) {
+					t.Errorf("filter.Locations: got %#v, want %#v", stub.gotSearchFilter.Locations, tt.wantLocations)
+				}
+				if !reflect.DeepEqual(stub.gotCountFilter.Locations, tt.wantLocations) {
+					t.Errorf("count filter.Locations: got %#v, want %#v", stub.gotCountFilter.Locations, tt.wantLocations)
 				}
 				if got.TotalCount != searchTotal {
 					t.Errorf("totalCount: got %d, want %d", got.TotalCount, searchTotal)
