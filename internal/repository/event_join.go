@@ -81,6 +81,13 @@ type EventJoinRepository interface {
 	// 匿名参加（profile_id NULL）は EventMember.Profile が nil になる。
 	// 0件の場合は nil ではなく空スライスを返す（呼び出し元の totalCount 計算で安全側に倒すため）。
 	ListMembers(ctx context.Context, eventID uuid.UUID) ([]model.EventMember, error)
+
+	// GetMemberByProfile は指定 eventID・profileID のログイン参加者の申込1件を返す。
+	// Categories はカテゴリ名の昇順で返す。0件でも nil ではなく空スライスを返す。
+	// 失敗時は次の sentinel エラーを %w でラップして返す:
+	//   - ErrEventNotFound: イベントが存在しない
+	//   - ErrNotJoined: そのイベントに参加していない（未申込・キャンセル済み・匿名申込を含む）
+	GetMemberByProfile(ctx context.Context, eventID, profileID uuid.UUID) (model.EventMember, error)
 }
 
 // eventJoinPostgres は PostgreSQL実装。
@@ -518,6 +525,101 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 	}
 
 	return members, nil
+}
+
+// GetMemberByProfile は指定 eventID・profileID のログイン参加者の申込1件を返す。
+// 申込行と内訳は LEFT JOIN の1クエリで取得する（ADR-0026）。
+func (r *eventJoinPostgres) GetMemberByProfile(
+	ctx context.Context,
+	eventID, profileID uuid.UUID,
+) (model.EventMember, error) {
+	const query = `
+	SELECT m.id, m.username, m.mail_address, m.party_size, m.created_at,
+	       mc.cost_id, c.category, mc.head_count
+	FROM event_members m
+	LEFT JOIN event_member_categories mc ON mc.member_id = m.id
+	LEFT JOIN event_costs c ON c.id = mc.cost_id
+	WHERE m.event_id = $1
+	AND m.profile_id = $2
+	ORDER BY c.category
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, eventID, profileID)
+	if err != nil {
+		return model.EventMember{}, fmt.Errorf("get member by profile: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	member := model.EventMember{
+		EventID:   eventID,
+		ProfileID: uuid.NullUUID{UUID: profileID, Valid: true},
+	}
+	// 0件でも空スライスを返す（呼び出し元の Participants を null ではなく [] にするため）。
+	categories := []model.MemberCategory{}
+	found := false
+
+	// 申込行の列は内訳の件数ぶん重複して返るため、組み立てるのは1行目だけにする。
+	for rows.Next() {
+		var (
+			id          uuid.UUID
+			username    string
+			mailAddress string
+			partySize   int
+			createdAt   time.Time
+			costID      uuid.NullUUID
+			category    sql.NullString
+			headCount   sql.NullInt32
+		)
+		if err := rows.Scan(
+			&id,
+			&username,
+			&mailAddress,
+			&partySize,
+			&createdAt,
+			&costID,
+			&category,
+			&headCount,
+		); err != nil {
+			return model.EventMember{}, fmt.Errorf("scan member: %w", err)
+		}
+
+		if !found {
+			member.ID = id
+			member.Username = username
+			member.MailAddress = mailAddress
+			member.PartySize = partySize
+			member.CreatedAt = createdAt
+			found = true
+		}
+
+		// 内訳0件の申込は LEFT JOIN により1行返り、cost_id 等が NULL になる。
+		if costID.Valid {
+			categories = append(categories, model.MemberCategory{
+				CostID:    costID.UUID,
+				Category:  category.String,
+				HeadCount: int(headCount.Int32),
+			})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return model.EventMember{}, fmt.Errorf("get member by profile rows: %w", err)
+	}
+
+	if !found {
+		const existsEvent = `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)`
+		var exists bool
+		if err := r.db.QueryRowContext(ctx, existsEvent, eventID).Scan(&exists); err != nil {
+			return model.EventMember{}, fmt.Errorf("exists event: %w", err)
+		}
+		if !exists {
+			return model.EventMember{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+		}
+		return model.EventMember{}, fmt.Errorf("event %s: %w", eventID, ErrNotJoined)
+	}
+
+	member.Categories = categories
+
+	return member, nil
 }
 
 // listMemberCategories は指定 eventID の参加者内訳を member_id ごとにまとめて返す。

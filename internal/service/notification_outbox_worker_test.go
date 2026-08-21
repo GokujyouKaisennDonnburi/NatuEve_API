@@ -86,6 +86,10 @@ func (f *fakeWorkerJoinRepo) ListMembers(context.Context, uuid.UUID) ([]model.Ev
 	panic("not implemented in worker test fake")
 }
 
+func (f *fakeWorkerJoinRepo) GetMemberByProfile(context.Context, uuid.UUID, uuid.UUID) (model.EventMember, error) {
+	panic("not implemented in worker test fake")
+}
+
 // workerFakeMailer は Mailer のテスト用フェイク。SendBatch の成否を差し替えられる。
 type workerFakeMailer struct {
 	sendErr error

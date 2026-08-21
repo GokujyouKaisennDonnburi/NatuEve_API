@@ -183,6 +183,8 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.N
 
 	v1.POST("/events/:id/leave", eventHandler.Leave)
 	v1.GET("/events/:id/members", eventHandler.ListMembers)
+	// members は主催者専用だが members/me は本人専用（ADR-0026）。
+	v1.GET("/events/:id/members/me", eventHandler.GetMyApplication)
 	v1.POST("/events/:id/cancel", eventHandler.Cancel)
 	v1.GET("/events/:id/participation-logs", eventParticipationLogHandler.GetLatestStatus)
 	v1.POST("/events/:id/participation-logs", eventParticipationLogHandler.Create)

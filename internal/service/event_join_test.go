@@ -32,6 +32,11 @@ type stubEventJoinRepository struct {
 	listMembers      []model.EventMember
 	listMembersErr   error
 	gotListMembersID uuid.UUID
+	// GetMemberByProfile 返却値・引数記録。
+	memberByProfile             model.EventMember
+	memberByProfileErr          error
+	gotMemberByProfileEventID   uuid.UUID
+	gotMemberByProfileProfileID uuid.UUID
 }
 
 func (s *stubEventJoinRepository) Join(_ context.Context, member *model.EventMember) error {
@@ -59,6 +64,15 @@ func (s *stubEventJoinRepository) ListRecipients(_ context.Context, _ uuid.UUID)
 func (s *stubEventJoinRepository) ListMembers(_ context.Context, eventID uuid.UUID) ([]model.EventMember, error) {
 	s.gotListMembersID = eventID
 	return s.listMembers, s.listMembersErr
+}
+
+func (s *stubEventJoinRepository) GetMemberByProfile(
+	_ context.Context,
+	eventID, profileID uuid.UUID,
+) (model.EventMember, error) {
+	s.gotMemberByProfileEventID = eventID
+	s.gotMemberByProfileProfileID = profileID
+	return s.memberByProfile, s.memberByProfileErr
 }
 
 // assertNotFoundError はテストヘルパー: err が *NotFoundError であることを確認する。
@@ -642,6 +656,123 @@ func TestEventJoinServiceLeave(t *testing.T) {
 			}
 			if tt.stub.gotLeaveProfileID != profileID {
 				t.Errorf("gotLeaveProfileID: got %v, want %v", tt.stub.gotLeaveProfileID, profileID)
+			}
+			if tt.checkResp != nil {
+				tt.checkResp(t, resp)
+			}
+		})
+	}
+}
+
+func TestEventJoinServiceGetMyApplication(t *testing.T) {
+	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	profileID := uuid.MustParse("b2c3d4e5-f6a7-8901-bcde-f23456789012")
+	createdAt := time.Date(2026, 8, 1, 12, 34, 56, 0, time.UTC)
+
+	tests := []struct {
+		name            string
+		stub            *stubEventJoinRepository
+		wantNotFound    bool
+		wantNotFoundMsg string
+		wantErr         bool
+		checkResp       func(t *testing.T, resp model.MyEventApplicationResponse)
+	}{
+		{
+			name: "正常: participants がカテゴリ名昇順で partySize・createdAt・username・mailAddress が詰まる",
+			stub: &stubEventJoinRepository{
+				memberByProfile: model.EventMember{
+					Username:    "山田太郎",
+					MailAddress: "yamada@example.com",
+					PartySize:   3,
+					Categories: []model.MemberCategory{
+						{Category: "学生", HeadCount: 1},
+						{Category: "大人", HeadCount: 2},
+					},
+					CreatedAt: createdAt,
+				},
+			},
+			checkResp: func(t *testing.T, resp model.MyEventApplicationResponse) {
+				t.Helper()
+				if resp.EventID != eventID {
+					t.Errorf("EventID: got %v, want %v", resp.EventID, eventID)
+				}
+				if resp.Username != "山田太郎" {
+					t.Errorf("Username: got %q, want %q", resp.Username, "山田太郎")
+				}
+				if resp.MailAddress != "yamada@example.com" {
+					t.Errorf("MailAddress: got %q, want %q", resp.MailAddress, "yamada@example.com")
+				}
+				if resp.PartySize != 3 {
+					t.Errorf("PartySize: got %d, want 3", resp.PartySize)
+				}
+				want := []model.ParticipantResponse{
+					{Category: "大人", HeadCount: 2},
+					{Category: "学生", HeadCount: 1},
+				}
+				if len(resp.Participants) != len(want) {
+					t.Fatalf("Participants: got %d件, want %d件", len(resp.Participants), len(want))
+				}
+				for i := range want {
+					if resp.Participants[i] != want[i] {
+						t.Errorf("Participants[%d]: got %+v, want %+v", i, resp.Participants[i], want[i])
+					}
+				}
+				if !resp.CreatedAt.Equal(createdAt) {
+					t.Errorf("CreatedAt: got %v, want %v", resp.CreatedAt, createdAt)
+				}
+			},
+		},
+		{
+			name:            "異常: イベントが存在しない（NotFoundError）",
+			stub:            &stubEventJoinRepository{memberByProfileErr: repository.ErrEventNotFound},
+			wantNotFound:    true,
+			wantNotFoundMsg: "イベントが見つかりません",
+		},
+		{
+			name:            "異常: 未申込（NotFoundError）",
+			stub:            &stubEventJoinRepository{memberByProfileErr: repository.ErrNotJoined},
+			wantNotFound:    true,
+			wantNotFoundMsg: "このイベントに参加していません",
+		},
+		{
+			name:    "異常: repo.GetMemberByProfile が想定外のエラーを返す",
+			stub:    &stubEventJoinRepository{memberByProfileErr: errors.New("db error")},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
+
+			resp, err := svc.GetMyApplication(context.Background(), eventID, profileID)
+
+			switch {
+			case tt.wantNotFound:
+				nfe := assertNotFoundError(t, err)
+				if tt.wantNotFoundMsg != "" && nfe.Message != tt.wantNotFoundMsg {
+					t.Errorf("NotFoundError.Message: got %q, want %q", nfe.Message, tt.wantNotFoundMsg)
+				}
+				return
+			case tt.wantErr:
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				var nfe *NotFoundError
+				if errors.As(err, &nfe) {
+					t.Errorf("想定外エラーが NotFoundError として伝播: %v", err)
+				}
+				return
+			}
+
+			assertNoErr(t, err)
+
+			// service が repo に正しい引数を渡していることを確認する。
+			if tt.stub.gotMemberByProfileEventID != eventID {
+				t.Errorf("gotMemberByProfileEventID: got %v, want %v", tt.stub.gotMemberByProfileEventID, eventID)
+			}
+			if tt.stub.gotMemberByProfileProfileID != profileID {
+				t.Errorf("gotMemberByProfileProfileID: got %v, want %v", tt.stub.gotMemberByProfileProfileID, profileID)
 			}
 			if tt.checkResp != nil {
 				tt.checkResp(t, resp)

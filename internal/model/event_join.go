@@ -56,6 +56,25 @@ type JoinEventResponse struct {
 	CreatedAt time.Time `json:"createdAt" example:"2023-01-01T12:00:00Z"`
 }
 
+// MyEventApplicationResponse はログイン中ユーザー自身の申込内容取得エンドポイントのレスポンス DTO。
+// 金額は含まない（ADR-0026）。参加費はイベント詳細（costs）を参照する。
+type MyEventApplicationResponse struct {
+	// EventID は申込先イベントのUUID。
+	EventID uuid.UUID `json:"eventId" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	// Username は申込時にフォームへ入力された名前。
+	Username string `json:"username" example:"山田太郎"`
+	// MailAddress は申込時に入力されたメールアドレス。
+	MailAddress string `json:"mailAddress" example:"yamada@example.com"`
+	// PartySize は代表者を含む参加人数。participants の合計と一致する。
+	PartySize int `json:"partySize" example:"3"`
+	// Participants はカテゴリ別人数の内訳（カテゴリ名の昇順）。
+	// API 経由の申込では必ず1件以上入る。DB は内訳0件を禁じていないため、
+	// 直接 INSERT された行では空配列になりうる（ADR-0026）。
+	Participants []ParticipantResponse `json:"participants"`
+	// CreatedAt は参加申込日時。
+	CreatedAt time.Time `json:"createdAt" example:"2026-08-01T12:34:56Z"`
+}
+
 // LeaveEventResponse は参加キャンセル完了時に返すレスポンス。
 //
 //	@Description	参加キャンセルの結果。追記された参加状態ログ（action=leave）1件分の内容を返す。
