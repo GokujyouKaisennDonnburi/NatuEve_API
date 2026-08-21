@@ -501,6 +501,68 @@ func TestEventPostgres_ListSummaries_Tags(t *testing.T) {
 	}
 }
 
+// TestEventPostgres_ListSummaries_ApplicationDeadline は ListSummaries が
+// application_deadline を設定時は非nilでその値を、未設定時は nil を返すことを検証する（ADR-0029）。
+func TestEventPostgres_ListSummaries_ApplicationDeadline(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+	deadline := time.Now().Add(30 * time.Minute).UTC().Truncate(time.Microsecond)
+
+	tests := []struct {
+		name     string
+		deadline sql.NullTime
+		want     *time.Time
+	}{
+		{
+			name:     "申込期限を設定したイベントは非nilでその値を返す",
+			deadline: sql.NullTime{Time: deadline, Valid: true},
+			want:     &deadline,
+		},
+		{
+			name:     "申込期限なしのイベントはnilを返す",
+			deadline: sql.NullTime{},
+			want:     nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventID := insertTestEventWithApplicationDeadline(t, db, profileID, tt.deadline)
+
+			// 既存データを含む全件を確実に取得できるよう、件数を数えてから limit に使う。
+			total, err := repo.CountSummaries(context.Background())
+			if err != nil {
+				t.Fatalf("CountSummaries() returned error: %v", err)
+			}
+
+			got, err := repo.ListSummaries(context.Background(), "created_at", "desc", total+10, 0)
+			if err != nil {
+				t.Fatalf("ListSummaries() returned error: %v", err)
+			}
+
+			summary, ok := findSummaryByID(got, eventID.String())
+			if !ok {
+				t.Fatalf("ListSummaries() result does not contain event %s", eventID)
+			}
+
+			if tt.want == nil {
+				if summary.ApplicationDeadline != nil {
+					t.Errorf("ApplicationDeadline = %v, want nil", summary.ApplicationDeadline)
+				}
+				return
+			}
+			if summary.ApplicationDeadline == nil {
+				t.Fatal("ApplicationDeadline = nil, want non-nil")
+			}
+			if !summary.ApplicationDeadline.Equal(*tt.want) {
+				t.Errorf("ApplicationDeadline = %v, want %v", summary.ApplicationDeadline, *tt.want)
+			}
+		})
+	}
+}
+
 // TestEventPostgres_SearchSummaries_Tags は SearchSummaries が attachTagsToSummaries 経由で
 // 紐づくタグを name 昇順で返すこと、タグの無いイベントでは Tags が nil
 // (JSON では omitempty で省略) になることを検証する。
