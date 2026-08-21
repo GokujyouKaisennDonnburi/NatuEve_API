@@ -59,33 +59,41 @@ func NewEventHandler(
 //	@Description	（値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表し、
 //	@Description	キャンセル済みイベントの判別は含まない（各 status の結果にキャンセル済みイベントも混在するため、
 //	@Description	クライアントは cancelledAt で判別する）。
+//	@Description	location は地域での絞り込み。反復指定は OR 検索になる（例: ?location=東京都&location=神奈川県）。
+//	@Description	q が5項目（タイトル/詳細/主催者名/地域名/持ち物）を横断するのに対し、location は地域名のみを
+//	@Description	対象に部分一致で判定する。q・tagId・status と同時に指定した場合は AND で絞り込む。
+//	@Description	照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。q と同じ規則）。
+//	@Description	重複指定は1件として扱い、重複除去後の件数が51件以上、または1件あたり256文字以上の指定は
+//	@Description	400 を返す（値が空の location は未指定として無視する）。
 //	@Tags			event
 //	@Produce		json
-//	@Param			q		query		[]string	false	"検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)"	collectionFormat(multi)
-//	@Param			tagId	query		[]string	false	"絞り込むタグID(UUID。反復指定でOR検索。最大20件)"	collectionFormat(multi)
-//	@Param			status	query		[]string	false	"開催状況(upcoming|ongoing|ended。反復指定でOR検索)"	collectionFormat(multi)
-//	@Param			sort	query		string	false	"ソートカラム(created_at|event_date, default: created_at)"
-//	@Param			order	query		string	false	"ソート順(asc|desc, default: desc)"
-//	@Param			limit	query		int		false	"取得件数(default 20, 最大 100)"
-//	@Param			offset	query		int		false	"取得開始位置(default 0)"
-//	@Success		200		{object}	model.EventListResponse
+//	@Param			q			query		[]string	false	"検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)"	collectionFormat(multi)
+//	@Param			tagId		query		[]string	false	"絞り込むタグID(UUID。反復指定でOR検索。最大20件)"	collectionFormat(multi)
+//	@Param			status		query		[]string	false	"開催状況(upcoming|ongoing|ended。反復指定でOR検索)"	collectionFormat(multi)
+//	@Param			location	query		[]string	false	"絞り込む地域(location への部分一致。反復指定でOR検索。最大50件・1件255文字以内)"	collectionFormat(multi)
+//	@Param			sort		query		string	false	"ソートカラム(created_at|event_date, default: created_at)"
+//	@Param			order		query		string	false	"ソート順(asc|desc, default: desc)"
+//	@Param			limit		query		int		false	"取得件数(default 20, 最大 100)"
+//	@Param			offset		query		int		false	"取得開始位置(default 0)"
+//	@Success		200			{object}	model.EventListResponse
 //	@Failure		400		{object}	model.ValidationErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events [get]
 func (h *EventHandler) List(c *gin.Context) {
 	// クエリパラメータを取得する（sort/order/limit/offset の不正値は service 層で安全側に丸める）。
 	// q は反復クエリ(?q=a&q=b)で複数受け取り AND 検索する（正規化は service 層）。
-	// tagId・status も反復クエリで複数受け取るが、こちらは OR 検索。不正値・件数超過は 400 になる
-	// （ADR-0020、status は ADR-0027）。
+	// tagId・status・location も反復クエリで複数受け取るが、こちらは OR 検索。不正値・件数超過は
+	// 400 になる（ADR-0020、status は ADR-0027、location は ADR-0028）。
 	keywords := c.QueryArray("q")
 	tagIDs := c.QueryArray("tagId")
 	statuses := c.QueryArray("status")
+	locations := c.QueryArray("location")
 	sort := c.Query("sort")
 	order := c.Query("order")
 	limit := queryInt(c, "limit", 0)
 	offset := queryInt(c, "offset", 0)
 
-	resp, err := h.querySvc.List(c.Request.Context(), keywords, tagIDs, statuses, sort, order, limit, offset)
+	resp, err := h.querySvc.List(c.Request.Context(), keywords, tagIDs, statuses, locations, sort, order, limit, offset)
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
