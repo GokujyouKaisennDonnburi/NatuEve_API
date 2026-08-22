@@ -14,7 +14,8 @@ GOLANGCI ?= $(shell go env GOPATH)/bin/golangci-lint
 # goose(マイグレーション CLI)はバージョンを固定し、api コンテナ内で go run する。
 GOOSE_VERSION := v3.27.1
 MIGRATIONS_DIR := db/migrations
-# マイグレーションは api コンテナ内で実行する(DB 接続先はコンテナの環境変数 DATABASE_URL = db:5432)。
+# マイグレーションの適用系(up/down/status)は api コンテナ内で実行する
+# (DB 接続先はコンテナの環境変数 DATABASE_URL = db:5432)。雛形生成(create)はホストで実行する。
 # CI など compose を使わない環境では `GOOSE_EXEC='sh -c'` を渡してホストで実行する
 # (その場合 DATABASE_URL はシェルの環境変数から取得する)。
 GOOSE_EXEC ?= docker compose exec -T api sh -c
@@ -85,9 +86,12 @@ swag-check: swag ## api/ が最新か確認 (CI 用: 差分があれば失敗)
 	@git diff --exit-code $(SWAG_OUT) || (echo "api/ が古いです。'make swag' を実行してコミットしてください" && exit 1)
 
 .PHONY: migrate-create
+# 雛形の生成は GOOSE_EXEC を通さずホストで実行する。api コンテナは root で動き、
+# プロジェクトを bind mount しているため、コンテナ内で生成すると
+# ホスト側に root 所有のファイルができ、生成した雛形を編集できなくなる。
 migrate-create: ## マイグレーション雛形を作成 (例: make migrate-create name=create_xxx)
 	@test -n "$(name)" || (echo "name を指定してください: make migrate-create name=create_xxx" && exit 1)
-	$(GOOSE_EXEC) '$(GOOSE) create $(name) sql'
+	$(GOOSE) create $(name) sql
 
 .PHONY: migrate-up
 migrate-up: ## マイグレーションを最新まで適用
