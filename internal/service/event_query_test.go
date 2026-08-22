@@ -986,7 +986,7 @@ func TestNormalizeLocations(t *testing.T) {
 	overMaxLocations = append(overMaxLocations, exactlyMaxLocations...)
 	overMaxLocations = append(overMaxLocations, "loc"+strconv.Itoa(maxFilterLocations))
 
-	// 同一語(全角/半角・大文字小文字違い)を51回以上重複指定するケース用
+	// 同一語(全角/半角・大文字小文字違い)を201回以上重複指定するケース用
 	// （重複除去後は1件になり上限に達しない。ADR-0028 決定4）。
 	duplicateManyLocationVariants := []string{"Ｔｏｋｙｏ", "TOKYO", "tokyo"}
 	duplicateManyLocations := make([]string, 0, maxFilterLocations+3)
@@ -994,8 +994,8 @@ func TestNormalizeLocations(t *testing.T) {
 		duplicateManyLocations = append(duplicateManyLocations, duplicateManyLocationVariants[i%len(duplicateManyLocationVariants)])
 	}
 
-	// 一意な値50件に、それらの大文字小文字違いの重複を追加するケース用
-	// （合計は51件を超えるが、重複除去後は50件のまま上限に達しない。ADR-0028 決定4）。
+	// 一意な値200件に、それらの大文字小文字違いの重複を追加するケース用
+	// （合計は201件を超えるが、重複除去後は200件のまま上限に達しない。ADR-0028 決定4）。
 	uniqueLocationsWithDuplicates := make([]string, 0, len(exactlyMaxLocations)+3)
 	uniqueLocationsWithDuplicates = append(uniqueLocationsWithDuplicates, exactlyMaxLocations...)
 	uniqueLocationsWithDuplicates = append(uniqueLocationsWithDuplicates, "LOC0", "Loc1", "LOC2")
@@ -1041,23 +1041,23 @@ func TestNormalizeLocations(t *testing.T) {
 			want:  []string{"東京都"},
 		},
 		{
-			name:  "正常: 地域がちょうど50件は成功する",
+			name:  "正常: 地域がちょうど200件は成功する",
 			input: exactlyMaxLocations,
 			want:  exactlyMaxLocations,
 		},
 		{
-			name:           "異常: 地域が51件はValidationErrorになる",
+			name:           "異常: 地域が201件はValidationErrorになる",
 			input:          overMaxLocations,
 			wantErr:        true,
 			wantErrMessage: fmt.Sprintf("地域(location)は%d件以内で指定してください", maxFilterLocations),
 		},
 		{
-			name:  "正常: 全角/半角・大文字小文字違いを含む同一語を51回以上重複指定しても重複除去後1件なのでエラーにならない",
+			name:  "正常: 全角/半角・大文字小文字違いを含む同一語を201回以上重複指定しても重複除去後1件なのでエラーにならない",
 			input: duplicateManyLocations,
 			want:  []string{duplicateManyLocationVariants[0]},
 		},
 		{
-			name:  "正常: 一意な値50件+それらの大文字小文字違いの重複で合計が51件を超えても重複除去後50件以内ならエラーにならない",
+			name:  "正常: 一意な値200件+それらの大文字小文字違いの重複で合計が201件を超えても重複除去後200件以内ならエラーにならない",
 			input: uniqueLocationsWithDuplicates,
 			want:  exactlyMaxLocations,
 		},
@@ -1158,7 +1158,7 @@ func TestEventQueryServiceList_LocationFilter(t *testing.T) {
 			wantSearchCalled: false,
 		},
 		{
-			name:           "異常: 51件以上の指定はValidationErrorになり repository は呼ばれない",
+			name:           "異常: 201件以上の指定はValidationErrorになり repository は呼ばれない",
 			inputLocations: overMaxLocations,
 			wantErr:        true,
 			wantErrMessage: fmt.Sprintf("地域(location)は%d件以内で指定してください", maxFilterLocations),
