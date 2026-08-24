@@ -32,8 +32,9 @@ const (
 	// キーワードと異なり超過分の切り捨ては行わず検証エラーとする（後述 normalizeTagIDs）。
 	maxFilterTagIDs = 20
 	// maxFilterLocations は地域絞り込みで受け付ける location の最大件数（重複除去後）。
-	// タグと同じく超過分の切り捨ては行わず検証エラーとする（後述 normalizeLocations。ADR-0028）。
-	maxFilterLocations = 50
+	// タグと同じく超過分の切り捨ては行わず検証エラーとする（後述 normalizeLocations。ADR-0028、
+	// 上限値は ADR-0030）。
+	maxFilterLocations = 200
 	// maxLocationLength は地域絞り込みの1要素あたりの最大文字数。
 	// events.location の桁(VARCHAR(255))に合わせる（ADR-0028）。
 	maxLocationLength = 255
@@ -76,9 +77,9 @@ func NewEventQueryService(repo repository.EventRepository, publicBaseURL string)
 //   - statuses は空要素を除去し、upcoming/ongoing/ended の完全一致以外は *ValidationError を
 //     返す。重複除去後は定義順（upcoming → ongoing → ended）へ並べ替える（ADR-0027）
 //   - locations は各要素を前後トリムし、空要素を除去する。1要素あたり maxLocationLength(255)
-//     文字を超える、または重複除去後の件数が maxFilterLocations(50) 件を超える場合は
+//     文字を超える、または重複除去後の件数が maxFilterLocations(200) 件を超える場合は
 //     *ValidationError を返す（切り捨てない）。重複除去は NFKC 正規化＋小文字化した値で判定する
-//     （ADR-0028）
+//     （ADR-0028、上限値は ADR-0030）
 //   - limit が 0 以下 → defaultLimit(20)
 //   - limit が maxLimit(100) 超過 → maxLimit(100)
 //   - offset が負値 → 0
@@ -261,7 +262,7 @@ func normalizeStatuses(statuses []string) ([]model.EventStatus, error) {
 // とする（ADR-0028）。
 //
 // 1要素あたりの文字数が maxLocationLength(255) を超える値、および重複除去後の件数が
-// maxFilterLocations(50) を超えた場合は *ValidationError として返す（handler 層が 400 にする）。
+// maxFilterLocations(200) を超えた場合は *ValidationError として返す（handler 層が 400 にする）。
 func normalizeLocations(locations []string) ([]string, error) {
 	if len(locations) == 0 {
 		return nil, nil
