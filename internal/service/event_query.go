@@ -31,6 +31,12 @@ const (
 	// maxFilterTagIDs はタグ絞り込みで受け付けるタグIDの最大件数。
 	// キーワードと異なり超過分の切り捨ては行わず検証エラーとする（後述 normalizeTagIDs）。
 	maxFilterTagIDs = 20
+	// maxFilterLocations は地域絞り込みで受け付ける location の最大件数（重複除去後）。
+	// タグと同じく超過分の切り捨ては行わず検証エラーとする（後述 normalizeLocations。ADR-0028）。
+	maxFilterLocations = 50
+	// maxLocationLength は地域絞り込みの1要素あたりの最大文字数。
+	// events.location の桁(VARCHAR(255))に合わせる（ADR-0028）。
+	maxLocationLength = 255
 )
 
 // EventQueryService はイベント参照系のビジネスロジックを提供する。
@@ -53,13 +59,15 @@ func NewEventQueryService(repo repository.EventRepository, publicBaseURL string)
 
 // List は limit / offset / sort / order を正規化してからイベント一覧レスポンスを返す。
 //
-// keywords・tagIDs・statuses がすべて空（正規化後に条件が無い）の場合は全件一覧を返す。
+// keywords・tagIDs・statuses・locations がすべて空（正規化後に条件が無い）の場合は全件一覧を返す。
 // いずれかに条件がある場合は絞り込み検索を行う:
 //   - キーワード: 各語は title/description/主催者名(display_name)/location/持ち物(event_item) を
 //     横断（OR・部分一致・大文字小文字無視）し、語どうしは AND で結合する
 //   - タグ: 複数指定時は OR（いずれかのタグを持つイベントが該当）
 //   - 開催状況(status): 複数指定時は OR（いずれかの状況に該当するイベントが該当）（ADR-0027）
-//   - キーワード条件・タグ条件・開催状況条件は互いに AND で結合する
+//   - 地域(location): 対象は location 単独（キーワードの5項目横断とは異なる）。複数指定時は
+//     OR（いずれかに部分一致するイベントが該当）（ADR-0028）
+//   - キーワード条件・タグ条件・開催状況条件・地域条件は互いに AND で結合する
 //
 // 正規化ルール:
 //   - keywords は各要素を前後トリムし、空要素を除去。maxSearchKeywords(10) 件を超えた分は切り捨てる
@@ -67,12 +75,16 @@ func NewEventQueryService(repo repository.EventRepository, publicBaseURL string)
 //     件超過は *ValidationError を返す（切り捨てない）
 //   - statuses は空要素を除去し、upcoming/ongoing/ended の完全一致以外は *ValidationError を
 //     返す。重複除去後は定義順（upcoming → ongoing → ended）へ並べ替える（ADR-0027）
+//   - locations は各要素を前後トリムし、空要素を除去する。1要素あたり maxLocationLength(255)
+//     文字を超える、または重複除去後の件数が maxFilterLocations(50) 件を超える場合は
+//     *ValidationError を返す（切り捨てない）。重複除去は NFKC 正規化＋小文字化した値で判定する
+//     （ADR-0028）
 //   - limit が 0 以下 → defaultLimit(20)
 //   - limit が maxLimit(100) 超過 → maxLimit(100)
 //   - offset が負値 → 0
 //   - sort が許可値("created_at"/"event_date")以外 → defaultSort("created_at")
 //   - order が許可値("asc"/"desc")以外 → defaultOrder("desc")
-func (s *EventQueryService) List(ctx context.Context, keywords, tagIDs, statuses []string, sort, order string, limit, offset int) (model.EventListResponse, error) {
+func (s *EventQueryService) List(ctx context.Context, keywords, tagIDs, statuses, locations []string, sort, order string, limit, offset int) (model.EventListResponse, error) {
 	normalizedTagIDs, err := normalizeTagIDs(tagIDs)
 	if err != nil {
 		return model.EventListResponse{}, err
@@ -83,10 +95,16 @@ func (s *EventQueryService) List(ctx context.Context, keywords, tagIDs, statuses
 		return model.EventListResponse{}, err
 	}
 
+	normalizedLocations, err := normalizeLocations(locations)
+	if err != nil {
+		return model.EventListResponse{}, err
+	}
+
 	filter := model.EventSearchFilter{
-		Keywords: normalizeKeywords(keywords),
-		TagIDs:   normalizedTagIDs,
-		Statuses: normalizedStatuses,
+		Keywords:  normalizeKeywords(keywords),
+		TagIDs:    normalizedTagIDs,
+		Statuses:  normalizedStatuses,
+		Locations: normalizedLocations,
 	}
 	limit = normalizeLimit(limit)
 	offset = normalizeOffset(offset)
@@ -227,6 +245,53 @@ func normalizeStatuses(statuses []string) ([]model.EventStatus, error) {
 	for _, status := range statusOrder {
 		if _, ok := seen[status]; ok {
 			out = append(out, status)
+		}
+	}
+	return out, nil
+}
+
+// normalizeLocations は地域絞り込みの locations を検証し、trim・空要素除去のうえ重複除去して返す。
+// 有効な要素が無い場合は nil を返す（呼び出し元は地域条件なしとして扱う）。
+//
+// 空要素（?location= のように値が空）は「未指定」とみなして除去する。normalizeTagIDs /
+// normalizeStatuses と同じ扱いにしている。
+//
+// 重複除去の判定キーは repository.NormalizeSearchText（NFKC 正規化）＋小文字化した値とする
+// （全角/半角表記・大文字小文字の違いを同一視する）。SQL へ渡す値は最初に現れた入力値そのもの
+// とする（ADR-0028）。
+//
+// 1要素あたりの文字数が maxLocationLength(255) を超える値、および重複除去後の件数が
+// maxFilterLocations(50) を超えた場合は *ValidationError として返す（handler 層が 400 にする）。
+func normalizeLocations(locations []string) ([]string, error) {
+	if len(locations) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]struct{}, len(locations))
+	out := make([]string, 0, len(locations))
+	for i, raw := range locations {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			continue
+		}
+		if len([]rune(v)) > maxLocationLength {
+			return nil, &ValidationError{
+				Message: fmt.Sprintf("地域(location)[%d]は%d文字以内で指定してください", i, maxLocationLength),
+			}
+		}
+		key := strings.ToLower(repository.NormalizeSearchText(v))
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	if len(out) > maxFilterLocations {
+		return nil, &ValidationError{
+			Message: fmt.Sprintf("地域(location)は%d件以内で指定してください", maxFilterLocations),
 		}
 	}
 	return out, nil
