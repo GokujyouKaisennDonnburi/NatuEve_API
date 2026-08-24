@@ -1883,6 +1883,11 @@ const docTemplate = `{
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventSummary": {
             "type": "object",
             "properties": {
+                "applicationDeadline": {
+                    "description": "ApplicationDeadline は申込期限(RFC3339)。nil の場合は期限なし（ADR-0029）。",
+                    "type": "string",
+                    "example": "2026-06-25T23:59:59Z"
+                },
                 "cancelledAt": {
                     "description": "CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。",
                     "type": "string",
