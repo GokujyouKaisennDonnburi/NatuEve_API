@@ -288,7 +288,7 @@ definitions:
         type: integer
       totalCount:
         description: |-
-          TotalCount は現在の絞り込み条件（q / tagId）に一致する総件数。
+          TotalCount は現在の絞り込み条件（q / tagId / status）に一致する総件数。
           条件を指定しない場合は全件数になる。クライアントが最終ページ offset を算出するために使う。
         example: 153
         type: integer
@@ -1118,6 +1118,13 @@ paths:
         tagId はタグでの絞り込み。反復指定は OR 検索になる（例: ?tagId=A&tagId=B なら A または B が付いたイベント）。
         q と同時に指定した場合は AND（キーワード条件かつタグ条件）で絞り込む。
         UUID 形式でない値・21件以上の指定は 400 を返す（値が空の tagId は未指定として無視する）。
+        status は開催状況での絞り込み。反復指定は OR 検索になる（例: ?status=upcoming&status=ongoing）。
+        値は upcoming(開催前: event_date > now())・ongoing(開催中: event_date <= now() かつ
+        end_date >= now())・ended(開催後: end_date < now()) の3値で、排他かつ網羅（どのイベントも必ず1つに該当）。
+        q・tagId と同時に指定した場合は AND で絞り込む。許可値以外（大文字表記等）は 400 を返す
+        （値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表し、
+        キャンセル済みイベントの判別は含まない（各 status の結果にキャンセル済みイベントも混在するため、
+        クライアントは cancelledAt で判別する）。
       parameters:
       - collectionFormat: multi
         description: 検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)
@@ -1132,6 +1139,13 @@ paths:
         items:
           type: string
         name: tagId
+        type: array
+      - collectionFormat: multi
+        description: 開催状況(upcoming|ongoing|ended。反復指定でOR検索)
+        in: query
+        items:
+          type: string
+        name: status
         type: array
       - description: 'ソートカラム(created_at|event_date, default: created_at)'
         in: query

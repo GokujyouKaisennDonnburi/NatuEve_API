@@ -80,6 +80,28 @@ type NewEvent struct {
 	TagIDs []string
 }
 
+// EventStatus はイベント一覧の開催状況絞り込みで使う値（ADR-0027）。
+type EventStatus string
+
+const (
+	// EventStatusUpcoming は開催前（event_date > now()）。
+	EventStatusUpcoming EventStatus = "upcoming"
+	// EventStatusOngoing は開催中（event_date <= now() かつ end_date >= now()）。
+	EventStatusOngoing EventStatus = "ongoing"
+	// EventStatusEnded は開催後（end_date < now()）。
+	EventStatusEnded EventStatus = "ended"
+)
+
+// IsValid は定義済みの開催状況かどうかを返す。
+func (s EventStatus) IsValid() bool {
+	switch s {
+	case EventStatusUpcoming, EventStatusOngoing, EventStatusEnded:
+		return true
+	default:
+		return false
+	}
+}
+
 // EventSearchFilter はイベント一覧の絞り込み条件をまとめた検証済みの内部型。
 // service 層で正規化してから repository 層へ渡す（HTTP には露出しない）。
 //
@@ -92,12 +114,15 @@ type EventSearchFilter struct {
 	// TagIDs は絞り込み対象のタグ UUID（正準形・重複除去済み）。
 	// 複数指定時は OR（いずれかのタグを持つイベントが該当する）。
 	TagIDs []string
+	// Statuses は絞り込み対象の開催状況（重複除去済み・定義順に整列済み）。
+	// 複数指定時は OR（いずれかの状況に該当するイベントが該当する）。
+	Statuses []EventStatus
 }
 
 // IsEmpty は絞り込み条件が 1 つも無いことを返す。
 // true の場合、呼び出し元は検索ではなく全件一覧の経路を使う。
 func (f EventSearchFilter) IsEmpty() bool {
-	return len(f.Keywords) == 0 && len(f.TagIDs) == 0
+	return len(f.Keywords) == 0 && len(f.TagIDs) == 0 && len(f.Statuses) == 0
 }
 
 // CreateEventResponse はイベント投稿エンドポイントのレスポンス DTO。
@@ -138,7 +163,7 @@ type EventSummary struct {
 type EventListResponse struct {
 	// Events はイベントサマリーの一覧。
 	Events []EventSummary `json:"events"`
-	// TotalCount は現在の絞り込み条件（q / tagId）に一致する総件数。
+	// TotalCount は現在の絞り込み条件（q / tagId / status）に一致する総件数。
 	// 条件を指定しない場合は全件数になる。クライアントが最終ページ offset を算出するために使う。
 	TotalCount int `json:"totalCount" example:"153"`
 	// Limit は正規化後の実際に使われた取得件数。
