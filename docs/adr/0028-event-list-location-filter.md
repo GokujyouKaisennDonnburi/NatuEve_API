@@ -1,6 +1,6 @@
 # ADR-0028: イベント一覧の地域絞り込みは location への部分一致で行う
 
-- ステータス: Accepted（決定事項 1・7 は [ADR-0030](./0030-location-filter-limit-and-trgm-index.md) により Superseded）
+- ステータス: Accepted（決定事項 7 と、決定事項 4 の上限値 50 件は [ADR-0030](./0030-location-filter-limit-and-trgm-index.md) により Superseded。決定事項 4 のその他の規則（trim・空要素除去・重複除去・255 文字上限）は有効）
 - 日付: 2026-08-21
 - 関連: #180, ADR-0019（イベント検索は GET を維持する）, ADR-0020（イベント一覧のタグ絞り込み）, ADR-0027（開催状況の絞り込み）, ADR-0008（検索は ILIKE 部分一致＋NFKC 正規化）
 
