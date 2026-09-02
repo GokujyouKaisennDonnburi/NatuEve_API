@@ -2,10 +2,13 @@
 -- event_notification_outbox は Transactional Outbox パターンによる通知予約テーブル。
 -- イベントキャンセル確定と同一トランザクションで INSERT することで、
 -- キャンセル確定と通知予約の原子性を保証する。宛先はスナップショットせず、
--- ワーカーが送信直前に event_members から解決する。
+-- ワーカーが送信直前に recipient_kind に応じて解決する。
 CREATE TABLE event_notification_outbox (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id        UUID NOT NULL REFERENCES events(id),
+    -- 宛先種別（ADR-0031）。members = 参加者全員宛（event_members から解決）、
+    -- organizer = 主催者1人宛（events JOIN profiles の email から解決）。
+    recipient_kind  TEXT NOT NULL DEFAULT 'members' CHECK (recipient_kind IN ('members', 'organizer')),
     subject         VARCHAR(255) NOT NULL,
     body            TEXT NOT NULL,
     status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
