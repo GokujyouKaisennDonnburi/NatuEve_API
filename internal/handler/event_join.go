@@ -132,6 +132,8 @@ func (h *EventHandler) Join(c *gin.Context) {
 //	@Description	認証必須。ログイン参加者が自身の参加を取り消す。
 //	@Description	参加行を削除し、参加状態ログへ action=leave を1件追記する。
 //	@Description	匿名参加（profileId=null）は本 API の対象外。
+//	@Description	申込期限ありイベントで期限経過後の呼び出しは 409 Conflict（deadline_passed）で拒否される。
+//	@Description	期限経過後のキャンセルは欠席連絡 API（POST /api/v1/events/{id}/absence）を利用する。
 //	@Description	そのイベントに参加していない場合は 404 not_found を返す。
 //	@Tags			event
 //	@Produce		json
@@ -141,6 +143,7 @@ func (h *EventHandler) Join(c *gin.Context) {
 //	@Failure		400	{object}	model.ValidationErrorResponse
 //	@Failure		401	{object}	model.UnauthorizedErrorResponse
 //	@Failure		404	{object}	model.NotFoundErrorResponse	"not_found: イベント不存在 または 未参加"
+//	@Failure		409	{object}	model.LeaveConflictErrorResponse	"deadline_passed: 申込期限経過後"
 //	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/leave [post]
 func (h *EventHandler) Leave(c *gin.Context) {
@@ -181,6 +184,15 @@ func (h *EventHandler) Leave(c *gin.Context) {
 			return
 		}
 
+		var ce *service.ConflictError
+		if errors.As(err, &ce) {
+			c.JSON(
+				http.StatusConflict,
+				model.NewErrorResponse(conflictCode(ce), ce.Message),
+			)
+			return
+		}
+
 		// 想定外エラー（DB エラー等）は真因をログに残す。
 		slog.Error("イベント参加キャンセルに失敗しました",
 			slog.String("event_id", eventID.String()),
@@ -189,6 +201,111 @@ func (h *EventHandler) Leave(c *gin.Context) {
 		c.JSON(
 			http.StatusInternalServerError,
 			model.NewErrorResponse("internal_error", "参加キャンセルに失敗しました"),
+		)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// Absence はイベント欠席連絡 API（ADR-0031）。
+//
+//	@Summary		イベント欠席連絡
+//	@Description	認証必須。ログイン参加者が欠席理由を添えて参加を取り消す。
+//	@Description	参加行を削除し、参加状態ログへ action=absence を1件追記する。
+//	@Description	主催者宛ての欠席連絡メールを outbox に予約し、非同期で送信する（レスポンスには含まれない）。
+//	@Description	reason は任意。指定する場合は illness(体調不良) / family(家庭の都合) /
+//	@Description	weather_transport(天候・交通) / other(その他) の4値のいずれか。
+//	@Description	reason 未指定時はレスポンスの reason が null になり、主催者メールには「記載なし」と記す。
+//	@Description	detail は任意（trim 後200文字以内）。未指定時はレスポンスの detail が null になる。
+//	@Description	申込期限ありイベントで期限前に呼ぶと 409 Conflict（before_deadline）を返す
+//	@Description	（期限前のキャンセルは参加キャンセル API を利用する）。
+//	@Description	end_date 経過後は 409 Conflict（event_ended）、取消済みイベントは 409 Conflict（event_cancelled）を返す。
+//	@Description	そのイベントに参加していない場合は 404 not_found を返す。
+//	@Tags			event
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			id		path		string						true	"イベントID"
+//	@Param			body	body		model.AbsenceEventRequest	true	"欠席連絡"
+//	@Success		200		{object}	model.AbsenceEventResponse
+//	@Failure		400		{object}	model.ValidationErrorResponse
+//	@Failure		401		{object}	model.UnauthorizedErrorResponse
+//	@Failure		404		{object}	model.NotFoundErrorResponse	"not_found: イベント不存在 または 未参加"
+//	@Failure		409		{object}	model.AbsenceConflictErrorResponse	"before_deadline: 申込期限前 / event_ended: 終了済み / event_cancelled: 取消済み"
+//	@Failure		500		{object}	model.InternalErrorResponse
+//	@Router			/api/v1/events/{id}/absence [post]
+func (h *EventHandler) Absence(c *gin.Context) {
+
+	// パスパラメータからイベントID取得
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			model.NewErrorResponse("invalid_request", "イベントIDが不正です"),
+		)
+		return
+	}
+
+	// 認証必須。RequireAuth ミドルウェア配下だが、防御的に確認する。
+	authUser, ok := middleware.AuthFromContext(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, model.NewErrorResponse("unauthorized", "認証が必要です"))
+		return
+	}
+	profileID, err := uuid.Parse(authUser.ID)
+	if err != nil {
+		c.JSON(
+			http.StatusUnauthorized,
+			model.NewErrorResponse("unauthorized", "ユーザーIDが不正です"),
+		)
+		return
+	}
+
+	// JSON受け取り
+	var req model.AbsenceEventRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	// Service呼び出し
+	resp, err := h.joinSvc.Absence(c.Request.Context(), eventID, profileID, req)
+	if err != nil {
+		var ve *service.ValidationError
+		if errors.As(err, &ve) {
+			c.JSON(
+				http.StatusBadRequest,
+				model.NewErrorResponse("invalid_request", ve.Message),
+			)
+			return
+		}
+
+		var nfe *service.NotFoundError
+		if errors.As(err, &nfe) {
+			c.JSON(
+				http.StatusNotFound,
+				model.NewErrorResponse("not_found", nfe.Message),
+			)
+			return
+		}
+
+		var ce *service.ConflictError
+		if errors.As(err, &ce) {
+			c.JSON(
+				http.StatusConflict,
+				model.NewErrorResponse(conflictCode(ce), ce.Message),
+			)
+			return
+		}
+
+		// 想定外エラー（DB エラー等）は真因をログに残す。
+		slog.Error("イベント欠席連絡に失敗しました",
+			slog.String("event_id", eventID.String()),
+			slog.Any("error", err),
+		)
+		c.JSON(
+			http.StatusInternalServerError,
+			model.NewErrorResponse("internal_error", "欠席連絡に失敗しました"),
 		)
 		return
 	}

@@ -89,6 +89,63 @@ type LeaveEventResponse struct {
 	CreatedAt time.Time `json:"createdAt" example:"2026-07-01T12:00:00Z"`
 }
 
+// AbsenceReason は欠席連絡の欠席理由（ADR-0031）。
+type AbsenceReason string
+
+const (
+	// AbsenceReasonIllness は体調不良。
+	AbsenceReasonIllness AbsenceReason = "illness"
+	// AbsenceReasonFamily は家庭の都合。
+	AbsenceReasonFamily AbsenceReason = "family"
+	// AbsenceReasonWeatherTransport は天候・交通。
+	AbsenceReasonWeatherTransport AbsenceReason = "weather_transport"
+	// AbsenceReasonOther はその他。
+	AbsenceReasonOther AbsenceReason = "other"
+)
+
+// IsValid は定義済みの欠席理由かどうかを返す。
+func (r AbsenceReason) IsValid() bool {
+	switch r {
+	case AbsenceReasonIllness, AbsenceReasonFamily, AbsenceReasonWeatherTransport, AbsenceReasonOther:
+		return true
+	default:
+		return false
+	}
+}
+
+// AbsenceEventRequest はイベント欠席連絡エンドポイントのリクエストボディ DTO（ADR-0031）。
+//
+//	@Description	申込期限経過後の参加キャンセルに必要な情報。認証必須。
+//	@Description	reason は任意（指定する場合は4値のいずれか）。detail は任意（trim 後200文字以内）。
+type AbsenceEventRequest struct {
+	// Reason は欠席理由（任意）。illness=体調不良 / family=家庭の都合 /
+	// weather_transport=天候・交通 / other=その他。
+	// フィールド省略・null・空文字はいずれも未指定として扱う。
+	Reason AbsenceReason `json:"reason" example:"illness"`
+	// Detail は欠席理由の詳細（任意・200文字以内）。
+	Detail string `json:"detail" example:"熱が出たため"`
+}
+
+// AbsenceEventResponse は欠席連絡完了時に返すレスポンス。
+//
+//	@Description	欠席連絡の結果。追記された参加状態ログ（action=absence）1件分の内容を返す。
+//	@Description	reason・detail は未指定で欠席連絡した場合 null。
+//	@Description	主催者宛ての欠席連絡メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。
+type AbsenceEventResponse struct {
+	// EventID は欠席連絡したイベントのUUID。
+	EventID uuid.UUID `json:"eventId" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	// ProfileID は欠席連絡したユーザーのUUID。absence は認証必須のため常に値が入る。
+	ProfileID uuid.UUID `json:"profileId" example:"b2c3d4e5-f6a7-8901-bcde-f23456789012"`
+	// Action は参加状態ログのアクション。常に "absence"。
+	Action string `json:"action" example:"absence"`
+	// Reason は記録された欠席理由。未指定時は null。
+	Reason *string `json:"reason" example:"illness" extensions:"x-nullable"`
+	// Detail は記録された欠席理由の詳細。未指定時は null。
+	Detail *string `json:"detail" example:"熱が出たため" extensions:"x-nullable"`
+	// CreatedAt は参加状態ログ（absence）の記録日時。
+	CreatedAt time.Time `json:"createdAt" example:"2026-09-02T12:00:00Z"`
+}
+
 // EventRecipient はイベント参加者への一斉送信の宛先1件分を表すモデル。
 // Repository 層で event_members から SELECT する際に使用する。
 type EventRecipient struct {

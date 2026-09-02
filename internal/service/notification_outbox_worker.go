@@ -35,7 +35,9 @@ const (
 type NotificationOutboxWorker struct {
 	outboxRepo repository.EventNotificationOutboxRepository
 	joinRepo   repository.EventJoinRepository
-	mailer     Mailer
+	// eventRepo は organizer 宛通知の宛先（主催者メールアドレス）解決に使う（ADR-0031）。
+	eventRepo repository.EventRepository
+	mailer    Mailer
 
 	// wakeCh はバッファ1の起床通知チャネル。イベントキャンセル直後など、
 	// 次のポーリング周期を待たずに即座に処理させたい場合に使う。
@@ -46,11 +48,13 @@ type NotificationOutboxWorker struct {
 func NewNotificationOutboxWorker(
 	outboxRepo repository.EventNotificationOutboxRepository,
 	joinRepo repository.EventJoinRepository,
+	eventRepo repository.EventRepository,
 	mailer Mailer,
 ) *NotificationOutboxWorker {
 	return &NotificationOutboxWorker{
 		outboxRepo: outboxRepo,
 		joinRepo:   joinRepo,
+		eventRepo:  eventRepo,
 		mailer:     mailer,
 		wakeCh:     make(chan struct{}, 1),
 	}
@@ -121,12 +125,13 @@ func (w *NotificationOutboxWorker) processDue(ctx context.Context) {
 
 // processOne は outbox 1行分の送信を試みる。
 //
-// 参加者が0件の場合は送信不要のため sent 扱いにする。送信に成功すれば sent、
-// 失敗すれば試行回数に応じて retry（次回試行日時を予約）または failed（最大試行回数
+// recipient_kind が organizer の行は主催者1人へ1通だけ送り、members の行は参加者全員へ
+// 送る（ADR-0031）。参加者が0件の場合は送信不要のため sent 扱いにする。送信に成功すれば
+// sent、失敗すれば試行回数に応じて retry（次回試行日時を予約）または failed（最大試行回数
 // 到達）を記録する。
 //
-// 宛先取得（ListRecipients）とメール送信（SendBatch）は ctx に従い、シャットダウンで
-// 中断されてよい（中断された行は pending のまま残り、次回起動で再送される）。
+// 宛先取得（GetOrganizerEmail / ListRecipients）とメール送信（SendBatch）は ctx に従い、
+// シャットダウンで中断されてよい（中断された行は pending のまま残り、次回起動で再送される）。
 // 一方、送信結果の後始末（MarkSent/MarkRetry/MarkFailed）は markCtx
 // （context.WithoutCancel(ctx)）で行う。SendBatch 成功後に ctx がキャンセルされていても
 // MarkSent を確実に完了させないと、「送信成功したのに pending のまま残り、次回起動で
@@ -136,6 +141,11 @@ func (w *NotificationOutboxWorker) processOne(ctx context.Context, item model.Ev
 	// context.WithoutCancel は親の値（slog 用のコンテキスト値等）は引き継ぎつつ、
 	// キャンセル・デッドラインだけを外す。
 	markCtx := context.WithoutCancel(ctx)
+
+	if item.RecipientKind == model.NotificationOutboxRecipientKindOrganizer {
+		w.processOrganizer(ctx, markCtx, item)
+		return
+	}
 
 	recipients, err := w.joinRepo.ListRecipients(ctx, item.EventID)
 	if err != nil {
@@ -165,6 +175,33 @@ func (w *NotificationOutboxWorker) processOne(ctx context.Context, item model.Ev
 		})
 	}
 
+	if err := w.mailer.SendBatch(ctx, emails); err != nil {
+		w.handleSendFailure(markCtx, item, err)
+		return
+	}
+
+	if err := w.outboxRepo.MarkSent(markCtx, item.ID); err != nil {
+		slog.Error("outbox の sent 更新に失敗しました",
+			slog.String("outbox_id", item.ID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+// processOrganizer は主催者宛の outbox 1行分の送信を試みる（ADR-0031）。
+// 主催者のメールアドレスは eventRepo.GetOrganizerEmail で解決し、1通だけ送信する
+// （ADR-0004 の個別送信）。解決できない場合は pending のまま残し、次回起動で再試行する。
+func (w *NotificationOutboxWorker) processOrganizer(ctx context.Context, markCtx context.Context, item model.EventNotificationOutbox) {
+	to, err := w.eventRepo.GetOrganizerEmail(ctx, item.EventID)
+	if err != nil {
+		slog.Error("outbox の宛先取得に失敗しました",
+			slog.String("outbox_id", item.ID.String()),
+			slog.Any("error", err),
+		)
+		return
+	}
+
+	emails := []Email{{To: to, Subject: item.Subject, Text: item.Body}}
 	if err := w.mailer.SendBatch(ctx, emails); err != nil {
 		w.handleSendFailure(markCtx, item, err)
 		return

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +38,15 @@ type stubEventJoinRepository struct {
 	memberByProfileErr          error
 	gotMemberByProfileEventID   uuid.UUID
 	gotMemberByProfileProfileID uuid.UUID
+	// Absence 返却値・引数記録。
+	absenceCreatedAt    time.Time
+	absenceErr          error
+	gotAbsenceEventID   uuid.UUID
+	gotAbsenceProfileID uuid.UUID
+	gotAbsenceReason    string
+	gotAbsenceDetail    string
+	gotAbsenceSubject   string
+	gotAbsenceBody      string
 }
 
 func (s *stubEventJoinRepository) Join(_ context.Context, member *model.EventMember) error {
@@ -73,6 +83,23 @@ func (s *stubEventJoinRepository) GetMemberByProfile(
 	s.gotMemberByProfileEventID = eventID
 	s.gotMemberByProfileProfileID = profileID
 	return s.memberByProfile, s.memberByProfileErr
+}
+
+func (s *stubEventJoinRepository) Absence(
+	_ context.Context,
+	eventID, profileID uuid.UUID,
+	reason, detail, subject, body string,
+) (time.Time, error) {
+	s.gotAbsenceEventID = eventID
+	s.gotAbsenceProfileID = profileID
+	s.gotAbsenceReason = reason
+	s.gotAbsenceDetail = detail
+	s.gotAbsenceSubject = subject
+	s.gotAbsenceBody = body
+	if s.absenceErr != nil {
+		return time.Time{}, s.absenceErr
+	}
+	return s.absenceCreatedAt, nil
 }
 
 // assertNotFoundError はテストヘルパー: err が *NotFoundError であることを確認する。
@@ -538,7 +565,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, nil)
 
 			resp, err := svc.Join(context.Background(), eventID, tt.profileID, tt.req)
 
@@ -580,11 +607,13 @@ func TestEventJoinServiceLeave(t *testing.T) {
 	createdAt := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
-		name         string
-		stub         *stubEventJoinRepository
-		wantNotFound bool
-		wantErr      bool
-		checkResp    func(t *testing.T, resp model.LeaveEventResponse)
+		name             string
+		stub             *stubEventJoinRepository
+		wantNotFound     bool
+		wantConflict     bool
+		wantConflictCode string // wantConflict=true のとき検証する ConflictError.Code
+		wantErr          bool
+		checkResp        func(t *testing.T, resp model.LeaveEventResponse)
 	}{
 		{
 			name: "正常: 参加取消 - レスポンスの全フィールドが正しく返る",
@@ -621,6 +650,12 @@ func TestEventJoinServiceLeave(t *testing.T) {
 			wantNotFound: true,
 		},
 		{
+			name:             "異常: 申込期限経過後は ConflictError（deadline_passed）を返す",
+			stub:             &stubEventJoinRepository{leaveErr: repository.ErrDeadlinePassed},
+			wantConflict:     true,
+			wantConflictCode: "deadline_passed",
+		},
+		{
 			name:    "異常: repo.Leave が想定外のエラーを返す",
 			stub:    &stubEventJoinRepository{leaveErr: errors.New("db error")},
 			wantErr: true,
@@ -629,13 +664,19 @@ func TestEventJoinServiceLeave(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, nil)
 
 			resp, err := svc.Leave(context.Background(), eventID, profileID)
 
 			switch {
 			case tt.wantNotFound:
 				_ = assertNotFoundError(t, err)
+				return
+			case tt.wantConflict:
+				ce := assertConflictError(t, err)
+				if ce.Code != tt.wantConflictCode {
+					t.Errorf("ConflictError.Code: got %q, want %q", ce.Code, tt.wantConflictCode)
+				}
 				return
 			case tt.wantErr:
 				if err == nil {
@@ -743,7 +784,7 @@ func TestEventJoinServiceGetMyApplication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, nil)
 
 			resp, err := svc.GetMyApplication(context.Background(), eventID, profileID)
 
@@ -779,6 +820,368 @@ func TestEventJoinServiceGetMyApplication(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEventJoinServiceAbsence(t *testing.T) {
+	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	profileID := uuid.MustParse("b2c3d4e5-f6a7-8901-bcde-f23456789012")
+	createdAt := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+
+	// 255文字のタイトル（「あ」×255）。
+	title255 := strings.Repeat("あ", 255)
+
+	tests := []struct {
+		name             string
+		joinStub         *stubEventJoinRepository
+		eventStub        *stubEventRepository
+		req              model.AbsenceEventRequest
+		wantValErr       bool
+		wantNotFound     bool
+		wantConflict     bool
+		wantConflictCode string
+		wantErr          bool
+		checkResp        func(t *testing.T, resp model.AbsenceEventResponse)
+		checkRepo        func(t *testing.T, joinStub *stubEventJoinRepository)
+	}{
+		{
+			name: "正常: レスポンスの全フィールドが正しく返り、文面にイベント名・参加者名・理由ラベル・詳細が入る",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile:  model.EventMember{Username: "山田太郎"},
+				absenceCreatedAt: createdAt,
+			},
+			eventStub: &stubEventRepository{title: "たき火観察会"},
+			req: model.AbsenceEventRequest{
+				Reason: model.AbsenceReasonIllness,
+				Detail: "熱が出たため",
+			},
+			checkResp: func(t *testing.T, resp model.AbsenceEventResponse) {
+				t.Helper()
+				if resp.EventID != eventID {
+					t.Errorf("EventID: got %v, want %v", resp.EventID, eventID)
+				}
+				if resp.ProfileID != profileID {
+					t.Errorf("ProfileID: got %v, want %v", resp.ProfileID, profileID)
+				}
+				if resp.Action != "absence" {
+					t.Errorf("Action: got %q, want %q", resp.Action, "absence")
+				}
+				if resp.Reason == nil || *resp.Reason != "illness" {
+					t.Errorf("Reason: got %v, want %q", resp.Reason, "illness")
+				}
+				if resp.Detail == nil || *resp.Detail != "熱が出たため" {
+					t.Errorf("Detail: got %v, want %q", resp.Detail, "熱が出たため")
+				}
+				if !resp.CreatedAt.Equal(createdAt) {
+					t.Errorf("CreatedAt: got %v, want %v", resp.CreatedAt, createdAt)
+				}
+			},
+			checkRepo: func(t *testing.T, joinStub *stubEventJoinRepository) {
+				t.Helper()
+				if joinStub.gotAbsenceEventID != eventID {
+					t.Errorf("gotAbsenceEventID: got %v, want %v", joinStub.gotAbsenceEventID, eventID)
+				}
+				if joinStub.gotAbsenceProfileID != profileID {
+					t.Errorf("gotAbsenceProfileID: got %v, want %v", joinStub.gotAbsenceProfileID, profileID)
+				}
+				if joinStub.gotAbsenceReason != "illness" {
+					t.Errorf("gotAbsenceReason: got %q, want %q", joinStub.gotAbsenceReason, "illness")
+				}
+				if joinStub.gotAbsenceDetail != "熱が出たため" {
+					t.Errorf("gotAbsenceDetail: got %q, want %q", joinStub.gotAbsenceDetail, "熱が出たため")
+				}
+				wantSubject := "【欠席連絡】「たき火観察会」への参加キャンセル"
+				if joinStub.gotAbsenceSubject != wantSubject {
+					t.Errorf("gotAbsenceSubject: got %q, want %q", joinStub.gotAbsenceSubject, wantSubject)
+				}
+				wantBody := "イベント名：たき火観察会\n参加者名：山田太郎\n欠席理由：体調不良\n詳細：熱が出たため"
+				if joinStub.gotAbsenceBody != wantBody {
+					t.Errorf("gotAbsenceBody: got %q, want %q", joinStub.gotAbsenceBody, wantBody)
+				}
+			},
+		},
+		{
+			name: "正常: detail 未入力 - 本文に詳細行が入らず response.Detail は nil",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile:  model.EventMember{Username: "山田太郎"},
+				absenceCreatedAt: createdAt,
+			},
+			eventStub: &stubEventRepository{title: "たき火観察会"},
+			req:       model.AbsenceEventRequest{Reason: model.AbsenceReasonWeatherTransport},
+			checkResp: func(t *testing.T, resp model.AbsenceEventResponse) {
+				t.Helper()
+				if resp.Detail != nil {
+					t.Errorf("Detail: got %q, want nil", *resp.Detail)
+				}
+			},
+			checkRepo: func(t *testing.T, joinStub *stubEventJoinRepository) {
+				t.Helper()
+				wantBody := "イベント名：たき火観察会\n参加者名：山田太郎\n欠席理由：天候・交通"
+				if joinStub.gotAbsenceBody != wantBody {
+					t.Errorf("gotAbsenceBody: got %q, want %q", joinStub.gotAbsenceBody, wantBody)
+				}
+			},
+		},
+		{
+			name: "正常: detail 前後の空白が trim されて repo へ渡る",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile:  model.EventMember{Username: "山田太郎"},
+				absenceCreatedAt: createdAt,
+			},
+			eventStub: &stubEventRepository{title: "たき火観察会"},
+			req: model.AbsenceEventRequest{
+				Reason: model.AbsenceReasonFamily,
+				Detail: "  兄弟の入学式に合わせる  ",
+			},
+			checkRepo: func(t *testing.T, joinStub *stubEventJoinRepository) {
+				t.Helper()
+				if joinStub.gotAbsenceDetail != "兄弟の入学式に合わせる" {
+					t.Errorf("gotAbsenceDetail trim: got %q, want %q", joinStub.gotAbsenceDetail, "兄弟の入学式に合わせる")
+				}
+			},
+		},
+		{
+			name: "正常: 各欠席理由のラベルが文面に反映される",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile:  model.EventMember{Username: "山田太郎"},
+				absenceCreatedAt: createdAt,
+			},
+			eventStub: &stubEventRepository{title: "たき火観察会"},
+			req:       model.AbsenceEventRequest{Reason: model.AbsenceReasonOther},
+			checkRepo: func(t *testing.T, joinStub *stubEventJoinRepository) {
+				t.Helper()
+				if !strings.Contains(joinStub.gotAbsenceBody, "欠席理由：その他") {
+					t.Errorf("gotAbsenceBody に「欠席理由：その他」が含まれていない: %q", joinStub.gotAbsenceBody)
+				}
+			},
+		},
+		{
+			name: "正常: title が255文字でも件名が255文字以内に収まる",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile:  model.EventMember{Username: "山田太郎"},
+				absenceCreatedAt: createdAt,
+			},
+			eventStub: &stubEventRepository{title: title255},
+			req:       model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+			checkRepo: func(t *testing.T, joinStub *stubEventJoinRepository) {
+				t.Helper()
+				if n := len([]rune(joinStub.gotAbsenceSubject)); n > 255 {
+					t.Errorf("gotAbsenceSubject の rune 数 = %d, want <= 255", n)
+				}
+				if !strings.HasPrefix(joinStub.gotAbsenceSubject, "【欠席連絡】「") {
+					t.Errorf("gotAbsenceSubject が期待の形式で始まっていない: %q", joinStub.gotAbsenceSubject)
+				}
+				if !strings.HasSuffix(joinStub.gotAbsenceSubject, "」への参加キャンセル") {
+					t.Errorf("gotAbsenceSubject が期待の形式で終わっていない: %q", joinStub.gotAbsenceSubject)
+				}
+			},
+		},
+		{
+			name: "正常: 詳細が200文字ちょうどは受け付けられる",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile:  model.EventMember{Username: "山田太郎"},
+				absenceCreatedAt: createdAt,
+			},
+			eventStub: &stubEventRepository{title: "たき火観察会"},
+			req: model.AbsenceEventRequest{
+				Reason: model.AbsenceReasonIllness,
+				Detail: strings.Repeat("あ", 200),
+			},
+		},
+		{
+			name: "異常: reason が4値以外",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile: model.EventMember{Username: "山田太郎"},
+			},
+			eventStub:  &stubEventRepository{title: "たき火観察会"},
+			req:        model.AbsenceEventRequest{Reason: model.AbsenceReason("sick")},
+			wantValErr: true,
+		},
+		{
+			name: "正常: reason 未指定 - repo へ空文字が渡り、本文は「記載なし」、response.Reason は nil",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile:  model.EventMember{Username: "山田太郎"},
+				absenceCreatedAt: createdAt,
+			},
+			eventStub: &stubEventRepository{title: "たき火観察会"},
+			req:       model.AbsenceEventRequest{Detail: "熱が出たため"},
+			checkResp: func(t *testing.T, resp model.AbsenceEventResponse) {
+				t.Helper()
+				if resp.Reason != nil {
+					t.Errorf("Reason: got %q, want nil", *resp.Reason)
+				}
+			},
+			checkRepo: func(t *testing.T, joinStub *stubEventJoinRepository) {
+				t.Helper()
+				if joinStub.gotAbsenceReason != "" {
+					t.Errorf("gotAbsenceReason: got %q, want empty", joinStub.gotAbsenceReason)
+				}
+				wantBody := "イベント名：たき火観察会\n参加者名：山田太郎\n欠席理由：記載なし\n詳細：熱が出たため"
+				if joinStub.gotAbsenceBody != wantBody {
+					t.Errorf("gotAbsenceBody: got %q, want %q", joinStub.gotAbsenceBody, wantBody)
+				}
+			},
+		},
+		{
+			name: "異常: detail が201文字",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile: model.EventMember{Username: "山田太郎"},
+			},
+			eventStub: &stubEventRepository{title: "たき火観察会"},
+			req: model.AbsenceEventRequest{
+				Reason: model.AbsenceReasonIllness,
+				Detail: strings.Repeat("あ", 201),
+			},
+			wantValErr: true,
+		},
+		{
+			name:         "異常: 未参加（NotFoundError）",
+			joinStub:     &stubEventJoinRepository{memberByProfileErr: repository.ErrNotJoined},
+			eventStub:    &stubEventRepository{title: "たき火観察会"},
+			req:          model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+			wantNotFound: true,
+		},
+		{
+			name:         "異常: イベントが存在しない（NotFoundError）",
+			joinStub:     &stubEventJoinRepository{memberByProfileErr: repository.ErrEventNotFound},
+			eventStub:    &stubEventRepository{title: "たき火観察会"},
+			req:          model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+			wantNotFound: true,
+		},
+		{
+			name: "異常: GetTitle がイベント不存在（NotFoundError）",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile:  model.EventMember{Username: "山田太郎"},
+				absenceCreatedAt: createdAt,
+			},
+			eventStub:    &stubEventRepository{titleErr: fmtWrap(repository.ErrEventNotFound)},
+			req:          model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+			wantNotFound: true,
+		},
+		{
+			name: "異常: GetTitle が想定外のエラーを返す",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile: model.EventMember{Username: "山田太郎"},
+			},
+			eventStub: &stubEventRepository{titleErr: fmtWrap(errors.New("db error"))},
+			req:       model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+			wantErr:   true,
+		},
+		{
+			name: "異常: 申込期限前（ConflictError before_deadline）",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile: model.EventMember{Username: "山田太郎"},
+				absenceErr:      repository.ErrAbsenceBeforeDeadline,
+			},
+			eventStub:        &stubEventRepository{title: "たき火観察会"},
+			req:              model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+			wantConflict:     true,
+			wantConflictCode: "before_deadline",
+		},
+		{
+			name: "異常: イベント終了後（ConflictError event_ended）",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile: model.EventMember{Username: "山田太郎"},
+				absenceErr:      repository.ErrEventEnded,
+			},
+			eventStub:        &stubEventRepository{title: "たき火観察会"},
+			req:              model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+			wantConflict:     true,
+			wantConflictCode: "event_ended",
+		},
+		{
+			name: "異常: イベント取消済み（ConflictError event_cancelled）",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile: model.EventMember{Username: "山田太郎"},
+				absenceErr:      repository.ErrEventCancelled,
+			},
+			eventStub:        &stubEventRepository{title: "たき火観察会"},
+			req:              model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+			wantConflict:     true,
+			wantConflictCode: "event_cancelled",
+		},
+		{
+			name: "異常: sentinel をラップ済みでも ConflictError に変換される",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile: model.EventMember{Username: "山田太郎"},
+				absenceErr:      fmtWrap(repository.ErrEventEnded),
+			},
+			eventStub:        &stubEventRepository{title: "たき火観察会"},
+			req:              model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+			wantConflict:     true,
+			wantConflictCode: "event_ended",
+		},
+		{
+			name: "異常: repo.Absence が想定外のエラーを返す",
+			joinStub: &stubEventJoinRepository{
+				memberByProfile: model.EventMember{Username: "山田太郎"},
+				absenceErr:      errors.New("db error"),
+			},
+			eventStub: &stubEventRepository{title: "たき火観察会"},
+			req:       model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wakeCalled := false
+			wake := func() { wakeCalled = true }
+			svc := NewEventJoinService(tt.joinStub, tt.eventStub, wake)
+
+			resp, err := svc.Absence(context.Background(), eventID, profileID, tt.req)
+
+			switch {
+			case tt.wantValErr:
+				_ = assertValidationError(t, err)
+				return
+			case tt.wantNotFound:
+				_ = assertNotFoundError(t, err)
+				return
+			case tt.wantConflict:
+				ce := assertConflictError(t, err)
+				if tt.wantConflictCode != "" && ce.Code != tt.wantConflictCode {
+					t.Errorf("ConflictError.Code: got %q, want %q", ce.Code, tt.wantConflictCode)
+				}
+				return
+			case tt.wantErr:
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				return
+			}
+
+			assertNoErr(t, err)
+
+			if !wakeCalled {
+				t.Error("wake が呼ばれていない（outbox 予約後の起床通知が行われていない）")
+			}
+			if tt.checkResp != nil {
+				tt.checkResp(t, resp)
+			}
+			if tt.checkRepo != nil {
+				tt.checkRepo(t, tt.joinStub)
+			}
+		})
+	}
+}
+
+func TestEventJoinServiceAbsence_WakeNil(t *testing.T) {
+	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	profileID := uuid.MustParse("b2c3d4e5-f6a7-8901-bcde-f23456789012")
+
+	svc := NewEventJoinService(
+		&stubEventJoinRepository{memberByProfile: model.EventMember{Username: "山田太郎"}},
+		&stubEventRepository{title: "たき火観察会"},
+		nil,
+	)
+
+	_, err := svc.Absence(
+		context.Background(),
+		eventID,
+		profileID,
+		model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
+	)
+	assertNoErr(t, err)
 }
 
 // fmtWrap は sentinel エラーを %w でラップした状態を再現するヘルパー。
@@ -1051,7 +1454,7 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.joinStub, tt.eventStub)
+			svc := NewEventJoinService(tt.joinStub, tt.eventStub, nil)
 
 			resp, err := svc.ListMembers(context.Background(), tt.profileID, tt.eventID)
 

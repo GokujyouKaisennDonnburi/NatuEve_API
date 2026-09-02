@@ -16,6 +16,15 @@ const (
 	NotificationOutboxStatusFailed  = "failed"
 )
 
+// イベント通知 outbox（event_notification_outbox）の recipient_kind 値（ADR-0031）。
+//
+// members: 従来の参加者全員宛（event_members から宛先を解決）/
+// organizer: 主催者1人宛（events JOIN profiles の email から宛先を解決）。
+const (
+	NotificationOutboxRecipientKindMembers   = "members"
+	NotificationOutboxRecipientKindOrganizer = "organizer"
+)
+
 // EventNotificationOutbox は event_notification_outbox テーブルと対応するドメインモデル。
 //
 // Transactional Outbox パターンにより、イベントキャンセル確定と同一トランザクションで
@@ -25,8 +34,11 @@ const (
 type EventNotificationOutbox struct {
 	ID      uuid.UUID
 	EventID uuid.UUID
-	Subject string
-	Body    string
+	// RecipientKind は宛先種別。NotificationOutboxRecipientKindMembers /
+	// NotificationOutboxRecipientKindOrganizer のいずれか。
+	RecipientKind string
+	Subject       string
+	Body          string
 	// Status は NotificationOutboxStatusPending / Sent / Failed のいずれか。
 	Status string
 	// Attempts は送信を試みた回数。

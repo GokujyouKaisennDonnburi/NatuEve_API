@@ -28,6 +28,17 @@ var ErrEventCancelled = errors.New("event cancelled")
 // ErrNotJoined は参加キャンセル時に、そのイベントに参加していない場合に返されるエラー。
 var ErrNotJoined = errors.New("not joined")
 
+// ErrDeadlinePassed は参加キャンセル時に、申込期限（events.application_deadline）が
+// 経過している場合に返されるエラー（ADR-0031）。
+var ErrDeadlinePassed = errors.New("deadline passed")
+
+// ErrAbsenceBeforeDeadline は欠席連絡時に、申込期限（events.application_deadline）前
+// である場合に返されるエラー（ADR-0031）。
+var ErrAbsenceBeforeDeadline = errors.New("absence before deadline")
+
+// ErrEventEnded は欠席連絡時に、イベントの end_date が経過している場合に返されるエラー（ADR-0031）。
+var ErrEventEnded = errors.New("event ended")
+
 // ErrCategoryNotFound は申込で指定されたカテゴリがそのイベントの費用カテゴリに存在しない場合に返されるエラー。
 var ErrCategoryNotFound = errors.New("participant category not found")
 
@@ -64,14 +75,32 @@ type EventJoinRepository interface {
 
 	// Leave はログイン参加者のイベント参加を1トランザクションで取り消す。
 	//
-	// event_members から (event_id, profile_id) 一致行を DELETE し、同一トランザクション内で
-	// event_participation_logs に action='leave' を1件追記する。参加取消とログ追記を原子的に行い、
-	// 片方だけ成功する不整合を防ぐ。成功時は追記した leave ログの created_at を返す。
+	// events を FOR UPDATE でロックして存在確認・申込期限の取得を行い、event_members から
+	// (event_id, profile_id) 一致行を DELETE し、同一トランザクション内で
+	// event_participation_logs に action='leave' を1件追記する。参加取消とログ追記を
+	// 原子的に行い、片方だけ成功する不整合を防ぐ。成功時は追記した leave ログの created_at を返す。
 	// 匿名参加（profile_id NULL）は profile_id で識別できず、本メソッドの対象外。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
 	//   - ErrNotJoined: そのイベントに参加していない（削除対象行なし）
+	//   - ErrDeadlinePassed: 申込期限ありイベントで期限経過後（期限後のキャンセルは欠席連絡 API を利用。ADR-0031）
 	Leave(ctx context.Context, eventID, profileID uuid.UUID) (time.Time, error)
+
+	// Absence はログイン参加者の欠席連絡を1トランザクションで受け付ける（ADR-0031）。
+	//
+	// events を FOR UPDATE でロックして存在確認・取消状態・申込期限・end_date の取得を行い、
+	// event_members から (event_id, profile_id) 一致行を DELETE、event_participation_logs へ
+	// action='absence'・reason・detail を1件追記、event_notification_outbox へ
+	// recipient_kind='organizer' の通知予約（subject/body）を1件 INSERT する。すべて同一
+	// トランザクション内で原子的に行い、追記した absence ログの created_at を返す。
+	// detail が空文字の場合は participation_logs の detail には NULL を保存する。
+	// 失敗時は次の sentinel エラーを %w でラップして返す:
+	//   - ErrEventNotFound: イベントが存在しない
+	//   - ErrNotJoined: そのイベントに参加していない（削除対象行なし）
+	//   - ErrEventCancelled: イベントが取りやめになっている
+	//   - ErrAbsenceBeforeDeadline: 申込期限ありイベントで期限前（期限前のキャンセルは leave を利用）
+	//   - ErrEventEnded: end_date 経過後
+	Absence(ctx context.Context, eventID, profileID uuid.UUID, reason, detail, subject, body string) (time.Time, error)
 
 	// ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
 	ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error)
@@ -347,7 +376,8 @@ func (r *eventJoinPostgres) Join(
 }
 
 // Leave はログイン参加者のイベント参加を取り消す。
-// event_members から (event_id, profile_id) 一致行を DELETE し、同一トランザクション内で
+// events を FOR UPDATE でロックして存在確認と申込期限の取得を行い、event_members から
+// (event_id, profile_id) 一致行を DELETE し、同一トランザクション内で
 // event_participation_logs に action='leave' を1件追記して、その created_at を返す。
 func (r *eventJoinPostgres) Leave(
 	ctx context.Context,
@@ -360,8 +390,32 @@ func (r *eventJoinPostgres) Leave(
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	// イベント行をロックして存在確認と申込期限の取得を同時に行う。
+	const lockEvent = `
+	SELECT application_deadline
+	FROM events
+	WHERE id = $1
+	FOR UPDATE
+	`
+
+	var deadline sql.NullTime
+	err = tx.QueryRowContext(ctx, lockEvent, eventID).Scan(&deadline)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("lock event: %w", err)
+	}
+
+	// 申込期限ありイベントで期限経過後のキャンセルは拒否する。
+	// 期限なし（NULL）は期限の概念がないため常時可（ADR-0031）。
+	if deadline.Valid && time.Now().After(deadline.Time) {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrDeadlinePassed)
+	}
+
 	// 参加行を削除する。ログイン参加者は1イベントにつき高々1行のため、
 	// (event_id, profile_id) で一意に対象を特定できる。
+	// イベント存在は手前で確認済みのため、削除対象なしは未参加のみ。
 	const deleteMember = `
 	DELETE FROM event_members
 	WHERE event_id = $1
@@ -376,17 +430,7 @@ func (r *eventJoinPostgres) Leave(
 	if err != nil {
 		return time.Time{}, fmt.Errorf("rows affected: %w", err)
 	}
-
-	// 削除対象が無い場合、イベント不存在と未参加を区別してエラーを返す。
 	if affected == 0 {
-		const existsEvent = `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)`
-		var exists bool
-		if err := tx.QueryRowContext(ctx, existsEvent, eventID).Scan(&exists); err != nil {
-			return time.Time{}, fmt.Errorf("exists event: %w", err)
-		}
-		if !exists {
-			return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
-		}
 		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrNotJoined)
 	}
 
@@ -410,6 +454,145 @@ func (r *eventJoinPostgres) Leave(
 		profileID,
 	).Scan(&createdAt); err != nil {
 		return time.Time{}, fmt.Errorf("insert participation log: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return time.Time{}, fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return createdAt, nil
+}
+
+// Absence はログイン参加者の欠席連絡を受け付ける（ADR-0031）。
+// events の状態確認 → event_members の該当行 DELETE → event_participation_logs へ
+// action='absence'・reason・detail の追記 → event_notification_outbox へ
+// recipient_kind='organizer' の通知予約、を1トランザクションで原子的に行い、
+// 追記した absence ログの created_at を返す。
+func (r *eventJoinPostgres) Absence(
+	ctx context.Context,
+	eventID, profileID uuid.UUID,
+	reason, detail, subject, body string,
+) (time.Time, error) {
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// イベント行をロックして存在確認・キャンセル状態・申込期限・終了日時の取得を同時に行う。
+	const lockEvent = `
+	SELECT cancelled_at, application_deadline, end_date
+	FROM events
+	WHERE id = $1
+	FOR UPDATE
+	`
+
+	var (
+		cancelledAt sql.NullTime
+		deadline    sql.NullTime
+		endDate     time.Time
+	)
+	err = tx.QueryRowContext(ctx, lockEvent, eventID).Scan(&cancelledAt, &deadline, &endDate)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("lock event: %w", err)
+	}
+	if cancelledAt.Valid {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventCancelled)
+	}
+
+	now := time.Now()
+	// 申込期限ありイベントで期限前の欠席連絡は拒否する（期限前のキャンセルは leave を利用。
+	// ADR-0031）。期限ちょうど（now == deadline）は期限経過として受付可。
+	if deadline.Valid && now.Before(deadline.Time) {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrAbsenceBeforeDeadline)
+	}
+	// end_date 経過後の欠席連絡は拒否する。end_date は NOT NULL のため NULL 判定は不要。
+	if now.After(endDate) {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventEnded)
+	}
+
+	// 参加行を削除する。ログイン参加者は1イベントにつき高々1行のため、
+	// (event_id, profile_id) で一意に対象を特定できる。
+	// イベント存在は手前で確認済みのため、削除対象なしは未参加のみ。
+	const deleteMember = `
+	DELETE FROM event_members
+	WHERE event_id = $1
+	AND profile_id = $2
+	`
+
+	res, err := tx.ExecContext(ctx, deleteMember, eventID, profileID)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("delete member: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("rows affected: %w", err)
+	}
+	if affected == 0 {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrNotJoined)
+	}
+
+	// 欠席連絡と同時に、参加状態ログへ reason・detail 付きの absence を追記する
+	// （同一トランザクション内で原子的に）。reason・detail は空文字の場合 NULL として保存する。
+	const insertParticipationLog = `
+	INSERT INTO event_participation_logs(
+		event_id,
+		profile_id,
+		action,
+		reason,
+		detail
+	)
+	VALUES($1, $2, 'absence', $3, $4)
+	RETURNING created_at
+	`
+
+	reasonCol := sql.NullString{}
+	if reason != "" {
+		reasonCol = sql.NullString{String: reason, Valid: true}
+	}
+
+	detailCol := sql.NullString{}
+	if detail != "" {
+		detailCol = sql.NullString{String: detail, Valid: true}
+	}
+
+	var createdAt time.Time
+	if err := tx.QueryRowContext(
+		ctx,
+		insertParticipationLog,
+		eventID,
+		profileID,
+		reasonCol,
+		detailCol,
+	).Scan(&createdAt); err != nil {
+		return time.Time{}, fmt.Errorf("insert participation log: %w", err)
+	}
+
+	// 主催者宛ての欠席連絡メールを outbox に予約する（Transactional Outbox パターン。ADR-0031）。
+	// 宛先は送信直前にワーカーが events JOIN profiles から解決する。
+	const insertOutbox = `
+	INSERT INTO event_notification_outbox(
+		event_id,
+		recipient_kind,
+		subject,
+		body
+	)
+	VALUES($1, $2, $3, $4)
+	`
+
+	if _, err := tx.ExecContext(
+		ctx,
+		insertOutbox,
+		eventID,
+		model.NotificationOutboxRecipientKindOrganizer,
+		subject,
+		body,
+	); err != nil {
+		return time.Time{}, fmt.Errorf("insert notification outbox: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
