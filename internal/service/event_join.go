@@ -106,6 +106,8 @@ func (s *EventJoinService) Join(
 			return model.JoinEventResponse{}, &ConflictError{Code: "capacity_full", Message: "定員に達しています"}
 		case errors.Is(err, repository.ErrEventCancelled):
 			return model.JoinEventResponse{}, &ConflictError{Code: "event_cancelled", Message: "このイベントはキャンセルされているため参加できません"}
+		case errors.Is(err, repository.ErrDeadlinePassed):
+			return model.JoinEventResponse{}, &ConflictError{Code: "deadline_passed", Message: "申込期限を過ぎているため申し込めません"}
 		case errors.Is(err, repository.ErrCategoryNotFound):
 			return model.JoinEventResponse{}, &ValidationError{Message: "指定された参加者カテゴリはこのイベントに存在しません"}
 		case errors.Is(err, repository.ErrDuplicateCategory):

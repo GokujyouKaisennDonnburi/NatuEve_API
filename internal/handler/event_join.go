@@ -34,6 +34,8 @@ func conflictCode(ce *service.ConflictError) string {
 //	@Description	合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。
 //	@Description	0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。
 //	@Description	イベント定員を超える場合は409 Conflict（capacity_full）を返す。
+//	@Description	申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す
+//	@Description	（期限なしイベントは常時申し込める）。
 //	@Tags			event
 //	@Accept			json
 //	@Produce		json
@@ -44,7 +46,7 @@ func conflictCode(ce *service.ConflictError) string {
 //	@Failure		400		{object}	model.ValidationErrorResponse
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		404		{object}	model.NotFoundErrorResponse
-//	@Failure		409		{object}	model.JoinConflictErrorResponse	"already_joined: 既に参加しています / capacity_full: 定員に達しています"
+//	@Failure		409		{object}	model.JoinConflictErrorResponse	"already_joined: 既に参加しています / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後"
 //	@Failure		413		{object}	model.RequestTooLargeErrorResponse
 //	@Failure		429		{object}	model.RateLimitedErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse

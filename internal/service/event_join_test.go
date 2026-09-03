@@ -476,6 +476,14 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			wantConflictCode: "event_cancelled",
 		},
 		{
+			name:             "異常: 申込期限経過後（ConflictError deadline_passed）",
+			stub:             &stubEventJoinRepository{joinErr: repository.ErrDeadlinePassed},
+			profileID:        loggedInProfileID,
+			req:              validReq,
+			wantConflict:     true,
+			wantConflictCode: "deadline_passed",
+		},
+		{
 			name:      "異常: participants が空",
 			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: loggedInProfileID,
