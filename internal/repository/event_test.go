@@ -779,7 +779,7 @@ func insertTestEventWithTitle(t *testing.T, db *sql.DB, profileID uuid.UUID, tit
 }
 
 // insertTestEventWithEndDate はテスト用の events 行を1件、指定した end_date で作成する。
-// insertTestEvent は event_date/end_date とも現在時刻固定のため、終了済み/開催中を
+// insertTestEvent は event_date が現在時刻・end_date が1時間後固定のため、終了済み/開催中を
 // 作り分けたいテスト（マイページのapplied/attended境界の検証等）ではこちらを使う。
 // event_date は events_end_date_after_event_date 制約(end_date >= event_date)を満たすよう
 // endDate の1時間前に固定する（endDate が過去でも未来でも成立する）。
