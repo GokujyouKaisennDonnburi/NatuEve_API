@@ -36,7 +36,8 @@ var ErrDeadlinePassed = errors.New("deadline passed")
 // である場合に返されるエラー（ADR-0031）。
 var ErrAbsenceBeforeDeadline = errors.New("absence before deadline")
 
-// ErrEventEnded は欠席連絡時に、イベントの end_date が経過している場合に返されるエラー（ADR-0031）。
+// ErrEventEnded は参加申込・欠席連絡時に、イベントの end_date が経過している場合に
+// 返されるエラー（ADR-0029・ADR-0031）。
 var ErrEventEnded = errors.New("event ended")
 
 // ErrCategoryNotFound は申込で指定されたカテゴリがそのイベントの費用カテゴリに存在しない場合に返されるエラー。
@@ -71,6 +72,7 @@ type EventJoinRepository interface {
 	//   - ErrAlreadyJoined: 同一 mail_address（大文字小文字無視）またはログイン時は同一 profile_id で参加済み
 	//   - ErrEventCapacityFull: 定員超過（定員 NULL / 0 は定員なし）
 	//   - ErrDeadlinePassed: 申込期限ありイベントで期限経過後（ADR-0029）
+	//   - ErrEventEnded: end_date 経過後（ADR-0029）
 	//   - ErrCategoryNotFound: 指定カテゴリがそのイベントの費用カテゴリに存在しない
 	//   - ErrDuplicateCategory: 同一カテゴリが内訳で重複している
 	Join(ctx context.Context, member *model.EventMember) error
