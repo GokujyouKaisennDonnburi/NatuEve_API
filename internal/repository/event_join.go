@@ -67,6 +67,7 @@ type EventJoinRepository interface {
 	// ログ対象外（event_participation_logs.profile_id が NOT NULL のため）。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
+	//   - ErrEventCancelled: イベントが取りやめになっている
 	//   - ErrAlreadyJoined: 同一 mail_address（大文字小文字無視）またはログイン時は同一 profile_id で参加済み
 	//   - ErrEventCapacityFull: 定員超過（定員 NULL / 0 は定員なし）
 	//   - ErrDeadlinePassed: 申込期限ありイベントで期限経過後（ADR-0029）
