@@ -24,7 +24,10 @@
 3. マイグレーションは既存ファイル `db/migrations/20260622140000_create_events.sql` の `CREATE TABLE` を直接編集する（テーブル定義を 1 か所で読めるようにする既存の運用に従う）。
 4. 投稿 API `POST /api/v1/events` は `applicationDeadline`（RFC3339・任意）で受け取る。未指定（Go のゼロ値）は「期限なし」として NULL を保存する。
 5. サービス層は「指定時は終了日時以前」を検証し、違反は 400 で返す。`endDate` 省略時は補完後の値（＝`eventDate`）を上限とする。過去日時の申込期限は許可する。
-6. 単体取得（`EventResponse`）と一覧（`EventSummary`）の双方で `applicationDeadline` を返す。期限なしのときはキーごと省略する（`*time.Time` + `omitempty`）。`EventSummary` は一覧・マイページ・プロフィールの 3 エンドポイントで共有しているため、3 つに同時に露出する。
+6. 参加申込 `POST /api/v1/events/{id}/join` は、期限ありイベントで期限経過後の申込を
+   409 `deadline_passed` で拒否する。期限なし（NULL）は常時申し込める。判定は
+   `Leave` と同じく events 行を `FOR UPDATE` でロックしたトランザクション内で行う。
+7. 単体取得（`EventResponse`）と一覧（`EventSummary`）の双方で `applicationDeadline` を返す。期限なしのときはキーごと省略する（`*time.Time` + `omitempty`）。`EventSummary` は一覧・マイページ・プロフィールの 3 エンドポイントで共有しているため、3 つに同時に露出する。
 
 ## 理由
 
