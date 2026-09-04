@@ -49,7 +49,7 @@ func NewEventNotificationOutboxRepository(db *sql.DB) EventNotificationOutboxRep
 // next_attempt_at 昇順で取得する。
 func (r *eventNotificationOutboxPostgres) ListDue(ctx context.Context, now time.Time, limit int) ([]model.EventNotificationOutbox, error) {
 	const query = `
-		SELECT id, event_id, subject, body, status, attempts, next_attempt_at,
+		SELECT id, event_id, recipient_kind, subject, body, status, attempts, next_attempt_at,
 		       last_error, sent_at, created_at, updated_at
 		FROM event_notification_outbox
 		WHERE status = $1 AND next_attempt_at <= $2
@@ -72,6 +72,7 @@ func (r *eventNotificationOutboxPostgres) ListDue(ctx context.Context, now time.
 		if err := rows.Scan(
 			&item.ID,
 			&item.EventID,
+			&item.RecipientKind,
 			&item.Subject,
 			&item.Body,
 			&item.Status,

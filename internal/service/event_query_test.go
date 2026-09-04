@@ -78,6 +78,10 @@ type stubEventRepository struct {
 	cancelErr        error
 	gotCancelSubject string
 	gotCancelBody    string
+	// GetOrganizerEmail 用: 返却値・引数記録。
+	organizerEmail           string
+	organizerEmailErr        error
+	gotOrganizerEmailEventID uuid.UUID
 }
 
 func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
@@ -152,6 +156,11 @@ func (s *stubEventRepository) CancelWithNotification(_ context.Context, _ uuid.U
 	s.gotCancelSubject = subject
 	s.gotCancelBody = body
 	return s.cancelResult, s.cancelErr
+}
+
+func (s *stubEventRepository) GetOrganizerEmail(_ context.Context, eventID uuid.UUID) (string, error) {
+	s.gotOrganizerEmailEventID = eventID
+	return s.organizerEmail, s.organizerEmailErr
 }
 
 // makeHelper はテストヘルパー共通処理を担う。

@@ -44,11 +44,17 @@ func (e *ConflictError) Error() string {
 type EventJoinService struct {
 	joinRepo  repository.EventJoinRepository
 	eventRepo repository.EventRepository
+	// wake は欠席連絡の通知予約後にバックグラウンドワーカーを起床させる。
+	// nil 安全（未設定＝呼ばない）。NotificationOutboxWorker.Wake はメソッド自体も
+	// nil レシーバ安全なため、ワーカー未生成環境（Resend 未設定）でも
+	// worker.Wake をそのまま渡してよい。
+	wake func()
 }
 
 // NewEventJoinService は Service を生成する。
-func NewEventJoinService(joinRepo repository.EventJoinRepository, eventRepo repository.EventRepository) *EventJoinService {
-	return &EventJoinService{joinRepo: joinRepo, eventRepo: eventRepo}
+// wake は nil でも可（未設定時は Absence 後の起床通知を行わない）。
+func NewEventJoinService(joinRepo repository.EventJoinRepository, eventRepo repository.EventRepository, wake func()) *EventJoinService {
+	return &EventJoinService{joinRepo: joinRepo, eventRepo: eventRepo, wake: wake}
 }
 
 // Join はイベント参加処理を行う。
@@ -160,6 +166,11 @@ func (s *EventJoinService) Leave(
 			return model.LeaveEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
 		case errors.Is(err, repository.ErrNotJoined):
 			return model.LeaveEventResponse{}, &NotFoundError{Message: "このイベントに参加していません"}
+		case errors.Is(err, repository.ErrDeadlinePassed):
+			return model.LeaveEventResponse{}, &ConflictError{
+				Code:    "deadline_passed",
+				Message: "申込期限経過後のキャンセルは欠席連絡 API を利用してください",
+			}
 		}
 		return model.LeaveEventResponse{}, fmt.Errorf("leave event: %w", err)
 	}
@@ -170,6 +181,176 @@ func (s *EventJoinService) Leave(
 		Action:    "leave",
 		CreatedAt: createdAt,
 	}, nil
+}
+
+// absenceDetailMaxLen は欠席理由の詳細（detail）の最大文字数（ADR-0031）。
+const absenceDetailMaxLen = 200
+
+// 欠席連絡メールの件名プレフィックス・サフィックス。件名は
+// 「【欠席連絡】「{title}」への参加キャンセル」という形式で組み立てる。
+const (
+	absenceSubjectPrefix = "【欠席連絡】「"
+	absenceSubjectSuffix = "」への参加キャンセル"
+)
+
+// Absence はログイン参加者の欠席連絡を受け付ける（ADR-0031）。
+//
+// 参加行の削除・参加状態ログ（action='absence'）の追記・主催者宛通知の outbox 予約は
+// repository が1トランザクションで原子的に行い、結果は sentinel エラーで返るため
+// ここで HTTP 向けエラーに変換する。
+// メール文面はサーバーが組み立て、クライアントからは送らない。
+// leave は認証必須のため profileID は常に有効値。匿名参加はこの経路の対象外。
+func (s *EventJoinService) Absence(
+	ctx context.Context,
+	eventID, profileID uuid.UUID,
+	req model.AbsenceEventRequest,
+) (model.AbsenceEventResponse, error) {
+
+	// バリデーション
+	if err := validateAbsenceEventRequest(req); err != nil {
+		return model.AbsenceEventResponse{}, err
+	}
+
+	// メール文面に使う参加者名を取得する。未参加は Leave と同じ文言の NotFoundError。
+	member, err := s.joinRepo.GetMemberByProfile(ctx, eventID, profileID)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrEventNotFound):
+			return model.AbsenceEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
+		case errors.Is(err, repository.ErrNotJoined):
+			return model.AbsenceEventResponse{}, &NotFoundError{Message: "このイベントに参加していません"}
+		}
+		return model.AbsenceEventResponse{}, fmt.Errorf("get member by profile: %w", err)
+	}
+
+	// 件名に載せるイベントタイトルを取得する。GetMemberByProfile 通過後も
+	// イベント削除と競合しうるため ErrEventNotFound は NotFoundError に変換する。
+	title, err := s.eventRepo.GetTitle(ctx, eventID.String())
+	if err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return model.AbsenceEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
+		}
+		return model.AbsenceEventResponse{}, fmt.Errorf("get event title: %w", err)
+	}
+
+	detail := strings.TrimSpace(req.Detail)
+	subject, body := buildAbsenceNotification(title, member.Username, req.Reason, detail)
+
+	createdAt, err := s.joinRepo.Absence(ctx, eventID, profileID, string(req.Reason), detail, subject, body)
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrEventNotFound):
+			return model.AbsenceEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
+		case errors.Is(err, repository.ErrNotJoined):
+			return model.AbsenceEventResponse{}, &NotFoundError{Message: "このイベントに参加していません"}
+		case errors.Is(err, repository.ErrAbsenceBeforeDeadline):
+			return model.AbsenceEventResponse{}, &ConflictError{
+				Code:    "before_deadline",
+				Message: "申込期限前に欠席連絡はできません。参加キャンセル API を利用してください",
+			}
+		case errors.Is(err, repository.ErrEventEnded):
+			return model.AbsenceEventResponse{}, &ConflictError{
+				Code:    "event_ended",
+				Message: "イベントは終了しているため欠席連絡できません",
+			}
+		case errors.Is(err, repository.ErrEventCancelled):
+			return model.AbsenceEventResponse{}, &ConflictError{
+				Code:    "event_cancelled",
+				Message: "このイベントはキャンセルされているため欠席連絡できません",
+			}
+		}
+		return model.AbsenceEventResponse{}, fmt.Errorf("absence event: %w", err)
+	}
+
+	if s.wake != nil {
+		s.wake()
+	}
+
+	// 未指定の reason・detail は DB の NULL と揃えてレスポンスでも null で返す。
+	var reasonResp *string
+	if req.Reason != "" {
+		r := string(req.Reason)
+		reasonResp = &r
+	}
+	var detailResp *string
+	if detail != "" {
+		d := detail
+		detailResp = &d
+	}
+
+	return model.AbsenceEventResponse{
+		EventID:   eventID,
+		ProfileID: profileID,
+		Action:    "absence",
+		Reason:    reasonResp,
+		Detail:    detailResp,
+		CreatedAt: createdAt,
+	}, nil
+}
+
+// validateAbsenceEventRequest はリクエストの各フィールドを検証する。
+// 問題があれば *ValidationError を返す。
+func validateAbsenceEventRequest(req model.AbsenceEventRequest) error {
+	// Reason: 未指定（空文字）は許容する。指定時は4値のいずれかであること。
+	if req.Reason != "" && !req.Reason.IsValid() {
+		return &ValidationError{Message: "欠席理由の指定が不正です"}
+	}
+
+	// Detail: trim 後 200 文字以内。未入力は可。
+	detail := strings.TrimSpace(req.Detail)
+	if len([]rune(detail)) > absenceDetailMaxLen {
+		return &ValidationError{Message: fmt.Sprintf("詳細は%d文字以内で入力してください", absenceDetailMaxLen)}
+	}
+
+	return nil
+}
+
+// buildAbsenceNotification は欠席連絡メールの件名・本文を組み立てる。
+// 件名の title が長い場合は末尾側を切り詰めて、件名全体を
+// notificationSubjectMaxLen (255) 文字以内に収める。本文には切り詰め前の title を使う。
+func buildAbsenceNotification(title, username string, reason model.AbsenceReason, detail string) (subject, body string) {
+	// 件名は「【欠席連絡】「{title}」への参加キャンセル」。
+	// プレフィックス・サフィックスを除いた title の上限を求め、超過分を末尾から切り詰める。
+	maxTitleLen := notificationSubjectMaxLen - len([]rune(absenceSubjectPrefix)) - len([]rune(absenceSubjectSuffix))
+	subjectTitle := title
+	if runes := []rune(subjectTitle); len(runes) > maxTitleLen {
+		subjectTitle = string(runes[:maxTitleLen])
+	}
+	subject = absenceSubjectPrefix + subjectTitle + absenceSubjectSuffix
+
+	var b strings.Builder
+	b.WriteString("イベント名：")
+	b.WriteString(title)
+	b.WriteString("\n参加者名：")
+	b.WriteString(username)
+	b.WriteString("\n欠席理由：")
+	b.WriteString(absenceReasonLabel(reason))
+	if detail != "" {
+		b.WriteString("\n詳細：")
+		b.WriteString(detail)
+	}
+	body = b.String()
+
+	return subject, body
+}
+
+// absenceReasonLabel は欠席理由のメール文面向けラベルを返す。
+// 未指定（空文字）は「記載なし」を返す。
+func absenceReasonLabel(reason model.AbsenceReason) string {
+	switch reason {
+	case "":
+		return "記載なし"
+	case model.AbsenceReasonIllness:
+		return "体調不良"
+	case model.AbsenceReasonFamily:
+		return "家庭の都合"
+	case model.AbsenceReasonWeatherTransport:
+		return "天候・交通"
+	case model.AbsenceReasonOther:
+		return "その他"
+	default:
+		return ""
+	}
 }
 
 // GetMyApplication はログイン中ユーザー自身の、指定イベントに対する申込内容を返す。

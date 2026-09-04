@@ -75,6 +75,10 @@ func (f *fakeWorkerJoinRepo) Leave(context.Context, uuid.UUID, uuid.UUID) (time.
 	panic("not implemented in worker test fake")
 }
 
+func (f *fakeWorkerJoinRepo) Absence(context.Context, uuid.UUID, uuid.UUID, string, string, string, string) (time.Time, error) {
+	panic("not implemented in worker test fake")
+}
+
 func (f *fakeWorkerJoinRepo) ListRecipients(_ context.Context, eventID uuid.UUID) ([]model.EventRecipient, error) {
 	if f.recipientsErr != nil {
 		return nil, f.recipientsErr
@@ -87,6 +91,69 @@ func (f *fakeWorkerJoinRepo) ListMembers(context.Context, uuid.UUID) ([]model.Ev
 }
 
 func (f *fakeWorkerJoinRepo) GetMemberByProfile(context.Context, uuid.UUID, uuid.UUID) (model.EventMember, error) {
+	panic("not implemented in worker test fake")
+}
+
+// fakeWorkerEventRepo は EventRepository のテスト用フェイク。
+// worker のテストで使うのは GetOrganizerEmail のみだが、interface を満たすため
+// 他メソッドは未実装（呼ばれたら fail する）のダミーを用意する。
+type fakeWorkerEventRepo struct {
+	organizerEmailByEvent map[uuid.UUID]string
+	organizerEmailErr     error
+}
+
+func (f *fakeWorkerEventRepo) GetOrganizerEmail(_ context.Context, eventID uuid.UUID) (string, error) {
+	if f.organizerEmailErr != nil {
+		return "", f.organizerEmailErr
+	}
+	return f.organizerEmailByEvent[eventID], nil
+}
+
+func (f *fakeWorkerEventRepo) ListSummaries(context.Context, string, string, int, int) ([]model.EventSummary, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) CountSummaries(context.Context) (int, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) SearchSummaries(context.Context, model.EventSearchFilter, string, string, int, int) ([]model.EventSummary, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) CountSearchSummaries(context.Context, model.EventSearchFilter) (int, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) ListMySummaries(context.Context, model.MyEventFilter, string, string, int, int) ([]model.EventSummary, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) CountMyEventKinds(context.Context, uuid.UUID) (model.MyEventCounts, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) GetByID(context.Context, string) (*model.EventResponse, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) Create(context.Context, *model.NewEvent) (model.CreateEventResponse, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) GetOwnerProfileID(context.Context, string) (string, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) GetTitle(context.Context, string) (string, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) Exists(context.Context, uuid.UUID) (bool, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerEventRepo) CancelWithNotification(context.Context, uuid.UUID, string, string) (time.Time, error) {
 	panic("not implemented in worker test fake")
 }
 
@@ -123,7 +190,7 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 		joinRepo := &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{eventID: recipients}}
 		mailer := &workerFakeMailer{}
 
-		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, mailer)
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
 		w.processOne(context.Background(), item)
 
 		if mailer.callCount != 1 {
@@ -149,7 +216,7 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 		joinRepo := &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{}}
 		mailer := &workerFakeMailer{}
 
-		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, mailer)
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
 		w.processOne(context.Background(), item)
 
 		if mailer.callCount != 0 {
@@ -172,7 +239,7 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 		mailer := &workerFakeMailer{sendErr: sendErr}
 
 		before := time.Now()
-		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, mailer)
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
 		w.processOne(context.Background(), item)
 
 		if len(outboxRepo.sentIDs) != 0 {
@@ -210,7 +277,7 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 		sendErr := errors.New("resend: permanent failure")
 		mailer := &workerFakeMailer{sendErr: sendErr}
 
-		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, mailer)
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
 		w.processOne(context.Background(), item)
 
 		if len(outboxRepo.sentIDs) != 0 {
@@ -238,11 +305,111 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 		joinRepo := &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{}} // 両方とも参加者0件でsent
 		mailer := &workerFakeMailer{}
 
-		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, mailer)
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
 		w.processDue(context.Background())
 
 		if len(outboxRepo.sentIDs) != 2 {
 			t.Fatalf("sentIDs = %v, want 2件とも sent", outboxRepo.sentIDs)
+		}
+	})
+}
+
+func TestNotificationOutboxWorker_ProcessOneOrganizer(t *testing.T) {
+	eventID := uuid.New()
+
+	// organizer 宛の outbox 行を組み立てる。
+	newOrganizerItem := func() model.EventNotificationOutbox {
+		return model.EventNotificationOutbox{
+			ID:            uuid.New(),
+			EventID:       eventID,
+			RecipientKind: model.NotificationOutboxRecipientKindOrganizer,
+			Subject:       "欠席連絡の件名",
+			Body:          "欠席連絡の本文",
+			Attempts:      0,
+		}
+	}
+
+	t.Run("正常: organizer 宛は主催者1人へ1通だけ送信し MarkSent が呼ばれる", func(t *testing.T) {
+		item := newOrganizerItem()
+		outboxRepo := &fakeOutboxRepo{}
+		// members 経路（ListRecipients）に宛先を残しておき、organizer 経路では
+		// 使われないことを送信宛先の比較で確認する。
+		joinRepo := &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{
+			eventID: {{MailAddress: "member@example.com"}},
+		}}
+		eventRepo := &fakeWorkerEventRepo{organizerEmailByEvent: map[uuid.UUID]string{
+			eventID: "organizer@example.com",
+		}}
+		mailer := &workerFakeMailer{}
+
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, eventRepo, mailer)
+		w.processOne(context.Background(), item)
+
+		if mailer.callCount != 1 {
+			t.Fatalf("SendBatch call count = %d, want 1", mailer.callCount)
+		}
+		if len(mailer.gotEmails) != 1 {
+			t.Fatalf("SendBatch emails = %d, want 1（主催者1人だけに送る）", len(mailer.gotEmails))
+		}
+		if mailer.gotEmails[0].To != "organizer@example.com" {
+			t.Errorf("SendBatch to = %q, want %q（ListRecipients の宛先を使わないこと）",
+				mailer.gotEmails[0].To, "organizer@example.com")
+		}
+		if mailer.gotEmails[0].Subject != item.Subject {
+			t.Errorf("SendBatch subject = %q, want %q", mailer.gotEmails[0].Subject, item.Subject)
+		}
+		if mailer.gotEmails[0].Text != item.Body {
+			t.Errorf("SendBatch text = %q, want %q", mailer.gotEmails[0].Text, item.Body)
+		}
+		if len(outboxRepo.sentIDs) != 1 || outboxRepo.sentIDs[0] != item.ID {
+			t.Errorf("sentIDs = %v, want [%v]", outboxRepo.sentIDs, item.ID)
+		}
+	})
+
+	t.Run("異常: 主催者のメールアドレス解決に失敗したら送信せず pending のまま残る", func(t *testing.T) {
+		item := newOrganizerItem()
+		outboxRepo := &fakeOutboxRepo{}
+		joinRepo := &fakeWorkerJoinRepo{}
+		eventRepo := &fakeWorkerEventRepo{organizerEmailErr: errors.New("db error")}
+		mailer := &workerFakeMailer{}
+
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, eventRepo, mailer)
+		w.processOne(context.Background(), item)
+
+		if mailer.callCount != 0 {
+			t.Errorf("SendBatch call count = %d, want 0", mailer.callCount)
+		}
+		if len(outboxRepo.sentIDs) != 0 || len(outboxRepo.retryCalls) != 0 || len(outboxRepo.failedCalls) != 0 {
+			t.Errorf("sent/retry/failed は更新されない（pending のまま再試行）: sent=%v retry=%v failed=%v",
+				outboxRepo.sentIDs, outboxRepo.retryCalls, outboxRepo.failedCalls)
+		}
+	})
+
+	t.Run("異常: organizer 宛の送信失敗（最大試行回数未満）は MarkRetry が呼ばれる", func(t *testing.T) {
+		item := newOrganizerItem()
+		item.Attempts = 2
+		outboxRepo := &fakeOutboxRepo{}
+		joinRepo := &fakeWorkerJoinRepo{}
+		eventRepo := &fakeWorkerEventRepo{organizerEmailByEvent: map[uuid.UUID]string{
+			eventID: "organizer@example.com",
+		}}
+		sendErr := errors.New("resend: temporary failure")
+		mailer := &workerFakeMailer{sendErr: sendErr}
+
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, eventRepo, mailer)
+		w.processOne(context.Background(), item)
+
+		if len(outboxRepo.retryCalls) != 1 {
+			t.Fatalf("retryCalls = %d, want 1", len(outboxRepo.retryCalls))
+		}
+		if outboxRepo.retryCalls[0].id != item.ID {
+			t.Errorf("retry call id = %v, want %v", outboxRepo.retryCalls[0].id, item.ID)
+		}
+		if outboxRepo.retryCalls[0].lastError != sendErr.Error() {
+			t.Errorf("retry call lastError = %q, want %q", outboxRepo.retryCalls[0].lastError, sendErr.Error())
+		}
+		if len(outboxRepo.sentIDs) != 0 || len(outboxRepo.failedCalls) != 0 {
+			t.Errorf("sent/failed は更新されない: sent=%v failed=%v", outboxRepo.sentIDs, outboxRepo.failedCalls)
 		}
 	})
 }
@@ -278,7 +445,7 @@ func TestNotificationOutboxWorker_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // シャットダウン中を模す
 
-		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, mailer)
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
 		w.processDue(ctx)
 
 		if mailer.callCount != 0 {
@@ -297,7 +464,7 @@ func TestNotificationOutboxWorker_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		mailer := &cancelingMailer{cancel: cancel} // SendBatch 実行中に ctx をキャンセルするが成功を返す
 
-		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, mailer)
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
 		w.processOne(ctx, item)
 
 		if mailer.callCount != 1 {
@@ -322,7 +489,7 @@ func TestNotificationOutboxWorker_Wake(t *testing.T) {
 	})
 
 	t.Run("バッファ1の非ブロッキング送信で、連続呼び出しでもブロックしない", func(t *testing.T) {
-		w := NewNotificationOutboxWorker(&fakeOutboxRepo{}, &fakeWorkerJoinRepo{}, &workerFakeMailer{})
+		w := NewNotificationOutboxWorker(&fakeOutboxRepo{}, &fakeWorkerJoinRepo{}, &fakeWorkerEventRepo{}, &workerFakeMailer{})
 		done := make(chan struct{})
 		go func() {
 			w.Wake()

@@ -113,6 +113,36 @@ type JoinConflictErrorBody struct {
 	Message string `json:"message" example:"既に参加しています"`
 }
 
+// AbsenceConflictErrorResponse はイベント欠席連絡の競合エラー(HTTP 409)のドキュメント用レスポンス型。
+//
+// 欠席連絡は競合の原因が3種類あるため、汎用の ConflictErrorResponse ではなく
+// code を enum で明示する専用型を使う。
+type AbsenceConflictErrorResponse struct {
+	Error AbsenceConflictErrorBody `json:"error"`
+}
+
+// AbsenceConflictErrorBody は AbsenceConflictErrorResponse のエラー本体。
+type AbsenceConflictErrorBody struct {
+	// Code は競合の原因を表す機械可読なエラーコード。
+	// before_deadline = 申込期限前 / event_ended = イベント終了済み / event_cancelled = イベント取消済み。
+	Code string `json:"code" example:"before_deadline" enums:"before_deadline,event_ended,event_cancelled"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"申込期限前に欠席連絡はできません。参加キャンセル API を利用してください"`
+}
+
+// LeaveConflictErrorResponse はイベント参加キャンセルの競合エラー(HTTP 409)のドキュメント用レスポンス型。
+type LeaveConflictErrorResponse struct {
+	Error LeaveConflictErrorBody `json:"error"`
+}
+
+// LeaveConflictErrorBody は LeaveConflictErrorResponse のエラー本体。
+type LeaveConflictErrorBody struct {
+	// Code は競合の原因を表す機械可読なエラーコード。deadline_passed = 申込期限経過後。
+	Code string `json:"code" example:"deadline_passed" enums:"deadline_passed"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"申込期限経過後の参加キャンセルは欠席連絡 API を利用してください"`
+}
+
 // GoneErrorResponse は廃止済み・無効化エンドポイントのエラー(HTTP 410)のドキュメント用レスポンス型。
 type GoneErrorResponse struct {
 	Error GoneErrorBody `json:"error"`

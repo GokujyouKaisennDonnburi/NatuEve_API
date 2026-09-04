@@ -3,7 +3,11 @@ CREATE TABLE event_participation_logs (
     id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     event_id   UUID NOT NULL REFERENCES events(id),
     profile_id UUID NOT NULL REFERENCES profiles(id),
-    action     TEXT NOT NULL CHECK (action IN ('join', 'leave')),
+    action     TEXT NOT NULL CHECK (action IN ('join', 'leave', 'absence')),
+    -- reason/detail は action='absence' の行のみ値が入りうる（それ以外の行は常に NULL）。
+    -- absence 行でも reason は任意入力のため NULL がありうる（ADR-0031）。
+    reason     TEXT CHECK (reason IS NULL OR reason IN ('illness', 'family', 'weather_transport', 'other')),
+    detail     TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- event_participation_log_categories からの複合 FK の参照先。
     UNIQUE (id, event_id)

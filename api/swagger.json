@@ -208,6 +208,82 @@
                 }
             }
         },
+        "/api/v1/events/{id}/absence": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "認証必須。ログイン参加者が欠席理由を添えて参加を取り消す。\n参加行を削除し、参加状態ログへ action=absence を1件追記する。\n主催者宛ての欠席連絡メールを outbox に予約し、非同期で送信する（レスポンスには含まれない）。\nreason は任意。指定する場合は illness(体調不良) / family(家庭の都合) /\nweather_transport(天候・交通) / other(その他) の4値のいずれか。\nreason 未指定時はレスポンスの reason が null になり、主催者メールには「記載なし」と記す。\ndetail は任意（trim 後200文字以内）。未指定時はレスポンスの detail が null になる。\n申込期限ありイベントで期限前に呼ぶと 409 Conflict（before_deadline）を返す\n（期限前のキャンセルは参加キャンセル API を利用する）。\nend_date 経過後は 409 Conflict（event_ended）、取消済みイベントは 409 Conflict（event_cancelled）を返す。\nそのイベントに参加していない場合は 404 not_found を返す。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event"
+                ],
+                "summary": "イベント欠席連絡",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "イベントID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "欠席連絡",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.AbsenceEventRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.AbsenceEventResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.UnauthorizedErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "not_found: イベント不存在 または 未参加",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "before_deadline: 申込期限前 / event_ended: 終了済み / event_cancelled: 取消済み",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.AbsenceConflictErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/events/{id}/cancel": {
             "post": {
                 "security": [
@@ -379,7 +455,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証必須。ログイン参加者が自身の参加を取り消す。\n参加行を削除し、参加状態ログへ action=leave を1件追記する。\n匿名参加（profileId=null）は本 API の対象外。\nそのイベントに参加していない場合は 404 not_found を返す。",
+                "description": "認証必須。ログイン参加者が自身の参加を取り消す。\n参加行を削除し、参加状態ログへ action=leave を1件追記する。\n匿名参加（profileId=null）は本 API の対象外。\n申込期限ありイベントで期限経過後の呼び出しは 409 Conflict（deadline_passed）で拒否される。\n期限経過後のキャンセルは欠席連絡 API（POST /api/v1/events/{id}/absence）を利用する。\nそのイベントに参加していない場合は 404 not_found を返す。",
                 "produces": [
                     "application/json"
                 ],
@@ -419,6 +495,12 @@
                         "description": "not_found: イベント不存在 または 未参加",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "deadline_passed: 申込期限経過後",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.LeaveConflictErrorResponse"
                         }
                     },
                     "500": {
@@ -1306,6 +1388,107 @@
         }
     },
     "definitions": {
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.AbsenceConflictErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は競合の原因を表す機械可読なエラーコード。\nbefore_deadline = 申込期限前 / event_ended = イベント終了済み / event_cancelled = イベント取消済み。",
+                    "type": "string",
+                    "enum": [
+                        "before_deadline",
+                        "event_ended",
+                        "event_cancelled"
+                    ],
+                    "example": "before_deadline"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "申込期限前に欠席連絡はできません。参加キャンセル API を利用してください"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.AbsenceConflictErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.AbsenceConflictErrorBody"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.AbsenceEventRequest": {
+            "description": "申込期限経過後の参加キャンセルに必要な情報。認証必須。 reason は任意（指定する場合は4値のいずれか）。detail は任意（trim 後200文字以内）。",
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "description": "Detail は欠席理由の詳細（任意・200文字以内）。",
+                    "type": "string",
+                    "example": "熱が出たため"
+                },
+                "reason": {
+                    "description": "Reason は欠席理由（任意）。illness=体調不良 / family=家庭の都合 /\nweather_transport=天候・交通 / other=その他。\nフィールド省略・null・空文字はいずれも未指定として扱う。",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.AbsenceReason"
+                        }
+                    ],
+                    "example": "illness"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.AbsenceEventResponse": {
+            "description": "欠席連絡の結果。追記された参加状態ログ（action=absence）1件分の内容を返す。 reason・detail は未指定で欠席連絡した場合 null。 主催者宛ての欠席連絡メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。",
+            "type": "object",
+            "properties": {
+                "action": {
+                    "description": "Action は参加状態ログのアクション。常に \"absence\"。",
+                    "type": "string",
+                    "example": "absence"
+                },
+                "createdAt": {
+                    "description": "CreatedAt は参加状態ログ（absence）の記録日時。",
+                    "type": "string",
+                    "example": "2026-09-02T12:00:00Z"
+                },
+                "detail": {
+                    "description": "Detail は記録された欠席理由の詳細。未指定時は null。",
+                    "type": "string",
+                    "x-nullable": true,
+                    "example": "熱が出たため"
+                },
+                "eventId": {
+                    "description": "EventID は欠席連絡したイベントのUUID。",
+                    "type": "string",
+                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                },
+                "profileId": {
+                    "description": "ProfileID は欠席連絡したユーザーのUUID。absence は認証必須のため常に値が入る。",
+                    "type": "string",
+                    "example": "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+                },
+                "reason": {
+                    "description": "Reason は記録された欠席理由。未指定時は null。",
+                    "type": "string",
+                    "x-nullable": true,
+                    "example": "illness"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.AbsenceReason": {
+            "type": "string",
+            "enum": [
+                "illness",
+                "family",
+                "weather_transport",
+                "other"
+            ],
+            "x-enum-varnames": [
+                "AbsenceReasonIllness",
+                "AbsenceReasonFamily",
+                "AbsenceReasonWeatherTransport",
+                "AbsenceReasonOther"
+            ]
+        },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CancelEventRequest": {
             "description": "イベント取りやめ確定時に参加者へ送る通知の件名・本文。同一トランザクションで outbox に予約され、バックグラウンドワーカーが参加者へ個別送信する。 件名・本文はいずれも任意で、省略（空文字）時はサーバーが既定文面を補って予約する。",
             "type": "object",
@@ -2114,6 +2297,32 @@
                     "description": "Username は参加するユーザーの表示名。",
                     "type": "string",
                     "example": "山田太郎"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.LeaveConflictErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は競合の原因を表す機械可読なエラーコード。deadline_passed = 申込期限経過後。",
+                    "type": "string",
+                    "enum": [
+                        "deadline_passed"
+                    ],
+                    "example": "deadline_passed"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "申込期限経過後の参加キャンセルは欠席連絡 API を利用してください"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.LeaveConflictErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.LeaveConflictErrorBody"
                 }
             }
         },

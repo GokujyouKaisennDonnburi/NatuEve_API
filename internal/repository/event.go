@@ -23,6 +23,11 @@ var ErrTagNotFound = errors.New("tag not found")
 // 通知文面を受け取り outbox に予約する）のため、2回目以降の呼び出しは失敗として扱う。
 var ErrEventAlreadyCancelled = errors.New("event already cancelled")
 
+// ErrOrganizerEmailNotFound はイベントの主催者メールアドレスを解決できない場合に返される
+// エラー（ADR-0031）。主催者プロフィールの未設定（profile_id NULL・profiles 行なし）と
+// メールアドレスの空文字を含む。
+var ErrOrganizerEmailNotFound = errors.New("organizer email not found")
+
 // nullInt32 は 0 を NULL として扱う（未設定を表す）。
 // capacity は定員数であり int32 の範囲内であることが仕様上保証されているため変換する。
 func nullInt32(n int) sql.NullInt32 {
@@ -97,6 +102,11 @@ type EventRepository interface {
 	// ErrEventAlreadyCancelled を %w でラップして返し、outbox への予約も行わない。
 	// イベントが存在しない場合は ErrEventNotFound を %w でラップして返す。
 	CancelWithNotification(ctx context.Context, eventID uuid.UUID, subject, body string) (cancelledAt time.Time, err error)
+	// GetOrganizerEmail は指定 eventID の主催者（events.profile_id）のメールアドレスを返す。
+	// イベントが存在しない場合は ErrEventNotFound を、主催者プロフィールが存在しない
+	// （profile_id NULL または profiles 行なし）・メールアドレスが空の場合は
+	// ErrOrganizerEmailNotFound を %w でラップして返す。
+	GetOrganizerEmail(ctx context.Context, eventID uuid.UUID) (string, error)
 }
 
 // eventPostgres は EventRepository の PostgreSQL 実装。
@@ -743,6 +753,29 @@ func (r *eventPostgres) CancelWithNotification(ctx context.Context, eventID uuid
 		return time.Time{}, fmt.Errorf("commit transaction: %w", err)
 	}
 	return cancelledAt, nil
+}
+
+// GetOrganizerEmail は指定 eventID の主催者（events.profile_id）のメールアドレスを返す。
+// 主催者プロフィールが存在しない場合も行が消えないよう LEFT JOIN で受ける。
+func (r *eventPostgres) GetOrganizerEmail(ctx context.Context, eventID uuid.UUID) (string, error) {
+	const query = `
+	SELECT p.email
+	FROM events e
+	LEFT JOIN profiles p ON p.id = e.profile_id
+	WHERE e.id = $1
+	`
+
+	var email sql.NullString
+	if err := r.db.QueryRowContext(ctx, query, eventID.String()).Scan(&email); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+		}
+		return "", fmt.Errorf("get organizer email: %w", err)
+	}
+	if !email.Valid || email.String == "" {
+		return "", fmt.Errorf("event %s: %w", eventID, ErrOrganizerEmailNotFound)
+	}
+	return email.String, nil
 }
 
 func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventResponse, error) {

@@ -92,7 +92,6 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.N
 	eventRepo := repository.NewEventRepository(sqlDB)
 	eventQuerySvc := service.NewEventQueryService(eventRepo, cfg.R2PublicBaseURL)
 	eventJoinRepo := repository.NewEventJoinRepository(sqlDB)
-	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo)
 
 	// Resend 設定（RESEND_API_KEY・MAIL_FROM）が揃っている場合のみ通知送信ワーカーを
 	// 生成する。揃っていない場合、キャンセル API 自体は動く（outbox には予約される）が、
@@ -102,7 +101,7 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.N
 	if cfg.ResendAPIKey != "" && cfg.MailFrom != "" {
 		mailer = mail.NewResendClient(cfg.ResendAPIKey, cfg.MailFrom)
 		outboxRepo := repository.NewEventNotificationOutboxRepository(sqlDB)
-		outboxWorker = service.NewNotificationOutboxWorker(outboxRepo, eventJoinRepo, mailer)
+		outboxWorker = service.NewNotificationOutboxWorker(outboxRepo, eventJoinRepo, eventRepo, mailer)
 	} else {
 		slog.Warn("RESEND_API_KEY または MAIL_FROM が未設定のため通知送信ワーカーを起動しません。" +
 			"イベントキャンセル時の通知は outbox に蓄積されますが送信されません")
@@ -110,6 +109,7 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.N
 
 	// worker.Wake はメソッド自体が nil レシーバ安全なため、outboxWorker が nil
 	// （Resend 未設定）でもそのまま注入してよい（呼んでも no-op になる）。
+	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo, outboxWorker.Wake)
 	eventCmdSvc := service.NewEventCommandService(eventRepo, store, outboxWorker.Wake)
 
 	eventParticipationLogRepo := repository.NewEventParticipationLogRepository(sqlDB)
@@ -182,6 +182,8 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.N
 	v1.POST("/tags", tagHandler.Create)
 
 	v1.POST("/events/:id/leave", eventHandler.Leave)
+	// 欠席連絡（ADR-0031）。申込期限経過後の参加キャンセルはこちらを使う。
+	v1.POST("/events/:id/absence", eventHandler.Absence)
 	v1.GET("/events/:id/members", eventHandler.ListMembers)
 	// members は主催者専用だが members/me は本人専用（ADR-0026）。
 	v1.GET("/events/:id/members/me", eventHandler.GetMyApplication)

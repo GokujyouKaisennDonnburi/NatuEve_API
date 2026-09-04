@@ -47,4 +47,5 @@
 | [0028](./0028-event-list-location-filter.md) | イベント一覧の地域絞り込みは location への部分一致で行う | Accepted |
 | [0029](./0029-event-application-deadline-nullable.md) | イベントの申込期限は NULL 許容の単一カラムで表現する | Accepted |
 | [0030](./0030-location-filter-limit-and-trgm-index.md) | 地域絞り込みの上限を 200 件へ引き上げ、pg_trgm の GIN インデックスを導入する | Accepted |
+| [0031](./0031-absence-notification.md) | 申込期限経過後の参加キャンセルは欠席連絡 API で行い主催者へ通知する | Accepted |
 
