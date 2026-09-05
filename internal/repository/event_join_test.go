@@ -697,8 +697,8 @@ func insertTestEventMemberWithProfile(
 	return id
 }
 
-// TestEventJoinPostgres_Join_ApplicationDeadline は申込期限の判定を検証する（ADR-0029）。
-// 期限経過後の申込は拒否し、期限前・期限なしは受け付ける。
+// TestEventJoinPostgres_Join_ApplicationDeadline は申込期限・終了日時の判定を検証する（ADR-0029）。
+// 期限経過後・終了日時（end_date）経過後の申込は拒否し、期限前・期限なし（終了前）は受け付ける。
 func TestEventJoinPostgres_Join_ApplicationDeadline(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventJoinRepository(db)
@@ -707,9 +707,14 @@ func TestEventJoinPostgres_Join_ApplicationDeadline(t *testing.T) {
 	now := time.Now()
 
 	// setupEvent は費用カテゴリ「大人」を持つイベントを、指定の申込期限で作成する。
-	setupEvent := func(t *testing.T, deadline sql.NullTime) uuid.UUID {
+	// endDate がゼロ値以外なら setTestEventDates で日時を上書きする。
+	// CHECK 制約 end_date >= event_date を満たすため event_date も同時に過去に設定する。
+	setupEvent := func(t *testing.T, deadline sql.NullTime, endDate time.Time) uuid.UUID {
 		t.Helper()
 		eventID := insertTestEventWithApplicationDeadline(t, db, ownerID, deadline)
+		if !endDate.IsZero() {
+			setTestEventDates(t, db, eventID, now.Add(-2*time.Hour), endDate)
+		}
 		insertTestCost(t, db, eventID, "大人", 500)
 		return eventID
 	}
@@ -728,15 +733,24 @@ func TestEventJoinPostgres_Join_ApplicationDeadline(t *testing.T) {
 	tests := []struct {
 		name     string
 		deadline sql.NullTime
-		wantErr  error
+		// endDate はゼロ値以外なら setupEvent 後に setTestEventDates で日時を上書きする。
+		endDate time.Time
+		wantErr error
 	}{
 		{
 			name:     "正常: 申込期限前は申し込める",
 			deadline: sql.NullTime{Time: now.Add(time.Hour), Valid: true},
 		},
 		{
-			name:     "正常: 申込期限なし(NULL)は常時申し込める",
+			name:     "正常: 期限なしで終了前は申し込める",
 			deadline: sql.NullTime{},
+			endDate:  now.Add(time.Hour),
+		},
+		{
+			name:     "異常: 期限なしで終了日時経過後は ErrEventEnded を返す",
+			deadline: sql.NullTime{},
+			endDate:  now.Add(-time.Hour),
+			wantErr:  ErrEventEnded,
 		},
 		{
 			name:     "異常: 申込期限経過後は ErrDeadlinePassed を返す",
@@ -747,7 +761,7 @@ func TestEventJoinPostgres_Join_ApplicationDeadline(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			eventID := setupEvent(t, tt.deadline)
+			eventID := setupEvent(t, tt.deadline, tt.endDate)
 			member := &model.EventMember{
 				EventID:     eventID,
 				Username:    "参加者",

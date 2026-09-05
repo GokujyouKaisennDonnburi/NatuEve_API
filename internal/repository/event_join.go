@@ -36,7 +36,8 @@ var ErrDeadlinePassed = errors.New("deadline passed")
 // である場合に返されるエラー（ADR-0031）。
 var ErrAbsenceBeforeDeadline = errors.New("absence before deadline")
 
-// ErrEventEnded は欠席連絡時に、イベントの end_date が経過している場合に返されるエラー（ADR-0031）。
+// ErrEventEnded は参加申込・欠席連絡時に、イベントの end_date が経過している場合に
+// 返されるエラー（ADR-0029・ADR-0031）。
 var ErrEventEnded = errors.New("event ended")
 
 // ErrCategoryNotFound は申込で指定されたカテゴリがそのイベントの費用カテゴリに存在しない場合に返されるエラー。
@@ -71,6 +72,7 @@ type EventJoinRepository interface {
 	//   - ErrAlreadyJoined: 同一 mail_address（大文字小文字無視）またはログイン時は同一 profile_id で参加済み
 	//   - ErrEventCapacityFull: 定員超過（定員 NULL / 0 は定員なし）
 	//   - ErrDeadlinePassed: 申込期限ありイベントで期限経過後（ADR-0029）
+	//   - ErrEventEnded: end_date 経過後（ADR-0029）
 	//   - ErrCategoryNotFound: 指定カテゴリがそのイベントの費用カテゴリに存在しない
 	//   - ErrDuplicateCategory: 同一カテゴリが内訳で重複している
 	Join(ctx context.Context, member *model.EventMember) error
@@ -146,10 +148,10 @@ func (r *eventJoinPostgres) Join(
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// イベント行をロックして存在確認・キャンセル状態確認・定員取得を同時に行う。
+	// イベント行をロックして存在確認・キャンセル状態・申込期限・終了日時の取得を同時に行う。
 	// 同一イベントへの並行 join はこのロックで直列化される。
 	const lockEvent = `
-	SELECT capacity, cancelled_at, application_deadline
+	SELECT capacity, cancelled_at, application_deadline, end_date
 	FROM events
 	WHERE id = $1
 	FOR UPDATE
@@ -159,8 +161,9 @@ func (r *eventJoinPostgres) Join(
 		capacity    sql.NullInt32
 		cancelledAt sql.NullTime
 		deadline    sql.NullTime
+		endDate     time.Time
 	)
-	err = tx.QueryRowContext(ctx, lockEvent, member.EventID).Scan(&capacity, &cancelledAt, &deadline)
+	err = tx.QueryRowContext(ctx, lockEvent, member.EventID).Scan(&capacity, &cancelledAt, &deadline, &endDate)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("event %s: %w", member.EventID, ErrEventNotFound)
 	}
@@ -172,9 +175,13 @@ func (r *eventJoinPostgres) Join(
 	}
 
 	// 申込期限ありイベントで期限経過後の申込は拒否する。
-	// 期限なし（NULL）は期限の概念がないため常時申し込める（ADR-0029）。
+	// 期限なし（NULL）は申込期限の概念がない。終了日時経過まで申し込める（ADR-0029）。
 	if deadline.Valid && time.Now().After(deadline.Time) {
 		return fmt.Errorf("event %s: %w", member.EventID, ErrDeadlinePassed)
+	}
+	// end_date 経過後の申込は拒否する。end_date は NOT NULL のため NULL 判定は不要。
+	if time.Now().After(endDate) {
+		return fmt.Errorf("event %s: %w", member.EventID, ErrEventEnded)
 	}
 
 	// 重複確認（同一 mail_address またはログイン時は同一 profile_id）。

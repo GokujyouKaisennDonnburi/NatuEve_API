@@ -69,6 +69,8 @@ func insertTestProfile(t *testing.T, db *sql.DB) uuid.UUID {
 }
 
 // insertTestEvent はテスト用の events 行を1件作成する。
+// event_date は現在時刻、end_date はその1時間後に固定する
+// （Join の end_date 経過チェックを誤発動させないため）。
 func insertTestEvent(t *testing.T, db *sql.DB, profileID uuid.UUID) uuid.UUID {
 	t.Helper()
 
@@ -85,7 +87,7 @@ func insertTestEvent(t *testing.T, db *sql.DB, profileID uuid.UUID) uuid.UUID {
 		profileID,
 		"テストイベント",
 		eventDate,
-		eventDate,
+		eventDate.Add(time.Hour),
 	); err != nil {
 		t.Fatalf("insert test event: %v", err)
 	}
