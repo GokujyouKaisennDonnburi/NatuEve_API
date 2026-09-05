@@ -374,7 +374,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → 匿名参加（profileId = null）。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → profileId を記録してログイン参加。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す。",
+                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → 匿名参加（profileId = null）。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → profileId を記録してログイン参加。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す\n（期限なしイベントは常時申し込める）。",
                 "consumes": [
                     "application/json"
                 ],
@@ -429,7 +429,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "already_joined: 既に参加しています / capacity_full: 定員に達しています",
+                        "description": "already_joined: 既に参加しています / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse"
                         }
@@ -2211,16 +2211,17 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "code": {
-                    "description": "Code は競合の原因を表す機械可読なエラーコード。\nalready_joined = 既に参加済み / capacity_full = 定員到達。",
+                    "description": "Code は競合の原因を表す機械可読なエラーコード。\nalready_joined = 既に参加済み / capacity_full = 定員到達 /\ndeadline_passed = 申込期限経過後。",
                     "type": "string",
                     "enum": [
                         "already_joined",
-                        "capacity_full"
+                        "capacity_full",
+                        "deadline_passed"
                     ],
                     "example": "already_joined"
                 },
                 "message": {
-                    "description": "Message は人間向けのエラーメッセージ。\nalready_joined なら「既に参加しています」、capacity_full なら「定員に達しています」。",
+                    "description": "Message は人間向けのエラーメッセージ。\nalready_joined なら「既に参加しています」、capacity_full なら「定員に達しています」、\ndeadline_passed なら「申込期限を過ぎているため申し込めません」。",
                     "type": "string",
                     "example": "既に参加しています"
                 }

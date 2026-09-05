@@ -106,10 +106,12 @@ type JoinConflictErrorResponse struct {
 // JoinConflictErrorBody は JoinConflictErrorResponse のエラー本体。
 type JoinConflictErrorBody struct {
 	// Code は競合の原因を表す機械可読なエラーコード。
-	// already_joined = 既に参加済み / capacity_full = 定員到達。
-	Code string `json:"code" example:"already_joined" enums:"already_joined,capacity_full"`
+	// already_joined = 既に参加済み / capacity_full = 定員到達 /
+	// deadline_passed = 申込期限経過後。
+	Code string `json:"code" example:"already_joined" enums:"already_joined,capacity_full,deadline_passed"`
 	// Message は人間向けのエラーメッセージ。
-	// already_joined なら「既に参加しています」、capacity_full なら「定員に達しています」。
+	// already_joined なら「既に参加しています」、capacity_full なら「定員に達しています」、
+	// deadline_passed なら「申込期限を過ぎているため申し込めません」。
 	Message string `json:"message" example:"既に参加しています"`
 }
 

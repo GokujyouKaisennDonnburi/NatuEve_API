@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -694,4 +695,86 @@ func insertTestEventMemberWithProfile(
 		t.Fatalf("insert test event member with profile: %v", err)
 	}
 	return id
+}
+
+// TestEventJoinPostgres_Join_ApplicationDeadline は申込期限の判定を検証する（ADR-0029）。
+// 期限経過後の申込は拒否し、期限前・期限なしは受け付ける。
+func TestEventJoinPostgres_Join_ApplicationDeadline(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	now := time.Now()
+
+	// setupEvent は費用カテゴリ「大人」を持つイベントを、指定の申込期限で作成する。
+	setupEvent := func(t *testing.T, deadline sql.NullTime) uuid.UUID {
+		t.Helper()
+		eventID := insertTestEventWithApplicationDeadline(t, db, ownerID, deadline)
+		insertTestCost(t, db, eventID, "大人", 500)
+		return eventID
+	}
+
+	// countMembers は指定イベントの参加行数を返す。
+	countMembers := func(t *testing.T, eventID uuid.UUID) int {
+		t.Helper()
+		const query = `SELECT COUNT(*) FROM event_members WHERE event_id = $1`
+		var n int
+		if err := db.QueryRowContext(context.Background(), query, eventID).Scan(&n); err != nil {
+			t.Fatalf("count members: %v", err)
+		}
+		return n
+	}
+
+	tests := []struct {
+		name     string
+		deadline sql.NullTime
+		wantErr  error
+	}{
+		{
+			name:     "正常: 申込期限前は申し込める",
+			deadline: sql.NullTime{Time: now.Add(time.Hour), Valid: true},
+		},
+		{
+			name:     "正常: 申込期限なし(NULL)は常時申し込める",
+			deadline: sql.NullTime{},
+		},
+		{
+			name:     "異常: 申込期限経過後は ErrDeadlinePassed を返す",
+			deadline: sql.NullTime{Time: now.Add(-time.Hour), Valid: true},
+			wantErr:  ErrDeadlinePassed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventID := setupEvent(t, tt.deadline)
+			member := &model.EventMember{
+				EventID:     eventID,
+				Username:    "参加者",
+				MailAddress: uuid.NewString() + "@example.com",
+				PartySize:   1,
+				Categories:  []model.MemberCategory{{Category: "大人", HeadCount: 1}},
+			}
+
+			err := repo.Join(context.Background(), member)
+
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("Join() error = %v, want %v", err, tt.wantErr)
+				}
+				// 期限切れの申込は参加行を残さない。
+				if n := countMembers(t, eventID); n != 0 {
+					t.Errorf("member count = %d, want 0", n)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Join() returned error: %v", err)
+			}
+			if n := countMembers(t, eventID); n != 1 {
+				t.Errorf("member count = %d, want 1", n)
+			}
+		})
+	}
 }

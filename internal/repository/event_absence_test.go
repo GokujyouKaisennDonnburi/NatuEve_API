@@ -321,9 +321,10 @@ func TestEventJoinPostgres_Leave_DeadlinePassed(t *testing.T) {
 		eventID = insertTestEvent(t, db, ownerID)
 		insertTestCost(t, db, eventID, "大人", 500)
 		setTestEventDates(t, db, eventID, now.Add(-time.Hour), now.Add(time.Hour))
-		setTestEventDeadline(t, db, eventID, deadline)
 		profileID = insertTestProfile(t, db)
+		// 期限経過後は Join 自体が拒否されるため（ADR-0029）、申込を済ませてから期限を設定する。
 		joinTestMember(t, repo, eventID, profileID)
+		setTestEventDeadline(t, db, eventID, deadline)
 		return eventID, profileID
 	}
 

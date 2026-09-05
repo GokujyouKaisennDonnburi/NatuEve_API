@@ -28,8 +28,8 @@ var ErrEventCancelled = errors.New("event cancelled")
 // ErrNotJoined は参加キャンセル時に、そのイベントに参加していない場合に返されるエラー。
 var ErrNotJoined = errors.New("not joined")
 
-// ErrDeadlinePassed は参加キャンセル時に、申込期限（events.application_deadline）が
-// 経過している場合に返されるエラー（ADR-0031）。
+// ErrDeadlinePassed は参加申込・参加キャンセル時に、申込期限（events.application_deadline）が
+// 経過している場合に返されるエラー（ADR-0029・ADR-0031）。
 var ErrDeadlinePassed = errors.New("deadline passed")
 
 // ErrAbsenceBeforeDeadline は欠席連絡時に、申込期限（events.application_deadline）前
@@ -67,8 +67,10 @@ type EventJoinRepository interface {
 	// ログ対象外（event_participation_logs.profile_id が NOT NULL のため）。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
+	//   - ErrEventCancelled: イベントが取りやめになっている
 	//   - ErrAlreadyJoined: 同一 mail_address（大文字小文字無視）またはログイン時は同一 profile_id で参加済み
 	//   - ErrEventCapacityFull: 定員超過（定員 NULL / 0 は定員なし）
+	//   - ErrDeadlinePassed: 申込期限ありイベントで期限経過後（ADR-0029）
 	//   - ErrCategoryNotFound: 指定カテゴリがそのイベントの費用カテゴリに存在しない
 	//   - ErrDuplicateCategory: 同一カテゴリが内訳で重複している
 	Join(ctx context.Context, member *model.EventMember) error
@@ -147,7 +149,7 @@ func (r *eventJoinPostgres) Join(
 	// イベント行をロックして存在確認・キャンセル状態確認・定員取得を同時に行う。
 	// 同一イベントへの並行 join はこのロックで直列化される。
 	const lockEvent = `
-	SELECT capacity, cancelled_at
+	SELECT capacity, cancelled_at, application_deadline
 	FROM events
 	WHERE id = $1
 	FOR UPDATE
@@ -156,8 +158,9 @@ func (r *eventJoinPostgres) Join(
 	var (
 		capacity    sql.NullInt32
 		cancelledAt sql.NullTime
+		deadline    sql.NullTime
 	)
-	err = tx.QueryRowContext(ctx, lockEvent, member.EventID).Scan(&capacity, &cancelledAt)
+	err = tx.QueryRowContext(ctx, lockEvent, member.EventID).Scan(&capacity, &cancelledAt, &deadline)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("event %s: %w", member.EventID, ErrEventNotFound)
 	}
@@ -166,6 +169,12 @@ func (r *eventJoinPostgres) Join(
 	}
 	if cancelledAt.Valid {
 		return fmt.Errorf("event %s: %w", member.EventID, ErrEventCancelled)
+	}
+
+	// 申込期限ありイベントで期限経過後の申込は拒否する。
+	// 期限なし（NULL）は期限の概念がないため常時申し込める（ADR-0029）。
+	if deadline.Valid && time.Now().After(deadline.Time) {
+		return fmt.Errorf("event %s: %w", member.EventID, ErrDeadlinePassed)
 	}
 
 	// 重複確認（同一 mail_address またはログイン時は同一 profile_id）。
