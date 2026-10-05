@@ -1,5 +1,5 @@
 ---
-name: AC
+name: AC付きissue
 about: AC付きのissueを作成する
 ---
 
