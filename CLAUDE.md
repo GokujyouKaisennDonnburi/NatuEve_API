@@ -15,7 +15,7 @@
 
 ## Project Structure
 ```
-cmd/server/main.go    # エントリーポイント
+cmd/api/main.go       # エントリーポイント
 internal/             # アプリケーションコード
 docker-compose.yml    # PostgreSQL + API
 .env.example          # 環境変数テンプレート
@@ -23,7 +23,7 @@ docker-compose.yml    # PostgreSQL + API
 
 ## Commands
 ```bash
-go run cmd/server/main.go        # ローカル実行
+go run cmd/api/main.go           # ローカル実行
 go test ./...                    # テスト実行
 docker compose up -d             # DB 起動
 docker compose down              # DB 停止
