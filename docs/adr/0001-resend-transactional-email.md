@@ -3,6 +3,7 @@
 - ステータス: Accepted
 - 日付: 2026-07-07
 - 関連: #92, ADR-0002, ADR-0003, ADR-0004
+- 注記（2026-10-13）: 本文中の「将来の AWS 移行（Xserver VPS → App Runner/ECS + RDS/Aurora）」という前提は [ADR-0032](./0032-production-deployment-cloud-run-supabase.md) で撤回された（本番は Cloud Run＋Supabase）。Resend の採用は引き続き有効。SES を乗り換え先の第一候補とした「AWS 移行と整合する」という根拠は失われた。移行先の候補は [docs/Deployment.md](../Deployment.md) の「メールの将来的な移行」で整理し直している
 
 ## コンテキストと課題
 

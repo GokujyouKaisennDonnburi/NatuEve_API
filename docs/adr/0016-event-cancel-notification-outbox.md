@@ -1,10 +1,10 @@
 # ADR-0016: イベントキャンセル通知の Transactional Outbox 化と cancel API の非冪等化
 
-- ステータス: Accepted
+- ステータス: Accepted（決定事項 2 は [ADR-0017](./0017-event-cancel-notification-optional-content.md)、決定事項 4 は [ADR-0032](./0032-production-deployment-cloud-run-supabase.md) により Superseded）
 - 日付: 2026-07-11
-- 関連: #125, ADR-0017
+- 関連: #125, ADR-0017, ADR-0031, ADR-0032
 - 変更: ADR-0012 の決定事項 3（cancel の冪等性）および 4（通知を notification API に任せる）を置き換える（Supersedes, 部分的）
-- 被変更: 決定事項 2（ボディ `{subject, body}` を必須とする）は ADR-0017 で置き換えられた（件名・本文を任意化しサーバー既定文面で補う）。outbox は ADR-0031 で `recipient_kind` カラムが追加され主催者宛送信にも使われる
+- 被変更: 決定事項 2（ボディ `{subject, body}` を必須とする）は ADR-0017 で置き換えられた（件名・本文を任意化しサーバー既定文面で補う）。outbox は ADR-0031 で `recipient_kind` カラムが追加され主催者宛送信にも使われる。決定事項 4（送信ワーカーを goroutine 1 本で常駐させ、30 秒ティッカーと Wake で起動する）は [ADR-0032](./0032-production-deployment-cloud-run-supabase.md) で置き換えられた（Cloud Scheduler からの定期呼び出しで起動し、Wake は廃止）。本文の決定事項 4 の詳細と、トレードオフ節の「ワーカーは単一プロセス前提」の記述も、この置き換えの対象に含む。本文中の「現構成（VPS + Docker Compose、1 年後に AWS 移行予定）」という前提も ADR-0032 で撤回された
 
 ## コンテキストと課題
 

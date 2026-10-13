@@ -3,6 +3,7 @@
 - ステータス: Accepted
 - 日付: 2026-08-22
 - 関連: #192, ADR-0028（イベント一覧の地域絞り込み）, ADR-0019（イベント検索は GET を維持する）, ADR-0021（不正なクエリ文字列は 400）
+- 注記（2026-10-13）: 本文中の「Xserver VPS → AWS RDS/Aurora」という前提は [ADR-0032](./0032-production-deployment-cloud-run-supabase.md) で変更され、本番 DB は Supabase の PostgreSQL になった。Supabase で `pg_trgm` が使えるかは [docs/Deployment.md](../Deployment.md) の未決事項で確認する
 
 ## コンテキストと課題
 

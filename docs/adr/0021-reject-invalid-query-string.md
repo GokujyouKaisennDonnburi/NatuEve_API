@@ -3,6 +3,7 @@
 - ステータス: Accepted
 - 日付: 2026-08-04
 - 関連: #158, ADR-0019（イベント検索は GET を維持する）, ADR-0020（イベント一覧のタグ絞り込み）
+- 注記（2026-10-13）: 本文中で参照している `.claude/rules/docker.md` の「Xserver VPS から AWS への移行」という前提は [ADR-0032](./0032-production-deployment-cloud-run-supabase.md) で撤回された（本番は Cloud Run）。インフラに依存せず、アプリ側で 400 を保証する決定は引き続き有効
 
 ## コンテキストと課題
 
