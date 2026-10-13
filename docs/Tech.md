@@ -14,7 +14,8 @@ API サーバー内のワーカー goroutine が送信する（詳細は [ADR-00
 > **運用上の前提: API サーバーは単一インスタンスで動かすこと。**
 > ワーカーの outbox 取得は `FOR UPDATE SKIP LOCKED` による claim を行っていないため、
 > 複数インスタンスへ横展開すると同じ通知を複数のワーカーが処理し、二重送信になる。
-> 将来 AWS（App Runner / ECS 等）へ移行してスケールアウトする場合は、claim 方式の見直しが必要。
+> 本番（Cloud Run、[ADR-0032](./adr/0032-production-deployment-cloud-run-supabase.md)）では、このワーカーを
+> Cloud Scheduler からの定期呼び出しに置き換える（未実装）。置き換える際に排他を入れる。詳細は [Deployment.md](./Deployment.md)。
 
 
 ## 開発者向け 環境構築

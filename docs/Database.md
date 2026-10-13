@@ -5,7 +5,7 @@ PostgreSQL とマイグレーション（[goose](https://github.com/pressly/goos
 
 ## 構成
 
-- **DB**: PostgreSQL（開発は docker compose の `db` サービス、本番は外部のマネージド Postgres を想定）。
+- **DB**: PostgreSQL（開発は docker compose の `db` サービス、本番は Supabase の PostgreSQL。[Deployment.md](./Deployment.md) 参照）。
 - **ドライバ**: `github.com/jackc/pgx/v5`（`pgx/stdlib` 経由で標準の `database/sql` に載せる）。
 - **マイグレーション**: `github.com/pressly/goose/v3`。素の SQL ファイルで `up` / `down` を管理する。
 - マイグレーション SQL は `db/db.go` が `//go:embed` で**バイナリに埋め込む**。これにより、起動時の自動適用（開発）と CLI（goose）からの適用が同じ定義を使う。
