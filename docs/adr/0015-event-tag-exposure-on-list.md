@@ -3,6 +3,7 @@
 - ステータス: Accepted
 - 日付: 2026-07-11
 - 関連: #133, ADR-0014, ADR-0013
+- 注記（2026-10-13）: 本文中の「本番移行先（AWS RDS/Aurora）」は [ADR-0032](./0032-production-deployment-cloud-run-supabase.md) で変更され、本番 DB は Supabase の PostgreSQL になった。照合順序（タグの並び順）に関する懸念は、Supabase でも同様に確認が必要
 
 ## コンテキストと課題
 

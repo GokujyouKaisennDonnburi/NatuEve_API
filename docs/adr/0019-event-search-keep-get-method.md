@@ -3,6 +3,7 @@
 - ステータス: Accepted
 - 日付: 2026-08-04
 - 関連: #155, ADR-0008（イベント検索は ILIKE 部分一致＋クエリ時 NFKC 正規化で実装する）
+- 注記（2026-10-13）: 本文中の「現行構成は Xserver VPS + Docker Compose」という前提は [ADR-0032](./0032-production-deployment-cloud-run-supabase.md) で変更され、本番は Cloud Run になった。GET を維持する決定は引き続き有効。QUERY メソッドへの移行を再検討する場合、疎通確認は Cloud Run の前段について行う
 
 ## コンテキストと課題
 

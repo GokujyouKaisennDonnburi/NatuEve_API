@@ -15,7 +15,7 @@
 
 | ADR | タイトル | ステータス |
 |---|---|---|
-| [0001](./0001-resend-transactional-email.md) | トランザクションメール基盤に Resend を採用 | Accepted |
+| [0001](./0001-resend-transactional-email.md) | トランザクションメール基盤に Resend を採用 | Accepted（AWS 移行の前提を ADR-0032 で撤回） |
 | [0002](./0002-email-send-receive-separation-subdomain.md) | メール送受信の責務分離とサブドメイン戦略 | Accepted |
 | [0003](./0003-api-key-least-privilege.md) | 外部サービス API キーは最小権限を原則とする | Accepted |
 | [0004](./0004-bulk-send-as-individual.md) | 一斉送信は個別送信で行う（特定電子メール法対応） | Accepted |
@@ -29,14 +29,14 @@
 | [0011](./0011-event-leave-authenticated-only.md) | イベント参加キャンセルはログイン参加者に限定する | Accepted |
 | [0012](./0012-event-cancellation.md) | イベントキャンセル（開催取りやめ）の状態管理と API 設計 | Accepted（一部 ADR-0016 で置換） |
 | [0013](./0013-event-tag-association-on-create.md) | イベント投稿時のタグ紐づけ設計 | Accepted |
-| [0014](./0014-event-tag-exposure-on-detail.md) | イベント詳細レスポンスでのタグ公開設計 | Accepted |
-| [0015](./0015-event-tag-exposure-on-list.md) | イベント一覧レスポンスでのタグ公開設計 | Accepted |
-| [0016](./0016-event-cancel-notification-outbox.md) | イベントキャンセル通知の Transactional Outbox 化と cancel API の非冪等化 | Accepted（決定事項 2 を ADR-0017 で置換） |
+| [0014](./0014-event-tag-exposure-on-detail.md) | イベント詳細レスポンスでのタグ公開設計 | Accepted（本番構成の前提を ADR-0032 で更新） |
+| [0015](./0015-event-tag-exposure-on-list.md) | イベント一覧レスポンスでのタグ公開設計 | Accepted（本番構成の前提を ADR-0032 で更新） |
+| [0016](./0016-event-cancel-notification-outbox.md) | イベントキャンセル通知の Transactional Outbox 化と cancel API の非冪等化 | Accepted（決定事項 2 を ADR-0017、決定事項 4 を ADR-0032 で置換） |
 | [0017](./0017-event-cancel-notification-optional-content.md) | イベントキャンセル通知の件名・本文を任意化しサーバー既定文面で補う | Accepted |
 | [0018](./0018-event-end-date-optional-with-default.md) | イベント終了日時を任意入力とし、省略時は開催日時で補完する | Accepted |
-| [0019](./0019-event-search-keep-get-method.md) | イベント検索は GET を維持し、QUERY メソッドへは移行しない | Accepted |
+| [0019](./0019-event-search-keep-get-method.md) | イベント検索は GET を維持し、QUERY メソッドへは移行しない | Accepted（本番構成の前提を ADR-0032 で更新） |
 | [0020](./0020-event-list-tag-filter.md) | イベント一覧のタグ絞り込みは OR 条件とし、検索条件を構造体へ集約する | Accepted |
-| [0021](./0021-reject-invalid-query-string.md) | 不正なクエリ文字列はミドルウェアで 400 を返す | Accepted |
+| [0021](./0021-reject-invalid-query-string.md) | 不正なクエリ文字列はミドルウェアで 400 を返す | Accepted（本番構成の前提を ADR-0032 で更新） |
 | [0022](./0022-event-member-profile-summary.md) | イベント参加者一覧にプロフィールサマリーを公開し、匿名参加は null で表す | Accepted |
 | [0023](./0023-participant-category-breakdown.md) | 参加者カテゴリ別人数の内訳は event_costs を参照して保持する | Accepted |
 | [0024](./0024-event-detail-participant-count.md) | イベント詳細で参加人数を公開し、残り人数はクライアントで算出する | Accepted |
@@ -46,6 +46,7 @@
 | [0027](./0027-event-list-status-filter.md) | イベント一覧の開催状況絞り込みは排他な 3 値の status で表す | Accepted |
 | [0028](./0028-event-list-location-filter.md) | イベント一覧の地域絞り込みは location への部分一致で行う | Accepted |
 | [0029](./0029-event-application-deadline-nullable.md) | イベントの申込期限は NULL 許容の単一カラムで表現する | Accepted |
-| [0030](./0030-location-filter-limit-and-trgm-index.md) | 地域絞り込みの上限を 200 件へ引き上げ、pg_trgm の GIN インデックスを導入する | Accepted |
-| [0031](./0031-absence-notification.md) | 申込期限経過後の参加キャンセルは欠席連絡 API で行い主催者へ通知する | Accepted |
+| [0030](./0030-location-filter-limit-and-trgm-index.md) | 地域絞り込みの上限を 200 件へ引き上げ、pg_trgm の GIN インデックスを導入する | Accepted（本番構成の前提を ADR-0032 で更新） |
+| [0031](./0031-absence-notification.md) | 申込期限経過後の参加キャンセルは欠席連絡 API で行い主催者へ通知する | Accepted（outbox の起動方式を ADR-0032 で変更） |
+| [0032](./0032-production-deployment-cloud-run-supabase.md) | 本番デプロイ構成を Cloud Run＋Cloud Scheduler＋Supabase（DB・Auth）とする | Accepted |
 

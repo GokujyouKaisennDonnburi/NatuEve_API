@@ -10,6 +10,7 @@
 - `docker-compose.yml` でヘルスチェックを定義する
 - ボリュームでデータを永続化する（PostgreSQL）
 
-## 将来の移行
-現在は Xserver VPS + Docker Compose。1年後に AWS App Runner/ECS + RDS/Aurora へ移行予定。
-移行コストを最小化するため、Docker イメージの可搬性を維持する。
+## デプロイ先
+本番は Cloud Run（ADR-0032、`docs/Deployment.md`）。`docker-compose.yml` は開発用。
+- コンテナは環境変数 `PORT` で待ち受ける（Cloud Run が値を注入する）
+- 特定の実行基盤に依存させず、Docker イメージの可搬性を維持する

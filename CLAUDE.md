@@ -5,16 +5,17 @@
 
 ## Tech Stack
 - Go + Gin
-- PostgreSQL 17（Docker Compose）
-- Supabase Auth（JWT 検証のみ、DB は使わない）
+- PostgreSQL 17（開発: Docker Compose / 本番: Supabase）
+- Supabase Auth（JWT 検証）
 - golang-jwt + MicahParks/keyfunc（JWKS）
+- 本番: Cloud Run + Cloud Scheduler（`docs/Deployment.md`、ADR-0032）
 
 ## Module Path
 `github.com/GokujyouKaisennDonnburi/NatuEve_API`
 
 ## Project Structure
 ```
-cmd/server/main.go    # エントリーポイント
+cmd/api/main.go       # エントリーポイント
 internal/             # アプリケーションコード
 docker-compose.yml    # PostgreSQL + API
 .env.example          # 環境変数テンプレート
@@ -22,7 +23,7 @@ docker-compose.yml    # PostgreSQL + API
 
 ## Commands
 ```bash
-go run cmd/server/main.go        # ローカル実行
+go run cmd/api/main.go           # ローカル実行
 go test ./...                    # テスト実行
 docker compose up -d             # DB 起動
 docker compose down              # DB 停止
@@ -48,8 +49,12 @@ docker compose down              # DB 停止
 
 ### 認証
 - Supabase Auth の JWKS エンドポイントで JWT を検証する
-- Supabase の DB・Storage 機能は使用しない
 - 認証基盤は NatuPortal の複数プロダクトで共有
+
+### データベース（本番は Supabase）
+- 本番の PostgreSQL は Supabase を使う。Supabase は Postgres のホストとしてのみ使う（ADR-0032）
+- Supabase の Data API（PostgREST）から NatuEve のテーブルに到達できる状態にしない。DB へのアクセスは必ず API サーバーを通す（座標保護を迂回する経路になるため）
+- Supabase Storage は使用しない（ファイルは Cloudflare R2）
 
 ### 型共有
 - ハンドラの godoc コメントに `@Summary` `@Success {object} model.Xxx` 等を併記する

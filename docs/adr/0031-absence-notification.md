@@ -3,6 +3,7 @@
 - ステータス: Accepted
 - 日付: 2026-09-02
 - 関連: ADR-0011, ADR-0016, ADR-0029
+- 注記（2026-10-13）: outbox の起動方式は [ADR-0032](./0032-production-deployment-cloud-run-supabase.md) で変更された（常駐ワーカーの 30 秒周期 → Cloud Scheduler からの 1 分間隔の呼び出し）。本文中の「30 秒周期で再試行」は、ADR-0032 の実装後は Scheduler の起動間隔に読み替える
 
 ## コンテキストと課題
 

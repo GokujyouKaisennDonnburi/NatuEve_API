@@ -7,6 +7,7 @@
 - [環境構築・起動手順（Tech.md）](docs/Tech.md)
 - [開発ガイド：規約・構成・注意点（Development.md）](docs/Development.md)
 - [依存ライブラリ（dependencies.md）](docs/dependencies.md)
+- [デプロイ構成（Deployment.md）](docs/Deployment.md)
 
 ## クイックスタート
 
