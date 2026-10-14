@@ -163,7 +163,7 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
    - 別プロジェクトにすると、Pro でもコンピュート費用（Micro で月 $10）が追加される。
 5. **CORS の許可オリジンの値**: 環境変数 `CORS_ALLOW_ORIGINS` で設定できる（#218、ADR-0033）。
    本番の値は、フロントのオリジン（NatuIve_Web_Frontend#328）が決まり次第設定する。
-   未設定のままだと `http://localhost:3000` だけが許可され、本番のフロントから API を呼べない。
+   未設定のままだと開発用の `http://localhost:3000`・`http://localhost:8787` だけが許可され、本番のフロントから API を呼べない。
    プレビュー環境の URL を許可するか（NatuIve_Web_Frontend#330）は未決。ワイルドカードは使えないため、許可する場合は完全一致の値を追加する。
 6. **CI/CD**（#219）: GitHub Actions か Cloud Build で、マイグレーションの適用 → Cloud Run へのデプロイを自動化する。
 7. **`TRUSTED_PROXIES` の値**（#215）: Cloud Run の前段から見たクライアント IP の扱いを検証して決める。

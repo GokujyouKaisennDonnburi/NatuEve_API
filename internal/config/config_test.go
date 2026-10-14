@@ -13,8 +13,8 @@ func TestLoadCORSAllowOrigins(t *testing.T) {
 		value string
 		want  []string
 	}{
-		{name: "未設定なら既定値", set: false, want: []string{"http://localhost:3000"}},
-		{name: "空文字なら既定値", set: true, value: "", want: []string{"http://localhost:3000"}},
+		{name: "未設定なら既定値", set: false, want: []string{"http://localhost:3000", "http://localhost:8787"}},
+		{name: "空文字なら既定値", set: true, value: "", want: []string{"http://localhost:3000", "http://localhost:8787"}},
 		{name: "単一", set: true, value: "https://example.com", want: []string{"https://example.com"}},
 		{
 			name: "複数", set: true, value: "http://localhost:3000,https://example.com",

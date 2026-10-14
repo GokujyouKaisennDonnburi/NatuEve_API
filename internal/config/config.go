@@ -52,7 +52,7 @@ type Config struct {
 //
 // PORT が未設定なら 8085、TRUSTED_PROXIES が未設定なら nil(直接接続のみ信頼)。
 // CORS_ALLOW_ORIGINS はカンマ区切りで、各要素の前後の空白を除き空の要素は捨てる。
-// 未設定なら http://localhost:3000。空の要素しかない場合は空スライスになる（起動時に NewCORS がエラーにする）。
+// 未設定なら http://localhost:3000 と http://localhost:8787。空の要素しかない場合は空スライスになる（起動時に NewCORS がエラーにする）。
 func Load() Config {
 	cfg := Config{
 		Port:        os.Getenv("PORT"),
@@ -64,7 +64,7 @@ func Load() Config {
 	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
 		cfg.TrustedProxies = strings.Split(v, ",")
 	}
-	cfg.CORSAllowOrigins = []string{defaultCORSAllowOrigin}
+	cfg.CORSAllowOrigins = defaultCORSAllowOrigins()
 	if v := os.Getenv("CORS_ALLOW_ORIGINS"); v != "" {
 		cfg.CORSAllowOrigins = splitList(v)
 	}
@@ -90,8 +90,11 @@ func Load() Config {
 	return cfg
 }
 
-// defaultCORSAllowOrigin は CORS_ALLOW_ORIGINS が未設定のときに許可するオリジン（開発用フロント）。
-const defaultCORSAllowOrigin = "http://localhost:3000"
+// defaultCORSAllowOrigins は CORS_ALLOW_ORIGINS が未設定のときに許可するオリジンを返す。
+// 開発用フロントの next dev（localhost:3000）と、Workers ランタイムの preview（wrangler の既定 localhost:8787）。
+func defaultCORSAllowOrigins() []string {
+	return []string{"http://localhost:3000", "http://localhost:8787"}
+}
 
 // splitList はカンマ区切りの値を分割し、各要素の前後の空白を除いて空の要素を捨てる。
 func splitList(v string) []string {

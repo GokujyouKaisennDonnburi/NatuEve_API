@@ -37,7 +37,7 @@ cp .env.example .env
 |---|---|---|
 | `PORT` | サーバの待ち受けポート | `8085` |
 | `TRUSTED_PROXIES` | 信頼するプロキシ（カンマ区切り CIDR/IP）。未設定なら全プロキシを信頼しない。本番でプロキシ越しに置く場合に設定 | （未設定） |
-| `CORS_ALLOW_ORIGINS` | CORS で許可するオリジン（カンマ区切り、`scheme://host[:port]` の形）。末尾スラッシュ・パス・`*` を含む値があると起動しない（ADR-0033） | `http://localhost:3000` |
+| `CORS_ALLOW_ORIGINS` | CORS で許可するオリジン（カンマ区切り、`scheme://host[:port]` の形）。末尾スラッシュ・パス・`*` を含む値があると起動しない（ADR-0033） | `http://localhost:3000,http://localhost:8787` |
 | `DATABASE_URL` | Postgres 接続文字列。未設定なら DB に接続せず起動する | （未設定） |
 | `DB_AUTO_MIGRATE` | `true` で起動時にマイグレーションを自動適用（開発用）。本番は `false` | `false` |
 
