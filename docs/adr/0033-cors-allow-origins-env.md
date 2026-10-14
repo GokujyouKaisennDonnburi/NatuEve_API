@@ -21,7 +21,7 @@ CORS の許可オリジンは `internal/middleware/cors.go` に `http://localhos
     `HTTP://example.com` でも panic する。
 - ブラウザが送る `Origin` は `scheme://host[:port]` の形で、パスや末尾スラッシュを含まない。
   `https://example.com/` のように設定すると一致せず、本番のフロントから API を呼べないまま気付きにくい。
-- 本番のフロントのオリジンはフロント側（NatuIve_Web_Frontend#328）、プレビュー環境の扱いは #330 で決まる。
+- 本番のフロントのオリジンはフロント側（NatuEve_Web_Frontend#328）、プレビュー環境の扱いは #330 で決まる。
 
 ## 決定
 
@@ -30,7 +30,7 @@ CORS の許可オリジンは `internal/middleware/cors.go` に `http://localhos
 
 1. 前後の空白は除き、空の要素は無視する。各値は小文字化してからライブラリに渡す（スキームとホストは大文字小文字を区別しない）。
 2. 未設定（または空文字）なら `http://localhost:3000` と `http://localhost:8787` を使う。
-   前者はフロントの `next dev`、後者は Workers ランタイムでの `preview`（wrangler の既定ポート、NatuIve_Web_Frontend#326）。
+   前者はフロントの `next dev`、後者は Workers ランタイムでの `preview`（wrangler の既定ポート、NatuEve_Web_Frontend#326）。
 3. 各値を起動時に検証し、次のいずれかに当たればエラーにして起動を止める。
    - `*` を含む（全許可・ワイルドカード）
    - スキームが `http`／`https` 以外、またはホストがない（`/.../` の正規表現形式もここで弾かれる）
