@@ -13,6 +13,9 @@ type Config struct {
 	Port string
 	// TrustedProxies は信頼するプロキシ(CIDR/IP)。nil = どのプロキシも信頼しない。
 	TrustedProxies []string
+	// CORSAllowOrigins は CORS で許可するオリジン（scheme://host[:port]）。
+	// 値の検証は middleware.NewCORS が行う（ADR-0033）。
+	CORSAllowOrigins []string
 	// DatabaseURL は Postgres の接続文字列。空なら DB に接続せず起動する。
 	DatabaseURL string
 	// AutoMigrate が true なら起動時にマイグレーションを自動適用する(開発用)。
@@ -48,6 +51,8 @@ type Config struct {
 // Load は環境変数から Config を構築する。
 //
 // PORT が未設定なら 8085、TRUSTED_PROXIES が未設定なら nil(直接接続のみ信頼)。
+// CORS_ALLOW_ORIGINS はカンマ区切りで、各要素の前後の空白を除き空の要素は捨てる。
+// 未設定なら http://localhost:3000。空の要素しかない場合は空スライスになる（起動時に NewCORS がエラーにする）。
 func Load() Config {
 	cfg := Config{
 		Port:        os.Getenv("PORT"),
@@ -58,6 +63,10 @@ func Load() Config {
 	}
 	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
 		cfg.TrustedProxies = strings.Split(v, ",")
+	}
+	cfg.CORSAllowOrigins = []string{defaultCORSAllowOrigin}
+	if v := os.Getenv("CORS_ALLOW_ORIGINS"); v != "" {
+		cfg.CORSAllowOrigins = splitList(v)
 	}
 	if v := os.Getenv("DB_AUTO_MIGRATE"); v != "" {
 		// パースできない値は false 扱い(明示的に true/1 のときだけ有効)。
@@ -79,4 +88,19 @@ func Load() Config {
 	cfg.ResendAPIKey = os.Getenv("RESEND_API_KEY")
 	cfg.MailFrom = os.Getenv("MAIL_FROM")
 	return cfg
+}
+
+// defaultCORSAllowOrigin は CORS_ALLOW_ORIGINS が未設定のときに許可するオリジン（開発用フロント）。
+const defaultCORSAllowOrigin = "http://localhost:3000"
+
+// splitList はカンマ区切りの値を分割し、各要素の前後の空白を除いて空の要素を捨てる。
+func splitList(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
