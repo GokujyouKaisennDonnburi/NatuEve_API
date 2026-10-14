@@ -34,7 +34,7 @@ cmd/api/main.go        起動のみ（設定読込 → ルーター構築 → gr
 internal/
   config/              環境変数 → Config 構造体
   server/              ルーター構築（NewRouter）・ミドルウェア登録・ルート定義
-  middleware/          Gin ミドルウェア（ロギング・panic回復、今後: 認証/CORS）
+  middleware/          Gin ミドルウェア（ロギング・panic回復・認証・CORS・ボディサイズ制限・クエリ検証・レート制限）
   handler/             HTTP ハンドラ。入出力の変換のみ（ロジックを持たない）
   service/             ビジネスロジック（HTTP に依存しない）
   repository/          データアクセス。interface を定義し実装を分ける
