@@ -13,6 +13,8 @@ jobs:
   review:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
+    # 権限の確認待ちなどで止まったときに、6 時間（既定の上限）待たずに失敗させる
+    timeout-minutes: 15
     # use_github_token: true のため OIDC は使われず id-token: write は不要
     permissions:
       contents: read

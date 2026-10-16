@@ -89,6 +89,7 @@ NatuEve_API の本番デプロイ構成をまとめる。
 | `SUPABASE_JWKS_URL` | `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json` | |
 | `SUPABASE_JWT_AUD` | `authenticated`（既定値のままなら設定不要） | |
 | `TRUSTED_PROXIES` | 未決（Cloud Run の前段での値を要検証） | |
+| `CORS_ALLOW_ORIGINS` | 本番のフロントのオリジン（未決。フロント側 NatuEve_Web_Frontend#328 で決まる） | |
 | `R2_ACCOUNT_ID` | Cloudflare のアカウント ID | |
 | `R2_ACCESS_KEY_ID` | R2 の API トークン | ○ |
 | `R2_SECRET_ACCESS_KEY` | R2 の API トークン | ○ |
@@ -160,8 +161,10 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
 4. **DB を Auth と同じ Supabase プロジェクトに置くか、別プロジェクトにするか**（#214）
    - Auth は NatuPortal の複数プロダクトで共有しているため、Data API を無効化すると他プロダクトに影響しうる。
    - 別プロジェクトにすると、Pro でもコンピュート費用（Micro で月 $10）が追加される。
-5. **CORS の許可オリジン**（#218）: 現在は `http://localhost:3000` だけが `internal/middleware/cors.go` に直書きされている。
-   本番のフロントのオリジンを許可できるよう、環境変数で設定できるようにする。
+5. **CORS の許可オリジンの値**: 環境変数 `CORS_ALLOW_ORIGINS` で設定できる（#218、ADR-0033）。
+   本番の値は、フロントのオリジン（NatuEve_Web_Frontend#328）が決まり次第設定する。
+   未設定のままだと開発用の `http://localhost:3000`・`http://localhost:8787` だけが許可され、本番のフロントから API を呼べない。
+   プレビュー環境の URL を許可するか（NatuEve_Web_Frontend#330）は未決。ワイルドカードは使えないため、許可する場合は完全一致の値を追加する。
 6. **CI/CD**（#219）: GitHub Actions か Cloud Build で、マイグレーションの適用 → Cloud Run へのデプロイを自動化する。
 7. **`TRUSTED_PROXIES` の値**（#215）: Cloud Run の前段から見たクライアント IP の扱いを検証して決める。
    参加申込の IP レート制限（`internal/middleware/ratelimit.go`）は `c.ClientIP()` ごとに数えるため、この値が正しいことが前提。

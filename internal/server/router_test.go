@@ -17,8 +17,13 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
+// testConfig は CORS の許可オリジンだけを設定したテスト用 Config を返す。
+func testConfig() config.Config {
+	return config.Config{CORSAllowOrigins: []string{"http://localhost:3000"}}
+}
+
 func TestHealthEndpoint(t *testing.T) {
-	r, _, err := NewRouter(config.Config{}, nil)
+	r, _, err := NewRouter(testConfig(), nil)
 	if err != nil {
 		t.Fatalf("NewRouter() returned error: %v", err)
 	}
@@ -49,12 +54,12 @@ func TestHealthEndpoint(t *testing.T) {
 // として観測されて原因が追えなくなる。ミドルウェアの順序が将来のリファクタで
 // 入れ替わった場合にこのテストが落ちることを確認済み。
 func TestQueryValidationRunsAfterCORS(t *testing.T) {
-	r, _, err := NewRouter(config.Config{}, nil)
+	r, _, err := NewRouter(testConfig(), nil)
 	if err != nil {
 		t.Fatalf("NewRouter() returned error: %v", err)
 	}
 
-	// NewCORS() が AllowOrigins に許可している Origin（internal/middleware/cors.go 参照）。
+	// testConfig() の CORSAllowOrigins に含まれる Origin。
 	const allowedOrigin = "http://localhost:3000"
 
 	req := httptest.NewRequest(http.MethodGet, "/health?q=%zz", nil)
@@ -68,5 +73,29 @@ func TestQueryValidationRunsAfterCORS(t *testing.T) {
 
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != allowedOrigin {
 		t.Errorf("Access-Control-Allow-Origin header = %q, want %q", got, allowedOrigin)
+	}
+}
+
+// TestNewRouterRejectsInvalidCORSOrigins は、CORSAllowOrigins が空または不正なとき
+// NewRouter がエラーを返すことを検証する（ADR-0033）。
+func TestNewRouterRejectsInvalidCORSOrigins(t *testing.T) {
+	tests := []struct {
+		name    string
+		origins []string
+	}{
+		{name: "nil", origins: nil},
+		{name: "空スライス", origins: []string{}},
+		{name: "ワイルドカード", origins: []string{"*"}},
+		{name: "末尾スラッシュ付き", origins: []string{"https://example.com/"}},
+		{name: "正常値に不正値が混在", origins: []string{"http://localhost:3000", "ftp://example.com"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := NewRouter(config.Config{CORSAllowOrigins: tt.origins}, nil)
+			if err == nil {
+				t.Fatal("NewRouter() error = nil, want error")
+			}
+		})
 	}
 }

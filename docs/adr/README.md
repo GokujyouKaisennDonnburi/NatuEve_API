@@ -49,4 +49,4 @@
 | [0030](./0030-location-filter-limit-and-trgm-index.md) | 地域絞り込みの上限を 200 件へ引き上げ、pg_trgm の GIN インデックスを導入する | Accepted（本番構成の前提を ADR-0032 で更新） |
 | [0031](./0031-absence-notification.md) | 申込期限経過後の参加キャンセルは欠席連絡 API で行い主催者へ通知する | Accepted（outbox の起動方式を ADR-0032 で変更） |
 | [0032](./0032-production-deployment-cloud-run-supabase.md) | 本番デプロイ構成を Cloud Run＋Cloud Scheduler＋Supabase（DB・Auth）とする | Accepted |
-
+| [0033](./0033-cors-allow-origins-env.md) | CORS の許可オリジンを環境変数で設定し、起動時に検証する | Accepted |

@@ -3,6 +3,7 @@ package server
 
 import (
 	"database/sql"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -25,18 +26,23 @@ import (
 // NewRouter は設定と DB 接続をもとに Gin のルーターを構築して返す。
 // sqlDB が nil、または SUPABASE_JWKS_URL が未設定の場合、認証が必要な
 // user 系ルートは登録しない(health などは常に有効)。
+// cfg.CORSAllowOrigins が空、または不正な値を含む場合はエラーを返す（ADR-0033）。
 //
 // 戻り値の *service.NotificationOutboxWorker は、イベントキャンセル通知の
 // バックグラウンド送信ワーカー。sqlDB と Resend 設定（RESEND_API_KEY・MAIL_FROM）が
 // 揃っている場合のみ生成され、それ以外は nil を返す（呼び出し元は nil チェックのうえ
 // go worker.Run(ctx) すること。nil の場合は outbox に予約は溜まるが送信は行われない）。
 func NewRouter(cfg config.Config, sqlDB *sql.DB) (*gin.Engine, *service.NotificationOutboxWorker, error) {
+	corsMiddleware, err := middleware.NewCORS(cfg.CORSAllowOrigins)
+	if err != nil {
+		return nil, nil, fmt.Errorf("CORS_ALLOW_ORIGINS: %w", err)
+	}
 
 	// gin.Default() の代わりに slog 連携のロガー/リカバリを使う。
 	r := gin.New()
 	r.Use(middleware.SlogLogger(),
 		middleware.SlogRecovery(),
-		middleware.NewCORS(),
+		corsMiddleware,
 		middleware.BodyLimit(),
 		// CORS より後ろに置く: 前に置くと 400 レスポンスに CORS ヘッダが付かず、
 		// ブラウザからは 400 ではなく CORS エラーに見えて原因が追えなくなる。
