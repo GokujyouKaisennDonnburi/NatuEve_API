@@ -4,6 +4,11 @@ mode: primary
 temperature: 0.1
 permission:
   edit: deny
+  # リポジトリ外のパスは既定で ask になり、CI では応答待ちのまま止まる。許可するパス以外は deny にする
+  external_directory:
+    "*": deny
+    "/tmp/opencode/*": allow
+    "~/go/pkg/mod/*": allow
 ---
 
 ## 役割
