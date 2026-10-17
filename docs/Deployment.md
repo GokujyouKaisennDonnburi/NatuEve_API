@@ -57,10 +57,21 @@ NatuEve_API の本番デプロイ構成をまとめる。
 | 項目 | 値 |
 |---|---|
 | 呼び出し間隔 | 1 分 |
-| 呼び出し先 | outbox を 1 回処理する内部エンドポイント（未実装） |
-| 認証 | Scheduler 以外から呼べない方式にする（方式は未決） |
+| 呼び出し先 | `POST /internal/outbox/process`（outbox を 1 回処理して `{"processed": n}` を返す） |
+| 認証 | OIDC トークン。ジョブにサービスアカウントと audience を設定する（ADR-0034） |
+| audience | 明示して指定し、Cloud Run の `SCHEDULER_OIDC_AUDIENCE` と同じ値にする |
+| リトライ回数 | 明示して指定する（API の既定は 0 回。gcloud・Console の既定は未確認） |
+| 試行の期限（attempt deadline） | 既定の 3 分のままでよい（1 回の呼び出しは、開始から 50 秒を過ぎると新しい行を確保しない） |
 
 - 無料枠は請求アカウントあたり 3 ジョブ。ジョブを一時停止しても課金対象として数えられる。
+- audience を省略すると、クエリを含むターゲット URL 全体（`https://<host>/internal/outbox/process`）が audience になる（公式ドキュメント）。
+  `SCHEDULER_OIDC_AUDIENCE` と一致しないと、全呼び出しが 401 になる。
+- ジョブを作る人には、ジョブのサービスアカウントに対する `roles/iam.serviceAccountUser` が必要。
+  Cloud Scheduler のサービスエージェントに `roles/cloudscheduler.serviceAgent` が付いていること（2019-03-19 より前に API を有効化した場合は手動で付与する）。
+- Scheduler の実行中は、そのジョブの次の実行はスキップされる。まれに同じジョブが重複して実行されることがあるが、行ごとの排他で、同じ行を同時に送ることはない。
+- **デプロイ後に確認する（未検証）**: Scheduler が付けるトークンに `email` と `email_verified` が入っているか、`iss` の値は何かを、
+  公式ドキュメントでは確認できていない。`gcloud scheduler jobs run <ジョブ名>` で手動実行し、ログで 200 になることを確かめる。
+  401 なら audience、403 ならサービスアカウントのメールアドレスか `email` クレームの有無を疑う。
 
 ### Supabase
 
@@ -97,9 +108,14 @@ NatuEve_API の本番デプロイ構成をまとめる。
 | `R2_PUBLIC_BASE_URL` | 公開配信のベース URL | |
 | `RESEND_API_KEY` | Resend の API キー | ○ |
 | `MAIL_FROM` | 送信元アドレス | |
+| `SCHEDULER_OIDC_AUDIENCE` | Scheduler のジョブに設定した OIDC の audience（API の URL） | |
+| `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | Scheduler のジョブが使うサービスアカウントのメールアドレス | |
+| `OUTBOX_WORKER_ENABLED` | 設定しない（常駐ワーカーは本番では使わない） | |
 
 - Secret Manager の無料枠は、アクティブなシークレットバージョン 6 つ・アクセス 1 万回／月。
   秘密情報は 4 つなので無料枠に収まる。
+- `SCHEDULER_OIDC_AUDIENCE` と `SCHEDULER_SERVICE_ACCOUNT_EMAIL` は、どちらか一方でも未設定だと内部エンドポイントが登録されず（404）、
+  通知メールは送信されない。`RESEND_API_KEY` または `MAIL_FROM` が未設定の場合も登録されない。
 
 ## マイグレーション
 
@@ -143,15 +159,12 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
 
 ## 未決事項・今後の作業
 
-1. **outbox の Scheduler 起動の実装**（ADR-0032 の決定事項 2、#217）
-   - 内部エンドポイントの認証方式、排他方式（`FOR UPDATE SKIP LOCKED` またはアドバイザリロック）、
-     ローカル開発での起動方法、`Wake()` の削除。
-   - **これが完了するまで、本構成では通知メールの送信が保証されない。** 本番公開の前提条件。
-     現在の常駐ワーカーは、リクエスト処理中にしか CPU を得られない。インスタンスが 0 台になると止まり、
-     複数インスタンスでは二重送信の恐れがある。
-   - 実装前にデプロイする場合の暫定策の候補:
-     - 最大インスタンス数を 1 にする（二重送信を防ぐ。送信タイミングは保証されない）
-     - `RESEND_API_KEY` を設定せず、ワーカーを起動させない。予約は outbox に溜まり、設定後に送信される（ADR-0016 決定事項 4 の挙動）
+1. **Cloud Scheduler ジョブの作成**（outbox の内部エンドポイントは #217、ADR-0034 で実装済み）
+   - `POST /internal/outbox/process` を 1 分間隔で呼ぶジョブを作る。認証は OIDC トークンで、ジョブ用のサービスアカウントと
+     audience を設定し、同じ値を Cloud Run の環境変数 `SCHEDULER_SERVICE_ACCOUNT_EMAIL`・`SCHEDULER_OIDC_AUDIENCE` に入れる。
+   - **ジョブを作るまで、本番では通知メールが送信されない。** 常駐ワーカーは本番では使わない（`OUTBOX_WORKER_ENABLED` を設定しない）。
+   - 複数の呼び出しが同時に走っても、行ごとの `FOR UPDATE SKIP LOCKED` で排他するため、同じ通知を同時に送ることはない。ただし、送信後に記録できなかった場合と、送信を打ち切ったが実際には届いていた場合は再送されうる（at-least-once）。
+   - ローカル開発では `OUTBOX_WORKER_ENABLED=true`（`.env.example` に記載）で、API プロセス内の 30 秒ティッカーが同じ処理を呼ぶ。
 2. **Supabase への接続方式**（#213）
    - 直接接続は IPv6 のみ（IPv4 は有料アドオン）。
    - セッションモードのプーラー（ポート 5432）は IPv4 で使える。

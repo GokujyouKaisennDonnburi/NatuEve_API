@@ -8,14 +8,16 @@ SupabaseAuth（Supabase が発行する JWT を JWKS で検証する想定。実
 
 ### バックグラウンドワーカー（通知送信）
 
-イベントキャンセル通知は Transactional Outbox（`event_notification_outbox` テーブル）経由で、
-API サーバー内のワーカー goroutine が送信する（詳細は [ADR-0016](./adr/0016-event-cancel-notification-outbox.md)）。
+イベントキャンセル・欠席連絡の通知は Transactional Outbox（`event_notification_outbox` テーブル）経由で送信する
+（詳細は [ADR-0016](./adr/0016-event-cancel-notification-outbox.md)、[ADR-0031](./adr/0031-absence-notification.md)）。
 
-> **運用上の前提: API サーバーは単一インスタンスで動かすこと。**
-> ワーカーの outbox 取得は `FOR UPDATE SKIP LOCKED` による claim を行っていないため、
-> 複数インスタンスへ横展開すると同じ通知を複数のワーカーが処理し、二重送信になる。
-> 本番（Cloud Run、[ADR-0032](./adr/0032-production-deployment-cloud-run-supabase.md)）では、このワーカーを
-> Cloud Scheduler からの定期呼び出しに置き換える（未実装）。置き換える際に排他を入れる。詳細は [Deployment.md](./Deployment.md)。
+- **本番（Cloud Run）**: Cloud Scheduler が 1 分間隔で `POST /internal/outbox/process` を呼び、1 回の呼び出しで未送信の行を最大 50 件処理する。
+  認証は Scheduler の OIDC トークン（[ADR-0034](./adr/0034-outbox-scheduler-endpoint.md)）。常駐ワーカーは使わない。
+  設定は [Deployment.md](./Deployment.md) を参照。
+- **ローカル開発**: 環境変数 `OUTBOX_WORKER_ENABLED=true` のとき、API プロセス内のワーカーが 30 秒間隔で同じ処理を呼ぶ。
+- **排他**: 行は `FOR UPDATE SKIP LOCKED` で 1 件ずつ確保し、送信結果の記録と同じトランザクションで確定する。
+  複数の呼び出しやインスタンスが同時に走っても、同じ通知を同時に送ることはない。ただし、送信後に記録できなかった場合と、送信を打ち切ったが実際には届いていた場合は再送されうる（at-least-once）。
+- Resend 未設定（`RESEND_API_KEY`・`MAIL_FROM` が無い）の場合は、内部エンドポイントもワーカーも動かず、通知は outbox に溜まる。
 
 
 ## 開発者向け 環境構築
@@ -38,6 +40,9 @@ cp .env.example .env
 | `PORT` | サーバの待ち受けポート | `8085` |
 | `TRUSTED_PROXIES` | 信頼するプロキシ（カンマ区切り CIDR/IP）。未設定なら全プロキシを信頼しない。本番でプロキシ越しに置く場合に設定 | （未設定） |
 | `CORS_ALLOW_ORIGINS` | CORS で許可するオリジン（カンマ区切り、`scheme://host[:port]` の形）。末尾スラッシュ・パス・`*` を含む値があると起動しない（ADR-0033） | `http://localhost:3000,http://localhost:8787` |
+| `OUTBOX_WORKER_ENABLED` | `true` で、API プロセス内に通知メールの outbox を 30 秒間隔で処理する常駐ワーカーを起動する（ローカル開発用。本番は設定しない。ADR-0034） | `false` |
+| `SCHEDULER_OIDC_AUDIENCE` | Cloud Scheduler の OIDC トークンの audience。`SCHEDULER_SERVICE_ACCOUNT_EMAIL` と両方設定すると `POST /internal/outbox/process` が有効になる（ADR-0034） | （未設定） |
+| `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | Cloud Scheduler のジョブが使うサービスアカウントのメールアドレス | （未設定） |
 | `DATABASE_URL` | Postgres 接続文字列。未設定なら DB に接続せず起動する | （未設定） |
 | `DB_AUTO_MIGRATE` | `true` で起動時にマイグレーションを自動適用（開発用）。本番は `false` | `false` |
 
