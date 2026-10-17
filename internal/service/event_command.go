@@ -45,19 +45,13 @@ func (e *ForbiddenError) Error() string {
 type EventCommandService struct {
 	repo  repository.EventRepository
 	store ObjectStore // nil 安全。nil の場合はキー昇格なし。
-	// wake はイベントキャンセルの通知予約後にバックグラウンドワーカーを起床させる。
-	// nil 安全（未設定＝呼ばない）。NotificationOutboxWorker.Wake はメソッド自体も
-	// nil レシーバ安全なため、ワーカー未生成環境（Resend 未設定）でも
-	// worker.Wake をそのまま渡してよい。
-	wake func()
 }
 
 // NewEventCommandService は EventCommandService を生成する。
 //
 // store は nil でも可（未設定時はキーあり → ValidationError）。
-// wake は nil でも可（未設定時は Cancel 後の起床通知を行わない）。
-func NewEventCommandService(repo repository.EventRepository, store ObjectStore, wake func()) *EventCommandService {
-	return &EventCommandService{repo: repo, store: store, wake: wake}
+func NewEventCommandService(repo repository.EventRepository, store ObjectStore) *EventCommandService {
+	return &EventCommandService{repo: repo, store: store}
 }
 
 // defaultCancelSubject はキャンセル通知の件名省略時に補う既定件名。
@@ -114,10 +108,6 @@ func (s *EventCommandService) Cancel(ctx context.Context, profileID, eventID str
 			return model.CancelEventResponse{}, &ValidationError{Message: "指定されたイベントが存在しません"}
 		}
 		return model.CancelEventResponse{}, fmt.Errorf("cancel event: %w", err)
-	}
-
-	if s.wake != nil {
-		s.wake()
 	}
 
 	return model.CancelEventResponse{

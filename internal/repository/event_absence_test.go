@@ -365,10 +365,10 @@ func TestEventJoinPostgres_Leave_DeadlinePassed(t *testing.T) {
 	})
 }
 
-// TestEventNotificationOutboxPostgres_ListDue_ReturnsRecipientKind は outbox の
+// TestEventNotificationOutboxPostgres_ClaimNextDue_ReturnsRecipientKind は outbox の
 // recipient_kind が members（従来の CancelWithNotification 経由）・organizer（Absence 経由）
-// のどちらの行でも ListDue で正しく返ることを検証する。
-func TestEventNotificationOutboxPostgres_ListDue_ReturnsRecipientKind(t *testing.T) {
+// のどちらの行でも ClaimNextDue で正しく返ることを検証する。
+func TestEventNotificationOutboxPostgres_ClaimNextDue_ReturnsRecipientKind(t *testing.T) {
 	db := requireTestDB(t)
 	eventRepo := NewEventRepository(db)
 	joinRepo := NewEventJoinRepository(db)
@@ -397,13 +397,10 @@ func TestEventNotificationOutboxPostgres_ListDue_ReturnsRecipientKind(t *testing
 		t.Fatalf("Absence() returned error: %v", err)
 	}
 
-	// ListDue は next_attempt_at <= 引数時刻 の行を返すため、未来の時刻を渡して
+	// ClaimNextDue は next_attempt_at <= 引数時刻 の行を返すため、未来の時刻を渡して
 	// INSERT 済みの両行が確実に due になるようにする（INSERT の next_attempt_at は
 	// DEFAULT now() のため、テスト開始時刻を渡すとミリ秒の揺らぎで漏れる）。
-	due, err := outboxRepo.ListDue(context.Background(), now.Add(time.Minute), 100)
-	if err != nil {
-		t.Fatalf("ListDue() returned error: %v", err)
-	}
+	due := claimAllDue(t, outboxRepo, now.Add(time.Minute))
 
 	gotKinds := make(map[uuid.UUID]string, len(due))
 	for _, item := range due {

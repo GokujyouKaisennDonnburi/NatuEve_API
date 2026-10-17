@@ -583,7 +583,7 @@ func TestEventCommandServiceCreate_Validation(t *testing.T) {
 				createResult: dummyResp,
 				createErr:    tt.stubErr,
 			}
-			svc := NewEventCommandService(stub, nil, nil)
+			svc := NewEventCommandService(stub, nil)
 
 			got, err := svc.Create(context.Background(), profileID, tt.req)
 
@@ -669,7 +669,7 @@ func TestEventCommandServiceCreate_OwnershipCheck(t *testing.T) {
 			repoStub := &stubEventRepository{
 				createResult: dummyResp,
 			}
-			svc := NewEventCommandService(repoStub, store, nil)
+			svc := NewEventCommandService(repoStub, store)
 
 			req := validRequest()
 			req.ImageObjectKeys = []string{tt.imageObjectKey}
@@ -716,7 +716,7 @@ func TestEventCommandServiceCreate_SizeLimit(t *testing.T) {
 				getData:         jpegData,
 			}
 			repoStub := &stubEventRepository{createResult: dummyResp}
-			svc := NewEventCommandService(repoStub, store, nil)
+			svc := NewEventCommandService(repoStub, store)
 
 			req := validRequest()
 			req.ImageObjectKeys = []string{validKey}
@@ -744,7 +744,7 @@ func TestEventCommandServiceCreate_MagicNumberMismatch(t *testing.T) {
 		getData:         pngData,
 	}
 	repoStub := &stubEventRepository{createResult: dummyResp}
-	svc := NewEventCommandService(repoStub, store, nil)
+	svc := NewEventCommandService(repoStub, store)
 
 	req := validRequest()
 	req.ImageObjectKeys = []string{validKey}
@@ -764,7 +764,7 @@ func TestEventCommandServiceCreate_EXIFStrip(t *testing.T) {
 		getData:         jpegData,
 	}
 	repoStub := &stubEventRepository{createResult: dummyResp}
-	svc := NewEventCommandService(repoStub, store, nil)
+	svc := NewEventCommandService(repoStub, store)
 
 	req := validRequest()
 	req.ImageObjectKeys = []string{validKey}
@@ -796,7 +796,7 @@ func TestEventCommandServiceCreate_CompensationDelete(t *testing.T) {
 	repoStub := &stubEventRepository{
 		createErr: errors.New("db error"),
 	}
-	svc := NewEventCommandService(repoStub, store, nil)
+	svc := NewEventCommandService(repoStub, store)
 
 	req := validRequest()
 	req.ImageObjectKeys = []string{validKey}
@@ -821,7 +821,7 @@ func TestEventCommandServiceCreate_CompensationDelete(t *testing.T) {
 func TestEventCommandServiceCreate_StoreNilWithKeys(t *testing.T) {
 	repoStub := &stubEventRepository{}
 	// store=nil のまま画像キーを渡す → ValidationError
-	svc := NewEventCommandService(repoStub, nil, nil)
+	svc := NewEventCommandService(repoStub, nil)
 
 	req := validRequest()
 	req.ImageObjectKeys = []string{"natueve/tmp/" + testProfileID + "/uuid.jpg"}
@@ -1006,23 +1006,16 @@ func TestEventCommandServiceCancel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var wakeCalled bool
-			svc := NewEventCommandService(tt.repo, nil, func() { wakeCalled = true })
+			svc := NewEventCommandService(tt.repo, nil)
 
 			resp, err := svc.Cancel(context.Background(), tt.profileID, tt.eventID, tt.req)
 
 			switch {
 			case tt.wantForbiddenErr:
 				_ = assertForbiddenError(t, err)
-				if wakeCalled {
-					t.Error("エラー時に wake が呼ばれるべきではない")
-				}
 				return
 			case tt.wantValErr:
 				_ = assertValidationError(t, err)
-				if wakeCalled {
-					t.Error("エラー時に wake が呼ばれるべきではない")
-				}
 				return
 			case tt.wantErr:
 				if err == nil {
@@ -1030,9 +1023,6 @@ func TestEventCommandServiceCancel(t *testing.T) {
 				}
 				if tt.wantErrIs != nil && !errors.Is(err, tt.wantErrIs) {
 					t.Errorf("errors.Is(err, %v) = false, err = %v", tt.wantErrIs, err)
-				}
-				if wakeCalled {
-					t.Error("エラー時に wake が呼ばれるべきではない")
 				}
 				return
 			}
@@ -1052,9 +1042,6 @@ func TestEventCommandServiceCancel(t *testing.T) {
 			}
 			if tt.repo.getTitleCalled != tt.wantTitleCalled {
 				t.Errorf("GetTitle 呼び出し有無: got %v, want %v", tt.repo.getTitleCalled, tt.wantTitleCalled)
-			}
-			if !wakeCalled {
-				t.Error("正常系では wake が呼ばれるべき")
 			}
 		})
 	}

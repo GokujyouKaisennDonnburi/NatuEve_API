@@ -581,7 +581,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, nil)
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
 
 			resp, err := svc.Join(context.Background(), eventID, tt.profileID, tt.req)
 
@@ -680,7 +680,7 @@ func TestEventJoinServiceLeave(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, nil)
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
 
 			resp, err := svc.Leave(context.Background(), eventID, profileID)
 
@@ -800,7 +800,7 @@ func TestEventJoinServiceGetMyApplication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, nil)
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
 
 			resp, err := svc.GetMyApplication(context.Background(), eventID, profileID)
 
@@ -1140,9 +1140,7 @@ func TestEventJoinServiceAbsence(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			wakeCalled := false
-			wake := func() { wakeCalled = true }
-			svc := NewEventJoinService(tt.joinStub, tt.eventStub, wake)
+			svc := NewEventJoinService(tt.joinStub, tt.eventStub)
 
 			resp, err := svc.Absence(context.Background(), eventID, profileID, tt.req)
 
@@ -1168,9 +1166,6 @@ func TestEventJoinServiceAbsence(t *testing.T) {
 
 			assertNoErr(t, err)
 
-			if !wakeCalled {
-				t.Error("wake が呼ばれていない（outbox 予約後の起床通知が行われていない）")
-			}
 			if tt.checkResp != nil {
 				tt.checkResp(t, resp)
 			}
@@ -1179,25 +1174,6 @@ func TestEventJoinServiceAbsence(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestEventJoinServiceAbsence_WakeNil(t *testing.T) {
-	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
-	profileID := uuid.MustParse("b2c3d4e5-f6a7-8901-bcde-f23456789012")
-
-	svc := NewEventJoinService(
-		&stubEventJoinRepository{memberByProfile: model.EventMember{Username: "山田太郎"}},
-		&stubEventRepository{title: "たき火観察会"},
-		nil,
-	)
-
-	_, err := svc.Absence(
-		context.Background(),
-		eventID,
-		profileID,
-		model.AbsenceEventRequest{Reason: model.AbsenceReasonIllness},
-	)
-	assertNoErr(t, err)
 }
 
 // fmtWrap は sentinel エラーを %w でラップした状態を再現するヘルパー。
@@ -1470,7 +1446,7 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.joinStub, tt.eventStub, nil)
+			svc := NewEventJoinService(tt.joinStub, tt.eventStub)
 
 			resp, err := svc.ListMembers(context.Background(), tt.profileID, tt.eventID)
 

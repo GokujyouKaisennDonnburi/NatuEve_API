@@ -44,17 +44,11 @@ func (e *ConflictError) Error() string {
 type EventJoinService struct {
 	joinRepo  repository.EventJoinRepository
 	eventRepo repository.EventRepository
-	// wake は欠席連絡の通知予約後にバックグラウンドワーカーを起床させる。
-	// nil 安全（未設定＝呼ばない）。NotificationOutboxWorker.Wake はメソッド自体も
-	// nil レシーバ安全なため、ワーカー未生成環境（Resend 未設定）でも
-	// worker.Wake をそのまま渡してよい。
-	wake func()
 }
 
 // NewEventJoinService は Service を生成する。
-// wake は nil でも可（未設定時は Absence 後の起床通知を行わない）。
-func NewEventJoinService(joinRepo repository.EventJoinRepository, eventRepo repository.EventRepository, wake func()) *EventJoinService {
-	return &EventJoinService{joinRepo: joinRepo, eventRepo: eventRepo, wake: wake}
+func NewEventJoinService(joinRepo repository.EventJoinRepository, eventRepo repository.EventRepository) *EventJoinService {
+	return &EventJoinService{joinRepo: joinRepo, eventRepo: eventRepo}
 }
 
 // Join はイベント参加処理を行う。
@@ -264,10 +258,6 @@ func (s *EventJoinService) Absence(
 			}
 		}
 		return model.AbsenceEventResponse{}, fmt.Errorf("absence event: %w", err)
-	}
-
-	if s.wake != nil {
-		s.wake()
 	}
 
 	// 未指定の reason・detail は DB の NULL と揃えてレスポンスでも null で返す。
