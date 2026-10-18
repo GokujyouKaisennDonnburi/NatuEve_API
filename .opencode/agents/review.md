@@ -34,7 +34,7 @@ Pull Request をレビューし、結果を日本語でコメントしてくだ�
    - エラーレスポンスは `{"error": {"code": "...", "message": "..."}}` 形式
    - ハンドラは `internal/handler/`、ビジネスロジックは `internal/service/`、DB アクセスは `internal/repository/`
    - 環境変数のハードコーディング禁止
-   - API 型は OpenAPI 定義から自動生成する（手書きの API 型定義を追加していないか）
+   - API 型は `internal/model/` に手書きで定義し、OpenAPI（`api/`）は `make swag` がハンドラの swag 注釈から生成する。ハンドラや API 型を追加・変更したとき、godoc の注釈（`@Summary` / `@Success {object} model.Xxx` / `@Failure` / `@Router` 等）が追随しているか。`api/` は生成物なので手編集していないか
 6. テストの妥当性（テーブル駆動テスト、`t.Helper()` の使用、テストデータは `testdata/` に配置、グローバル状態への依存・変更がないか）
 7. 可読性（不適切な変数名、マジックナンバー、責務の混在）、エラーハンドリングの削除・弱体化、型安全の後退
 
@@ -56,6 +56,8 @@ Pull Request をレビューし、結果を日本語でコメントしてくだ�
 - opencode GitHub Action の `agent` 入力に指定するエージェントは `mode: primary` である必要がある（出典: https://opencode.ai/docs/github/ "Must be a primary agent"、2026-07-06 確認）
 - opencode GitHub Action で `use_github_token: true` の場合、OIDC トークン交換はスキップされるため `id-token: write` 権限は不要である（出典: action.yml の use_github_token 説明 "When true, skips OIDC and uses the GITHUB_TOKEN env var." https://github.com/anomalyco/opencode/blob/dev/github/action.yml 、2026-07-06 確認）
 - `secrets` コンテキストは GitHub Actions の job レベル `if` 式では参照できない（`Unrecognized named-value: 'secrets'` になる。出典: https://github.com/actions/runner/issues/520 、2026-07-06 確認）
+- `opencode-go/glm-5.3-flash` は opencode Go の正式なモデル ID であり、variant は `low` / `high` / `max` の 3 つである（出典: https://opencode.ai/docs/go/ 、`opencode models opencode-go --verbose` の出力、2026-10-18 確認）
+- opencode GitHub Action には推論強度を指定する `variant` 入力がある（出典: action.yml の variant 説明 "Model variant for provider-specific reasoning effort (e.g., high, max, minimal)" https://github.com/anomalyco/opencode/blob/dev/github/action.yml 、2026-10-18 確認）
 
 ## 応答ルール
 
