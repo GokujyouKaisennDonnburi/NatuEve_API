@@ -241,15 +241,17 @@ CI（`.github/workflows/ci.yml`）が `make swag-check` / `make vet` / `make lin
 問題なし。
 
 ### セキュリティ
-- 【緊急】`internal/repository/event.go` L145: ユーザー入力を文字列連結で SQL に埋め込んでいる。
-  ~~~diff
-  - query := fmt.Sprintf("SELECT * FROM events WHERE name = '%s'", name)
-  - rows, err := db.Query(query)
-  + rows, err := db.Query("SELECT * FROM events WHERE name = $1", name)
-  ~~~
+問題なし。
 
 ### バグ
-問題なし。
+- 【修正】`internal/repository/event.go` L145: `rows.Err()` を確認しておらず、走査中のエラーを握りつぶしている。
+  ~~~diff
+    }
+  + if err := rows.Err(); err != nil {
+  +     return nil, err
+  + }
+    return events, nil
+  ~~~
 
 ### アーキテクチャ
 問題なし。
