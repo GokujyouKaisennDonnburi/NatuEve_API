@@ -25,11 +25,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: anomalyco/opencode/github@10c894bdeef3618f5666fb506ef7f9491bb964d8 # v1.17.13
+      - uses: anomalyco/opencode/github@e3c4eb242585dcd77be1a867391b7c25fd47ce52 # v1.19.3
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          model: opencode-go/glm-5.2
+          model: opencode-go/glm-5.3-flash
+          variant: max
           agent: review
           use_github_token: true
