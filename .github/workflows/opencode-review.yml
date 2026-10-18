@@ -25,6 +25,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
       - uses: anomalyco/opencode/github@e3c4eb242585dcd77be1a867391b7c25fd47ce52 # v1.19.3
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}

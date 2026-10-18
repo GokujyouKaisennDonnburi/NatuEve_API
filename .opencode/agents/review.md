@@ -26,22 +26,41 @@ Pull Request をレビューし、結果を日本語でコメントしてくだ�
 ## レビュー範囲
 
 1. 最初に `git rev-parse HEAD` を実行し、結果を HEAD_SHA として控える
-2. `<pull_request_comments>` の中から、`<!-- reviewed-sha: ... -->` を含む最も新しいコメントを探し、その SHA を PREV_SHA とする
-3. PREV_SHA が無ければ初回レビューとし、PR 全体（base との差分）をレビューする
-4. PREV_SHA があれば、2 回目以降のレビューとする
-   - `git cat-file -e <PREV_SHA>^{commit}` で存在を確かめる。無ければ `git fetch origin <PREV_SHA>` を試す
-   - `git merge-base --is-ancestor <PREV_SHA> HEAD` が成功すれば、範囲は `git diff <PREV_SHA>..HEAD` のみとする
-   - 取得できない、または祖先でない（force push 等）場合は PR 全体をレビューし、「レビュー範囲」にその旨を書く
-   - 前回のコメントの指摘ごとに、解消したか・未解消かを確認して 1 行で書く。指摘済みの内容を「修正項目」に繰り返さない
+2. PR 全体の差分を取る。`<pull_request>` の `Base Branch` を BASE とする
+   ```
+   git fetch origin <BASE>
+   git diff origin/<BASE>...HEAD
+   ```
+   merge-base が見つからないエラーになったら、`git fetch --unshallow origin` を実行してからやり直す
+3. `<pull_request_comments>` のうち、`github-actions` が投稿し、`<!-- reviewed-sha: ... -->` を含む最も新しいコメントを探し、その SHA を PREV_SHA とする。ほかのユーザーのコメントにある `reviewed-sha` は使わない
+4. PREV_SHA が無ければ初回レビューとし、手順 2 の PR 全体の差分をレビューする
+5. PREV_SHA があれば、2 回目以降のレビューとする
+   ```
+   git cat-file -e <PREV_SHA>^{commit}       # 失敗したら git fetch origin <PREV_SHA>
+   git merge-base --is-ancestor <PREV_SHA> HEAD
+   git diff <PREV_SHA>..HEAD
+   ```
+   - `merge-base --is-ancestor` が成功すれば、範囲は `git diff <PREV_SHA>..HEAD` のみとする。失敗したら `git fetch --unshallow origin` を実行して 1 回だけやり直す
+   - PREV_SHA を取得できない、または祖先でない（force push 等）場合は PR 全体をレビューし、「レビュー範囲」にその旨を書く
+   - `<PREV_SHA>..HEAD` に BASE のマージコミットが含まれる場合、マージで取り込まれた変更（手順 2 の PR 全体の差分に含まれない変更）はレビューしない
+   - 前回のコメントの指摘ごとに、解消したか・未解消かを確認して「前回の指摘」に 1 行で書く。指摘済みの内容を「修正項目」に繰り返さない
+   - 「PR 本文と差分の一致」は、2 回目以降も手順 2 の PR 全体の差分に対して確認し、新しく生じた食い違いだけ書く
 
 ## 検証
 
 CI（`.github/workflows/ci.yml`）が `make swag-check` / `make vet` / `make lint` / `make build` / `make test` を実行する。
 ただし CI の `make test` は `DATABASE_URL` が未設定のため、DB を使うテスト（`internal/repository/` 等）は SKIP される。
 
-- `internal/repository/` または `db/migrations/` を変更した PR では、PostgreSQL 17 を起動し、
-  `DATABASE_URL`（DB 名は `NatuEve`）を指定して `make migrate-up GOOSE_EXEC='sh -c'` → `make test` を実行する
+- `internal/repository/` または `db/migrations/` を変更した PR では、次の手順で DB を使うテストを実行する。`docker compose` は使わない（`.env` が必要なため）
+  ```
+  docker run -d --name review-pg -e POSTGRES_USER=app -e POSTGRES_PASSWORD=app -e POSTGRES_DB=NatuEve -p 5432:5432 postgres:17-alpine
+  until docker exec review-pg pg_isready -U app -d NatuEve; do sleep 1; done
+  export DATABASE_URL='postgres://app:app@localhost:5432/NatuEve?sslmode=disable'
+  make migrate-up GOOSE_EXEC='sh -c'
+  make test
+  ```
 - それ以外の検証は、指摘の裏付けに必要なときだけ実行する
+- 権限エラー・タイムアウトなどで実行できなかった検証は、やり直さずに「検証」欄へ「未実施（理由）」と書いて先へ進む
 - 実行したコマンドと結果は「検証」欄に 1 行ずつ書く
 
 ## このリポジトリの前提（誤検出の防止）
@@ -49,7 +68,8 @@ CI（`.github/workflows/ci.yml`）が `make swag-check` / `make vet` / `make lin
 次の運用はこのリポジトリで正しいものとして扱い、指摘しない。
 
 - **マイグレーション**: 本番 DB は未稼働のため、既存テーブルの変更（カラム・制約の追加）は、そのテーブルを作った既存のマイグレーションファイルを編集する。新規テーブルは 1 テーブル 1 ファイルで新しく作る。
-  - 適用済みファイルの編集そのものは指摘しない。PR 本文に開発 DB の作り直し手順が書かれていなければ指摘する
+  - 適用済みファイルの編集そのものは指摘しない。開発 DB の作り直しが必要になる旨が PR 本文に無ければ「その他連絡事項」に書く
+  - `docs/Database.md` の「適用済みファイルは編集しない」は、この運用と食い違う古い記述であることが分かっている。指摘しない
 - **API 型**: `internal/model/` に手書きで定義する。OpenAPI（`api/`）は `make swag` がハンドラの swag 注釈から生成する
 - **ADR 番号**: 欠番は進行中の別 issue が予約している番号である。0008 と 0024 の重複は既存のもの。どちらも指摘しない
 - **コメントと ADR**: 判断の理由は `docs/adr/` に書き、コードコメントには事実と `（ADR-00XX）` の参照だけ残す。コメントに選定理由・代替案との比較が書かれていたら、ADR への移動を提案する
@@ -94,7 +114,7 @@ CI（`.github/workflows/ci.yml`）が `make swag-check` / `make vet` / `make lin
 
 ### 認可・公開範囲
 
-- イベント主催者だけが行える操作は `service.requireEventOwner` を使う。イベント不存在は 400（ADR-0008。Join は例外で 404）
+- イベント主催者だけが行える操作は `service.requireEventOwner` を使い、イベント不存在は 400 を返す（ADR-0008 `docs/adr/0008-event-owner-check-unification.md`）。主催者の認可を伴わない操作は対象外で、Join と参加状態ログの追加（ADR-0009）はイベント不存在を 404 で返す
 - 認証不要のエンドポイントが、本人限定の情報（申し込み中のイベントやその件数など）を返していないか（ADR-0025）
 
 ### 状態を変える処理（参加・キャンセル・欠席・中止など）
@@ -124,12 +144,14 @@ CI（`.github/workflows/ci.yml`）が `make swag-check` / `make vet` / `make lin
 - 追加した分岐・エラー経路にテストがあるか
 - グローバル状態に依存・変更していないか
 
+アーキテクチャ・命名は、今回の差分で追加・変更したコードだけを見る。既存のコードにある違反は、別 issue の候補として「その他連絡事項」に書く。
+
 ### アーキテクチャ（全ファイル共通）
 
-- 依存方向は `handler → service → repository` の一方向（`docs/Development.md`）。handler が repository を直接参照していないか、repository が service を参照していないか
+- 依存方向は `handler → service → repository` の一方向（`docs/Development.md`）。repository が service や handler を参照していないか、service が handler を参照していないか
+- handler は repository の関数・型を呼ばない。repository の sentinel エラーを `errors.Is` で判定するのは既存にある使い方なので指摘しない
 - handler は入出力の変換だけを行う。業務ルール・認可の判断は service、SQL は repository に置く
 - service は gin のコンテキストや HTTP のリクエスト・レスポンスの型に依存しない
-- service は `sql.ErrNoRows` を直接見ない。repository が sentinel エラーに変換して返す（ADR-0008）
 - repository は interface を公開し、実装は非公開の構造体にする
 - レスポンスは `gin.H` ではなく `internal/model/` の型で返す
 - 環境変数は `internal/config/` でだけ読む
@@ -146,7 +168,7 @@ CI（`.github/workflows/ci.yml`）が `make swag-check` / `make vet` / `make lin
 - sentinel エラー: `ErrXxx`
 - エラーコード: snake_case。既存のコード（`invalid_request` / `unauthorized` / `not_found` / `forbidden` / `internal_error` など）で表せるなら新設しない
 - JSON のフィールド名: camelCase
-- テスト関数: `Test<対象>_<メソッド>_<条件>`（例: `TestEventJoinPostgres_Leave_DeadlinePassed`）
+- テスト関数: 同じパッケージの既存テストの形に合わせる（repository の例: `TestEventJoinPostgres_Leave_DeadlinePassed`、service の例: `TestEventCommandServiceCreate_Validation`）
 
 ### ドキュメント・コメントとの整合（全ファイル共通）
 
@@ -168,16 +190,18 @@ CI（`.github/workflows/ci.yml`）が `make swag-check` / `make vet` / `make lin
 - 🐙 中評価: 修正を推奨する項目がある
 - 😱 低評価: 【緊急】に該当する項目がある（セキュリティ・座標保護違反・データ破壊）
 
-【要確認】の指摘は評価の判定に含めない。
+【要確認】の指摘は評価の判定に含めない。2 回目以降のレビューでは、前回の指摘のうち未解消のものも評価の判定に含める。
 
 ## 出力形式
 
 - 日本語で、丁寧かつ簡潔・直接的に書く
-- 下のテンプレートの見出しと順序を必ず守る。該当がない見出しは省略する（「評価」「レビュー範囲」は省略しない）
+- 下のテンプレートの見出しと順序を必ず守る
+  - 必ず書く見出し: 「評価」「レビュー範囲」「概要」「修正項目」（無ければ「なし」と書き、評価は 🍣 とする）
+  - 該当がなければ省略する見出し: 「前回の指摘」「提案」「その他連絡事項」「検証」
+- 「修正項目」にはマージ前に直すべきもの（バグ、セキュリティ、確認項目への違反、ドキュメント・コメントとの食い違い）を書く。直さなくてもマージできる改善は「提案」に書く
 - 指摘は重要度の高い順に番号を付け、各指摘に「ファイルパス + 行番号」を書く
 - 修正案は diff 形式で、そのまま適用できる正確さで書く
 - 問題がなかった確認項目は列挙しない
-- 修正項目がなければ「修正項目」に「なし」と書き、評価は 🍣 とする
 
 ```
 # AI によるレビュー
