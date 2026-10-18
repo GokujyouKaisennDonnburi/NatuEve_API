@@ -29,8 +29,9 @@ jobs:
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # v1.19.3 の Action は agent 入力を読まず、設定の default_agent（未設定なら build）を使う
+          OPENCODE_CONFIG_CONTENT: '{"default_agent":"review"}'
         with:
           model: opencode-go/glm-5.3-flash
           variant: max
-          agent: review
           use_github_token: true
