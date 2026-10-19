@@ -38,7 +38,10 @@ cp .env.example .env
 | 変数 | 説明 | デフォルト |
 |---|---|---|
 | `PORT` | サーバの待ち受けポート | `8085` |
-| `TRUSTED_PROXIES` | 信頼するプロキシ（カンマ区切り CIDR/IP）。未設定なら全プロキシを信頼しない。本番でプロキシ越しに置く場合に設定 | （未設定） |
+| `TRUSTED_PROXIES` | 信頼するプロキシ（カンマ区切り CIDR/IP）。未設定なら全プロキシを信頼しない。本番では使わない（利用者 IP は `RELAY_CLIENT_IP_HEADER` から読む。ADR-0034） | （未設定） |
+| `RELAY_SECRET` | 中継用 Worker が秘密ヘッダー `X-Relay-Auth` に入れる値（32 バイト以上）。`RELAY_CLIENT_IP_HEADER` と両方設定すると、一致しないリクエストを 403 で拒否する（`/health`・`/internal/outbox/process` を除く。ADR-0034） | （未設定＝確認しない） |
+| `RELAY_SECRET_PREVIOUS` | 値の差し替え中だけ設定する古い秘密値。`RELAY_SECRET` と同じく受け付ける | （未設定） |
+| `RELAY_CLIENT_IP_HEADER` | 中継用 Worker が利用者 IP を入れるヘッダー名。確認に通ったリクエストに限り、IP レート制限とログの IP をこの値から読む。`RELAY_SECRET` と片方だけ設定すると起動しない | （未設定） |
 | `CORS_ALLOW_ORIGINS` | CORS で許可するオリジン（カンマ区切り、`scheme://host[:port]` の形）。末尾スラッシュ・パス・`*` を含む値があると起動しない（ADR-0033） | `http://localhost:3000,http://localhost:8787` |
 | `OUTBOX_WORKER_ENABLED` | `true` で、API プロセス内に通知メールの outbox を 30 秒間隔で処理する常駐ワーカーを起動する（ローカル開発用。本番は設定しない。ADR-0035） | `false` |
 | `SCHEDULER_OIDC_AUDIENCE` | Cloud Scheduler の OIDC トークンの audience。`SCHEDULER_SERVICE_ACCOUNT_EMAIL` と両方設定すると `POST /internal/outbox/process` が有効になる（ADR-0035） | （未設定） |
