@@ -50,3 +50,4 @@
 | [0031](./0031-absence-notification.md) | 申込期限経過後の参加キャンセルは欠席連絡 API で行い主催者へ通知する | Accepted（outbox の起動方式を ADR-0032 で変更） |
 | [0032](./0032-production-deployment-cloud-run-supabase.md) | 本番デプロイ構成を Cloud Run＋Cloud Scheduler＋Supabase（DB・Auth）とする | Accepted |
 | [0033](./0033-cors-allow-origins-env.md) | CORS の許可オリジンを環境変数で設定し、起動時に検証する | Accepted |
+| [0034](./0034-api-custom-domain-workers-relay.md) | API の独自ドメインを Cloudflare Workers の中継で Cloud Run に割り当て、中継元を秘密ヘッダーで確かめる | Accepted |
