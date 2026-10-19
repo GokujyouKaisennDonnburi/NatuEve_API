@@ -182,11 +182,22 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
      - 最大インスタンス数を 1 にする（二重送信を防ぐ。送信タイミングは保証されない）
      - `RESEND_API_KEY` を設定せず、ワーカーを起動させない。予約は outbox に溜まり、設定後に送信される（ADR-0016 決定事項 4 の挙動）
 2. **Supabase への接続方式**（#213）
-   - 直接接続は IPv6 のみ（IPv4 は有料アドオン）。
-   - セッションモードのプーラー（ポート 5432）は IPv4 で使える。
-   - トランザクションモードのプーラー（ポート 6543）は prepared statement に対応していない。
+   - 接続方式の種類
+     - 直接接続は IPv6 のみ（IPv4 は有料アドオン）。
+     - セッションモードのプーラー（ポート 5432）は IPv4 で使える。
+     - トランザクションモードのプーラー（ポート 6543）は prepared statement に対応していない。
+   - セッションモードのプーラー（SessionPooler、ポート5432）を第一候補とする
+     - IPv4 で接続でき、pgx（pgx/stdlib 経由の database/sql）の既定動作で使用される prepared statement にも対応しているため。
+     - 実際の接続・クエリ・トランザクションの動作確認は別 Issue で実施する。
+   - 接続手順
+     - Supabase Dashboard の Connect から Session Pooler の接続情報（ホスト名、ポート、ユーザー名、データベース名）を取得する。
+     - 接続情報を用いて DATABASE_URL を設定し、Cloud Run から接続する。認証情報は Secret Manager などで安全に管理する。
+     - 接続先の PostgreSQL バージョンが 17 であること、および pg_trgm 拡張が利用可能であることを確認する。
+     - pgx/stdlib 経由の database/sql でクエリとトランザクションを実行し、Goose によるマイグレーションの適用を確認する。
    - pgx（`pgx/stdlib` 経由の `database/sql`）の既定動作との組み合わせを検証して決める。
 3. **Supabase で PostgreSQL 17 と `pg_trgm` が使えるかの確認**（ADR-0030 のインデックスが前提、#213）。
+   - Supabase の PostgreSQL バージョンが 17 であること、および pg_trgm 拡張が利用可能であることを確認する(未確認)
+   - 実際のバージョン確認と、pg_trgm を使用するマイグレーションの適用確認は別 Issue で実施する。
 4. **DB を Auth と同じ Supabase プロジェクトに置くか、別プロジェクトにするか**（#214）
    - Auth は NatuPortal の複数プロダクトで共有しているため、Data API を無効化すると他プロダクトに影響しうる。
    - 別プロジェクトにすると、Pro でもコンピュート費用（Micro で月 $10）が追加される。
