@@ -13,7 +13,7 @@ API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-
 | **Google Cloud Scheduler** | outbox 処理エンドポイントの定期呼び出し（1 分間隔） | 確定 |
 | **Supabase**（`ap-northeast-1`） | PostgreSQL 17（DB） | 確定 |
 | **Supabase Auth** | 認証（JWT 発行・JWKS による検証） | 確定（既存） |
-| **Cloudflare Workers** | API の独自ドメインの中継（[ADR-0034](./adr/0034-api-custom-domain-workers-relay.md)） | 確定（実装・検証は #226） |
+| **Cloudflare Workers** | API の独自ドメインの中継（[ADR-0034](./adr/0034-api-custom-domain-workers-relay.md)） | 確定（`workers/api-relay/`。独自ドメイン経由の検証は #226） |
 | Cloudflare R2 | 画像・PDF の保存と配信 | 既存 |
 | Resend | トランザクションメールの送信（[ADR-0001](./adr/0001-resend-transactional-email.md)） | 既存 |
 | Google Artifact Registry | コンテナイメージの保管 | 予定 |
@@ -26,7 +26,7 @@ API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-
    │
    ├─ ログイン ─────────────→ Supabase Auth（JWT 発行）
    │
-   └─ API 呼び出し（JWT 付き）─→ Cloudflare Workers: 中継（api.〈ドメイン〉）
+   └─ API 呼び出し（JWT 付き）─→ Cloudflare Workers: 中継（natueve-api.natuportal.org）
                                    │ 秘密ヘッダーと利用者 IP を付けて run.app の URL へ転送
                                    ▼
                                  Cloud Run: NatuEve_API ←── Cloud Scheduler（1 分ごと、outbox 処理）
@@ -49,7 +49,7 @@ API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-
 | 最大インスタンス数 | 未決（[未決事項](#未決事項今後の作業)） |
 | CPU / メモリ | 1 vCPU / 512MiB（初期値） |
 | 待ち受けポート | 環境変数 `PORT`（Cloud Run が注入する値をそのまま使う） |
-| ヘルスチェック | `GET /health` |
+| ヘルスチェック | `GET /health`（秘密ヘッダーの確認から外している。ADR-0034） |
 | イメージ | リポジトリ直下の `Dockerfile`（distroless・`./cmd/api`） |
 | 認証 | なし（`allUsers` に invoker を付ける）。中継元は API が秘密ヘッダーで確かめる（ADR-0034） |
 | run.app の URL | Worker の転送先としてだけ使い、クライアントには公開しない |
@@ -85,16 +85,35 @@ API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-
 | 項目 | 値 |
 |---|---|
 | プラン | Workers Paid（フロントと共有。NatuEve_Web_Frontend ADR-0001） |
-| 割り当て | Custom Domain `api.〈ドメイン〉`（名前は未決） |
-| 転送先 | Cloud Run の run.app の URL（固定） |
-| `workers.dev`・Preview URL | 無効（Wrangler の `workers_dev = false`・`preview_urls = false`） |
+| Worker 名 | `natueve-api-relay` |
+| 割り当て | Custom Domain `natueve-api.natuportal.org` |
+| 転送先 | Cloud Run の run.app の URL（固定。secret `ORIGIN_URL`） |
+| 秘密ヘッダー | `X-Relay-Auth`（値は secret `RELAY_SECRET`。API の `RELAY_SECRET` と同じ値） |
+| 利用者 IP のヘッダー | `X-NatuEve-Client-IP`（`wrangler.jsonc` の `CLIENT_IP_HEADER`。API の `RELAY_CLIENT_IP_HEADER` と同じ値） |
+| `workers.dev`・Preview URL | 無効（`wrangler.jsonc` の `workers_dev: false`・`preview_urls: false`） |
 | キャッシュ | 使わない（`fetch()` は `cache: "no-store"`。API のホスト名にキャッシュルールを付けない） |
 | Pseudo IPv4（ゾーンの設定） | Off（既定） |
-| コードの置き場所 | 本リポジトリ（実装は #226） |
+| コードの置き場所 | `workers/api-relay/` |
 
 - 含まれる量はフロントと共有で、月 1,000 万リクエスト・CPU 3,000 万ミリ秒。超過は 100 万リクエストあたり $0.30、CPU 100 万ミリ秒あたり $0.02。
   `fetch()` の待ち時間は CPU 時間に数えられない。
 - 転送時に付けるヘッダーと API 側の確認は ADR-0034 の決定事項 3・4。実装上の注意は ADR-0034 の「トレードオフ・制約」。
+- 受けたリクエストに `CF-Connecting-IP` が無い場合、Worker は利用者 IP のヘッダーを付けずに転送する。その場合 API は接続元の IP で数えるため、
+  該当するリクエストは IP レート制限を共有する（利用者 IP の検証は #215）。
+- `ORIGIN_URL` と `RELAY_SECRET` は `wrangler.jsonc` の `secrets.required` に宣言しており、未設定だと `wrangler deploy` が失敗する。
+  run.app の URL と秘密値はリポジトリに書かない（ADR-0034）。
+- デプロイの自動化（#219）までは手動で行う。API を先にデプロイし、`RELAY_SECRET`・`RELAY_CLIENT_IP_HEADER` を設定してから Worker をデプロイする。
+
+```bash
+cd workers/api-relay
+bun install --frozen-lockfile
+bunx wrangler secret put ORIGIN_URL     # https://<サービス名>-<プロジェクト番号>.asia-northeast1.run.app
+bunx wrangler secret put RELAY_SECRET   # API の RELAY_SECRET と同じ値
+bunx wrangler deploy
+```
+
+- 初回（Worker がまだ無い状態）で `wrangler secret put` から始める手順が通るかは未確認。通らない場合は、`wrangler deploy --secrets-file <ファイル>` で
+  secret とデプロイを同時に渡す（ファイルはコミットしない）。
 
 ### Supabase
 
@@ -123,6 +142,9 @@ API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-
 | `SUPABASE_JWKS_URL` | `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json` | |
 | `SUPABASE_JWT_AUD` | `authenticated`（既定値のままなら設定不要） | |
 | `TRUSTED_PROXIES` | 使わない（利用者 IP は Worker が渡すヘッダーから読む。ADR-0034） | |
+| `RELAY_SECRET` | 中継元の秘密値（32 バイト以上のランダム値。例: `openssl rand -hex 32`）。Worker の `RELAY_SECRET` と同じ値 | ○ |
+| `RELAY_SECRET_PREVIOUS` | 値の差し替え中だけ、古い値を設定する（[手順](#runapp-の-url-へ直接の大量アクセスを受けたとき)） | ○ |
+| `RELAY_CLIENT_IP_HEADER` | `X-NatuEve-Client-IP`（Worker の `CLIENT_IP_HEADER` と同じ値） | |
 | `CORS_ALLOW_ORIGINS` | 本番のフロントのオリジン（未決。フロント側 NatuEve_Web_Frontend#328 で決まる） | |
 | `R2_ACCOUNT_ID` | Cloudflare のアカウント ID | |
 | `R2_ACCESS_KEY_ID` | R2 の API トークン | ○ |
@@ -135,9 +157,12 @@ API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-
 | `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | Scheduler のジョブが使うサービスアカウントのメールアドレス | |
 | `OUTBOX_WORKER_ENABLED` | 設定しない（常駐ワーカーは本番では使わない） | |
 
-- 中継元を確かめる秘密値と、利用者 IP のヘッダー名を渡す環境変数は #226 で追加する（秘密値は秘密情報）。
+- `RELAY_SECRET` と `RELAY_CLIENT_IP_HEADER` は両方設定する。片方だけ、または 32 バイト未満の値では API が起動しない。
+  両方未設定でも起動するが、中継元を確かめず、利用者 IP も Worker のヘッダーから読まない（起動時に警告ログを出す）。
+- `RELAY_SECRET_PREVIOUS` は、`RELAY_SECRET` と同じシークレットの古いバージョンを割り当てる。
 - Secret Manager の無料枠は、アクティブなシークレットバージョン 6 つ・アクセス 1 万回／月。
-  秘密情報は中継元の秘密値を含めて 5 つなので無料枠に収まる。
+  秘密情報は中継元の秘密値を含めて 5 つなので無料枠に収まる。値の差し替え中は中継元の秘密値が 2 バージョンになり 6 つになる。
+  差し替えを終えたら古いバージョンを無効化する。
 - `SCHEDULER_OIDC_AUDIENCE` と `SCHEDULER_SERVICE_ACCOUNT_EMAIL` は、どちらか一方でも未設定だと内部エンドポイントが登録されず（404）、
   通知メールは送信されない。`RESEND_API_KEY` または `MAIL_FROM` が未設定の場合も登録されない。
 
@@ -216,9 +241,11 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
 9. **最大インスタンス数**（#215）: 費用の上限と、排他の実装状況を踏まえて決める。
    IP レート制限はインスタンスのメモリ上で数えるため、インスタンスが N 台あると制限は最大 N 倍まで緩む。
    最大インスタンス数で抑えられるのは CPU・メモリの費用で、run.app の URL への直接の大量アクセスによる件数の課金は抑えられない（ADR-0034）。
-10. **API の中継の実装と検証**（#226）: 方式は ADR-0034 で決めた（Workers の中継、秘密ヘッダーで中継元を確認）。
-    中継用 Worker と API 側の確認・利用者 IP の読み取りを実装し、独自ドメイン経由で動くことを検証する。
-    API のサブドメイン名もこのとき決める。検証で成り立たなければロードバランサーに切り替える（ADR-0034 の決定事項 7）。
+10. **API の中継の検証**（#226）: 方式は ADR-0034 で決めた（Workers の中継、秘密ヘッダーで中継元を確認）。
+    サブドメインは `natueve-api.natuportal.org`。中継用 Worker（`workers/api-relay/`）と API 側の確認・利用者 IP の読み取り
+    （`internal/middleware/relay.go`）は実装済み。
+    **独自ドメイン経由の検証は未実施**。デプロイ後に[下記の手順](#独自ドメイン経由の検証226)で検証し、結果をここに反映する。
+    検証で成り立たなければロードバランサーに切り替える（ADR-0034 の決定事項 7）。
 11. **予算アラート**: Cloud Billing の予算アラートを設定する。金額は未決。
     run.app の URL への直接の大量アクセスによる費用の急増を、[下記](#runapp-の-url-へ直接の大量アクセスを受けたとき)の手順の起点として検知する。
 
@@ -227,14 +254,38 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
 ADR-0034 の構成では、秘密ヘッダーのないリクエストも Cloud Run のコンテナまで届き、件数に応じて課金される。
 
 1. **検知**: 予算アラート、または Cloud Run のリクエスト数と、秘密ヘッダーの確認で拒否した件数の急増。
-2. **一時的な対処**: Cloud Run のサービスを別名で作り直し、新しい run.app の URL を Worker の転送先に設定してから、
+   拒否したリクエストは、API のログに `中継元の確認に失敗したリクエストを拒否しました`（Warn）として出る。
+2. **一時的な対処**: Cloud Run のサービスを別名で作り直し、新しい run.app の URL を Worker の転送先（`wrangler secret put ORIGIN_URL`）に設定してから、
    古いサービスを削除する。Cloud Scheduler の呼び出し先も新しい URL に変える。run.app の URL はサービス名を含み、
    プロジェクト番号は秘密ではないため、新しい名前はランダムな文字列を含む推測されにくいものにする。新しい URL を知られれば効果はない。
 3. **恒久的な対処**（ADR-0034 の決定事項 7）: Cloud Run の IAM 認証を追加し、Worker が ID トークンを付けて呼ぶ。
    または外部ロードバランサーに切り替え、Cloud Run の ingress を「内部と Cloud Load Balancing」に制限する。
    いずれも実装・設定の作業が必要で、終えるまでの間は課金が続く。
-4. **秘密ヘッダーの値が漏れた疑いがある場合**: 値を差し替える。新しい値を API に追加する → Worker を新しい値に切り替える →
-   古い値を API から削除する、の順で行う。
+4. **秘密ヘッダーの値が漏れた疑いがある場合**: 値を差し替える。次の順で行う。
+   1. Secret Manager に新しいバージョンを追加し、API の `RELAY_SECRET` を新しいバージョン、`RELAY_SECRET_PREVIOUS` を古いバージョンにしてデプロイする。
+   2. Worker を新しい値に切り替える（`wrangler secret put RELAY_SECRET`）。
+   3. API から `RELAY_SECRET_PREVIOUS` を外してデプロイし、Secret Manager の古いバージョンを無効化する。
+
+## 独自ドメイン経由の検証（#226）
+
+API と Worker をデプロイした後に行う。結果は #226 に返信し、[未決事項](#未決事項今後の作業) 10 に反映する。
+`<run.app>` は Cloud Run の URL、`<フロント>` は `CORS_ALLOW_ORIGINS` に入れたオリジン。
+
+| 確認すること | 手順 | 期待する結果 |
+|---|---|---|
+| HTTPS で届く | `curl -sS https://natueve-api.natuportal.org/health` | `{"status":"ok"}` |
+| 認証付きの API | `curl -sS -H "Authorization: Bearer <JWT>" https://natueve-api.natuportal.org/api/v1/me` | 200 |
+| CORS のプリフライト | `curl -sS -i -X OPTIONS -H "Origin: <フロント>" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: authorization,content-type" https://natueve-api.natuportal.org/api/v1/events` | 204、`Access-Control-Allow-Origin: <フロント>` |
+| run.app への直接アクセス | `curl -sS -i https://<run.app>/api/v1/events` | 403（`/health` は 200） |
+| `workers.dev`・Preview URL | ダッシュボードの Worker の「Domains & Routes」で無効になっていること。`https://natueve-api-relay.<アカウントのサブドメイン>.workers.dev/health` | 届かない |
+| Pseudo IPv4 | ダッシュボードのゾーンの「Network」の Pseudo IPv4 | Off |
+| キャッシュルール | ゾーンの「Caching」の Cache Rules と Page Rules に、`natueve-api.natuportal.org` に当たるルールがないこと | ない |
+| フロントの SSR から呼べる | フロントの `NEXT_PUBLIC_API_BASE_URL` を `https://natueve-api.natuportal.org` にして SSR のページを開く | データが表示される。API のログの `ip` の値を #215 のために記録する |
+| 応答時間 | `curl -sS -o /dev/null -w '%{time_starttransfer}\n'` で、独自ドメインと run.app の `/health` を各 20 回程度 | 中央値の差を記録する |
+| WAF・レート制限 | ゾーンに検証用のカスタムルール（例: パスが `/__waf-test` ならブロック）を一時的に作り、独自ドメインの `/__waf-test` を呼ぶ。レート制限ルールも同様に確かめ、終わったら削除する | Cloudflare がブロックする（API のログに出ない） |
+
+- 利用者 IP が正しく取れることと偽装できないこと、IP レート制限の検証は #215 で行う。
+- 秘密値をコマンドラインに書かない（シェルの履歴に残る）。
 
 ## メールの将来的な移行
 

@@ -22,6 +22,7 @@ docker コマンドは基本使わない。make経由で使用する。
 | `make swag` | OpenAPI ドキュメント（`api/`）を再生成 |
 | `make swag-check` | `api/` が最新か検証（CI用。差分があれば失敗） |
 | `make migrate-create name=…` / `migrate-up` / `migrate-down` / `migrate-status` | マイグレーション操作（`make up` で起動中の api コンテナ内で実行。[Database.md](./Database.md)） |
+| `make worker-install` / `make worker-check` | 中継用 Worker（`workers/api-relay/`）の依存取得 / lint・型チェック・テスト（bun が必要） |
 | `make run` | 基本使わない。ローカルでサーバ起動（`go run ./cmd/api`） |
 
 > **初回は `make setup`** で `.env` 作成・依存取得・各 CLI（swag / golangci-lint）の導入をまとめて行える。
@@ -34,13 +35,14 @@ cmd/api/main.go        起動のみ（設定読込 → ルーター構築 → gr
 internal/
   config/              環境変数 → Config 構造体
   server/              ルーター構築（NewRouter）・ミドルウェア登録・ルート定義
-  middleware/          Gin ミドルウェア（ロギング・panic回復・認証・CORS・ボディサイズ制限・クエリ検証・レート制限）
+  middleware/          Gin ミドルウェア（ロギング・panic回復・中継元の確認・認証・CORS・ボディサイズ制限・クエリ検証・レート制限）
   handler/             HTTP ハンドラ。入出力の変換のみ（ロジックを持たない）
   service/             ビジネスロジック（HTTP に依存しない）
   repository/          データアクセス。interface を定義し実装を分ける
   model/               ドメイン型・DTO
 api/                   swag 生成物（docs.go / swagger.json|yaml）。手編集禁止
 docs/                  人間が書く Markdown（本ガイド・Tech.md など）
+workers/api-relay/     API の中継用 Cloudflare Worker（TypeScript。ADR-0034）。go.mod の ignore で Go のビルド対象から外している
 ```
 
 > **生成物と手書きドキュメントは分ける**: `api/` は `make swag` が作る生成物（触らない）、`docs/` は人が書く Markdown。
@@ -232,6 +234,8 @@ swag-check: swag                 # ① api/ を再生成
 
 `make swag-check`（docs 更新漏れ） → `make vet` → `make lint` → `make build` → `make test`
 
+中継用 Worker は別のジョブで `make worker-install` → `make worker-check` を実行する（デプロイは含まない。#219）。
+
 ローカルでも同じ `make` ターゲットで再現できる。push 前に `make swag-check vet lint build test` を回すと CI を落としにくい。
 
 > `make lint` には golangci-lint が必要。初回のみ `make lint-install`（バージョン固定）で導入する。
@@ -240,5 +244,13 @@ swag-check: swag                 # ① api/ を再生成
 ## 実装時の注意点
 
 - **機密情報を `.env` にコミットしない**。`.env` は `.gitignore` 済み、共有はキー名のみ `.env.example` で行う。本番は実行環境の環境変数 / シークレットマネージャで注入する（[.env.example](../.env.example) 参照）。
-- **`SetTrustedProxies`**: 未設定（nil）はどのプロキシも信頼しない。プロキシ越しに置く場合のみ `TRUSTED_PROXIES` に CIDR を設定する。
+- **利用者 IP（`c.ClientIP()`）**: 本番では中継用 Worker が渡すヘッダー（`RELAY_CLIENT_IP_HEADER`）を Gin の `TrustedPlatform` で読む。
+  `TrustedPlatform` はヘッダーの値を検証しないため、`middleware.NewRelayGuard` が秘密ヘッダーを確かめ、確認に通らないリクエストからはそのヘッダーを取り除く（ADR-0034）。
+  本番では `TRUSTED_PROXIES` を使わない。`SetTrustedProxies` は未設定（nil）ならどのプロキシも信頼しない。
+- **末尾スラッシュ**: 末尾スラッシュ違いのパス（例: `/api/v1/events/`）はリダイレクトせず 404 を返す（`RedirectTrailingSlash = false`。ADR-0034）。
+- **中継元の確認から外す経路**: `/health` と `/internal/outbox/process`（`internal/server/router.go` の `newRelayGuard`）。
+  新しい経路を外す場合は、秘密ヘッダーに代わる認証が必要（ADR-0034）。
+- **中継用 Worker と API の取り決め**: 秘密ヘッダー名（`X-Relay-Auth`）は `internal/middleware/relay.go` と `workers/api-relay/src/index.ts` に、
+  利用者 IP のヘッダー名は `RELAY_CLIENT_IP_HEADER` と `workers/api-relay/wrangler.jsonc` の `CLIENT_IP_HEADER` にある。片方だけ変えると中継が壊れるため、同じ PR で両方変える。
+  Worker をローカルで動かす場合は、`workers/api-relay/.dev.vars` に `ORIGIN_URL` と `RELAY_SECRET` を書く（コミットしない）。
 - **認証**: Supabase が発行する JWT を JWKS で検証する想定。実装時は `internal/middleware/` に追加する。

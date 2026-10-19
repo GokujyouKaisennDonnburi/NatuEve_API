@@ -26,8 +26,10 @@ type ipLimiterEntry struct {
 
 // IPRateLimiter はクライアント IP ごとのトークンバケットでリクエストを制限する。
 //
-// c.ClientIP() をキーにするため、プロキシ配下では TRUSTED_PROXIES が正しく
-// 設定されていることが前提（誤設定は X-Forwarded-For 偽装によるすり抜けを許す）。
+// c.ClientIP() をキーにする。本番では中継用 Worker が渡すヘッダーの値になり、
+// NewRelayGuard の確認に通ったリクエストに限られる（ADR-0034）。
+// 確認を有効にせずに TRUSTED_PROXIES を設定した場合は、その設定が正しいことが前提
+// （誤設定は X-Forwarded-For 偽装によるすり抜けを許す）。
 // IPv6 はアドレスが実質無限に使えるため /64 プレフィックス単位でまとめて数える。
 type IPRateLimiter struct {
 	mu        sync.Mutex

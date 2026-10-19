@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -233,4 +234,116 @@ type emptyOutboxRepo struct{}
 
 func (emptyOutboxRepo) ClaimNextDue(context.Context, time.Time, []uuid.UUID) (repository.OutboxClaim, error) {
 	return nil, nil
+}
+
+const testRelaySecret = "new-secret-0123456789abcdef0123456789"
+
+func TestNewRelayGuard(t *testing.T) {
+	const header = "X-NatuEve-Client-IP"
+	tests := []struct {
+		name      string
+		secret    string
+		previous  string
+		header    string
+		wantGuard bool
+		wantErr   bool
+	}{
+		{name: "全部未設定"},
+		{name: "SECRET と HEADER が揃う", secret: testRelaySecret, header: header, wantGuard: true},
+		{name: "SECRET だけ", secret: testRelaySecret, wantErr: true},
+		{name: "HEADER だけ", header: header, wantErr: true},
+		{name: "PREVIOUS だけ", previous: testRelaySecret, wantErr: true},
+		{name: "3 つすべて", secret: testRelaySecret, previous: "old-secret-0123456789abcdef0123456789", header: header, wantGuard: true},
+		{name: "SECRET が 31 バイト", secret: strings.Repeat("a", 31), header: header, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			guard, err := newRelayGuard(config.Config{
+				RelaySecret:         tt.secret,
+				RelaySecretPrevious: tt.previous,
+				RelayClientIPHeader: tt.header,
+			})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("newRelayGuard() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if (guard != nil) != tt.wantGuard {
+				t.Errorf("newRelayGuard() guard non-nil = %v, want %v", guard != nil, tt.wantGuard)
+			}
+		})
+	}
+}
+
+// TestNewRouterRelayGuard は、RELAY_* を設定した NewRouter が中継元を確認することを検証する（ADR-0034）。
+func TestNewRouterRelayGuard(t *testing.T) {
+	const (
+		header = "X-NatuEve-Client-IP"
+		origin = "http://localhost:3000"
+	)
+	cfg := testConfig()
+	cfg.RelaySecret = testRelaySecret
+	cfg.RelayClientIPHeader = header
+
+	r, _, err := NewRouter(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("NewRouter() returned error: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		secret     string
+		preflight  bool
+		wantStatus int
+		wantCORS   bool
+	}{
+		{name: "/health は秘密ヘッダーなしで 200", method: http.MethodGet, path: "/health", wantStatus: http.StatusOK},
+		{name: "末尾スラッシュ違いの /health/ は秘密ヘッダーなしで 403", method: http.MethodGet, path: "/health/", wantStatus: http.StatusForbidden},
+		{name: "末尾スラッシュ違いの /health/ は正しい値で 404", method: http.MethodGet, path: "/health/", secret: testRelaySecret, wantStatus: http.StatusNotFound},
+		{name: "/swagger は秘密ヘッダーなしで 403", method: http.MethodGet, path: "/swagger/index.html", wantStatus: http.StatusForbidden},
+		{name: "/swagger は正しい値で 200", method: http.MethodGet, path: "/swagger/index.html", secret: testRelaySecret, wantStatus: http.StatusOK},
+		{name: "未登録のパスは秘密ヘッダーなしで 403", method: http.MethodGet, path: "/no-such-path", wantStatus: http.StatusForbidden},
+		{name: "未登録のパスは正しい値で 404", method: http.MethodGet, path: "/no-such-path", secret: testRelaySecret, wantStatus: http.StatusNotFound},
+		{name: "プリフライトは秘密ヘッダーなしで 403", method: http.MethodOptions, path: "/swagger/index.html", preflight: true, wantStatus: http.StatusForbidden},
+		{name: "プリフライトは正しい値で 204", method: http.MethodOptions, path: "/swagger/index.html", secret: testRelaySecret, preflight: true, wantStatus: http.StatusNoContent, wantCORS: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.secret != "" {
+				req.Header.Set("X-Relay-Auth", tt.secret)
+			}
+			if tt.preflight {
+				req.Header.Set("Origin", origin)
+				req.Header.Set("Access-Control-Request-Method", http.MethodGet)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+			got := w.Header().Get("Access-Control-Allow-Origin")
+			if tt.wantCORS && got != origin {
+				t.Errorf("Access-Control-Allow-Origin = %q, want %q", got, origin)
+			}
+			if !tt.wantCORS && got != "" {
+				t.Errorf("Access-Control-Allow-Origin = %q, want empty", got)
+			}
+		})
+	}
+
+	if r.TrustedPlatform != header {
+		t.Errorf("TrustedPlatform = %q, want %q", r.TrustedPlatform, header)
+	}
+
+	disabled, _, err := NewRouter(context.Background(), testConfig(), nil)
+	if err != nil {
+		t.Fatalf("NewRouter() returned error: %v", err)
+	}
+	if disabled.TrustedPlatform != "" {
+		t.Errorf("TrustedPlatform = %q, want empty", disabled.TrustedPlatform)
+	}
 }

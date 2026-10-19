@@ -2994,7 +2994,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "NatuEve API",
-	Description:      "NatuEve のバックエンド API",
+	Description:      "NatuEve のバックエンド API。中継元の確認（RELAY_*）を有効にした環境では、秘密ヘッダー X-Relay-Auth が一致しないリクエストを 403 で拒否する（/health と /internal/outbox/process を除く。ADR-0034）",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",
