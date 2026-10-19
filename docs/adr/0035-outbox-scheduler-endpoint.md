@@ -1,4 +1,4 @@
-# ADR-0034: outbox の処理を Cloud Scheduler の OIDC 認証付き内部エンドポイントで起動し、行ごとのトランザクションで排他する
+# ADR-0035: outbox の処理を Cloud Scheduler の OIDC 認証付き内部エンドポイントで起動し、行ごとのトランザクションで排他する
 
 - ステータス: Accepted
 - 日付: 2026-10-18

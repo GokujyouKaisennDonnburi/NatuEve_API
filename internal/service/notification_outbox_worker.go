@@ -19,7 +19,7 @@ const outboxPollInterval = 30 * time.Second
 const outboxBatchSize = 50
 
 // outboxProcessBudget は ProcessOnce 1 回で新しい行を確保し続ける時間の上限。
-// Cloud Scheduler の呼び出し間隔（1 分）より短くする（ADR-0034）。
+// Cloud Scheduler の呼び出し間隔（1 分）より短くする（ADR-0035）。
 const outboxProcessBudget = 50 * time.Second
 
 // outboxMarkReserve は確保の期限（OutboxClaim.Deadline）のうち、送信結果の記録
@@ -39,7 +39,7 @@ const (
 // NotificationOutboxWorker は event_notification_outbox テーブルの未送信行を処理し、
 // 通知メールを送信する。
 //
-// 本番では Cloud Scheduler からの呼び出しごとに ProcessOnce を 1 回実行する（ADR-0032、ADR-0034）。
+// 本番では Cloud Scheduler からの呼び出しごとに ProcessOnce を 1 回実行する（ADR-0032、ADR-0035）。
 // ローカル開発では Run が一定周期で ProcessOnce を呼ぶ。複数の処理が同時に走っても、
 // 行の確保は repository が `FOR UPDATE SKIP LOCKED` で排他する。
 type NotificationOutboxWorker struct {

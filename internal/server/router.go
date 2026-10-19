@@ -32,7 +32,7 @@ import (
 // 戻り値の *service.NotificationOutboxWorker は、通知メールの outbox 処理を担う。
 // sqlDB と Resend 設定（RESEND_API_KEY・MAIL_FROM）が揃っている場合のみ生成され、
 // それ以外は nil を返す。nil の場合は outbox に予約は溜まるが送信は行われない。
-// 本番では Cloud Scheduler が内部エンドポイントを呼んで処理する（ADR-0034）。
+// 本番では Cloud Scheduler が内部エンドポイントを呼んで処理する（ADR-0035）。
 // 呼び出し元が go worker.Run(ctx) するのは、cfg.OutboxWorkerEnabled が true のとき（ローカル開発用）だけ。
 //
 // ctx はシャットダウンのシグナルでキャンセルされるものを渡す。キャンセルされると、
@@ -232,7 +232,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 // schedulerJWKSURL は内部エンドポイントの OIDC トークン検証に使う JWKS の URL。テストで差し替える。
 var schedulerJWKSURL = middleware.GoogleJWKSURL
 
-// registerInternalRoutes は Cloud Scheduler から呼ばれる内部エンドポイントを登録する（ADR-0034）。
+// registerInternalRoutes は Cloud Scheduler から呼ばれる内部エンドポイントを登録する（ADR-0035）。
 // 認証用の設定（SCHEDULER_OIDC_AUDIENCE・SCHEDULER_SERVICE_ACCOUNT_EMAIL）が両方
 // 揃っていて、outboxWorker が生成済みのときだけ登録する。それ以外は 404 になる。
 func registerInternalRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, outboxWorker *service.NotificationOutboxWorker) error {

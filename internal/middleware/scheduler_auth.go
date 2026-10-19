@@ -17,7 +17,7 @@ const GoogleJWKSURL = "https://www.googleapis.com/oauth2/v3/certs"
 // googleIssuers は Google が発行する OIDC トークンの iss クレームの取りうる値。
 var googleIssuers = []string{"https://accounts.google.com", "accounts.google.com"}
 
-// SchedulerVerifier は Cloud Scheduler が付ける OIDC トークンを検証する（ADR-0034）。
+// SchedulerVerifier は Cloud Scheduler が付ける OIDC トークンを検証する（ADR-0035）。
 //
 // 署名は Google の JWKS で検証し、aud と email（サービスアカウント）が設定値と一致する
 // 呼び出しだけを通す。

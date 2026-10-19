@@ -16,7 +16,7 @@ import (
 // 抽象化する。
 //
 // 行の取得は ClaimNextDue が `FOR UPDATE SKIP LOCKED` で行う。複数の処理が同時に走っても、
-// 同じ行を同時に確保することはない（ADR-0034）。
+// 同じ行を同時に確保することはない（ADR-0035）。
 type EventNotificationOutboxRepository interface {
 	// ClaimNextDue は status='pending' かつ next_attempt_at <= now の行のうち、
 	// next_attempt_at が最も古い 1 件を確保して返す。他の処理が確保中の行は飛ばす。
@@ -65,7 +65,7 @@ const outboxClaimTimeout = 2 * time.Minute
 // ClaimNextDue は送信対象の行を 1 件確保する。
 //
 // 接続の取得と取得クエリは ctx に従う。トランザクションは context.WithoutCancel をもとに
-// outboxClaimTimeout の期限付きで開始するため、ctx のキャンセルでは巻き戻されない（ADR-0034）。
+// outboxClaimTimeout の期限付きで開始するため、ctx のキャンセルでは巻き戻されない（ADR-0035）。
 func (r *eventNotificationOutboxPostgres) ClaimNextDue(ctx context.Context, now time.Time, excludeIDs []uuid.UUID) (OutboxClaim, error) {
 	const query = `
 		SELECT id, event_id, recipient_kind, subject, body, status, attempts, next_attempt_at,

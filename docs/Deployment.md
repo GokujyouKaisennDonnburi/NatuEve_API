@@ -2,6 +2,7 @@
 
 NatuEve_API の本番デプロイ構成をまとめる。
 構成を選んだ理由と退けた代替案は [ADR-0032](./adr/0032-production-deployment-cloud-run-supabase.md) を参照。
+API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-domain-workers-relay.md) を参照。
 料金・仕様は 2026-10 時点で各公式ページを確認した値（出典は末尾）。
 
 ## 使用するサービス
@@ -12,6 +13,7 @@ NatuEve_API の本番デプロイ構成をまとめる。
 | **Google Cloud Scheduler** | outbox 処理エンドポイントの定期呼び出し（1 分間隔） | 確定 |
 | **Supabase**（`ap-northeast-1`） | PostgreSQL 17（DB） | 確定 |
 | **Supabase Auth** | 認証（JWT 発行・JWKS による検証） | 確定（既存） |
+| **Cloudflare Workers** | API の独自ドメインの中継（[ADR-0034](./adr/0034-api-custom-domain-workers-relay.md)） | 確定（実装・検証は #226） |
 | Cloudflare R2 | 画像・PDF の保存と配信 | 既存 |
 | Resend | トランザクションメールの送信（[ADR-0001](./adr/0001-resend-transactional-email.md)） | 既存 |
 | Google Artifact Registry | コンテナイメージの保管 | 予定 |
@@ -20,11 +22,14 @@ NatuEve_API の本番デプロイ構成をまとめる。
 ## 構成図
 
 ```
-[Web フロント / モバイルアプリ]
+[Web フロント（SSR を含む） / モバイルアプリ]
    │
    ├─ ログイン ─────────────→ Supabase Auth（JWT 発行）
    │
-   └─ API 呼び出し（JWT 付き）─→ Cloud Run: NatuEve_API ←── Cloud Scheduler（1 分ごと、outbox 処理）
+   └─ API 呼び出し（JWT 付き）─→ Cloudflare Workers: 中継（api.〈ドメイン〉）
+                                   │ 秘密ヘッダーと利用者 IP を付けて run.app の URL へ転送
+                                   ▼
+                                 Cloud Run: NatuEve_API ←── Cloud Scheduler（1 分ごと、outbox 処理）
                                    │
                                    ├─→ Supabase PostgreSQL（DB）
                                    ├─→ Supabase Auth の JWKS（JWT 検証）
@@ -46,6 +51,8 @@ NatuEve_API の本番デプロイ構成をまとめる。
 | 待ち受けポート | 環境変数 `PORT`（Cloud Run が注入する値をそのまま使う） |
 | ヘルスチェック | `GET /health` |
 | イメージ | リポジトリ直下の `Dockerfile`（distroless・`./cmd/api`） |
+| 認証 | なし（`allUsers` に invoker を付ける）。中継元は API が秘密ヘッダーで確かめる（ADR-0034） |
+| run.app の URL | Worker の転送先としてだけ使い、クライアントには公開しない |
 
 - リクエスト課金では、レスポンスを返した後の goroutine に CPU が割り当てられない。
   バックグラウンド処理を API プロセス内に置かない。
@@ -58,7 +65,7 @@ NatuEve_API の本番デプロイ構成をまとめる。
 |---|---|
 | 呼び出し間隔 | 1 分 |
 | 呼び出し先 | `POST /internal/outbox/process`（outbox を 1 回処理して `{"processed": n}` を返す） |
-| 認証 | OIDC トークン。ジョブにサービスアカウントと audience を設定する（ADR-0034） |
+| 認証 | OIDC トークン。ジョブにサービスアカウントと audience を設定する（ADR-0035） |
 | audience | 明示して指定し、Cloud Run の `SCHEDULER_OIDC_AUDIENCE` と同じ値にする |
 | リトライ回数 | 明示して指定する（API の既定は 0 回。gcloud・Console の既定は未確認） |
 | 試行の期限（attempt deadline） | 既定の 3 分のままでよい（1 回の呼び出しは、開始から 50 秒を過ぎると新しい行を確保しない） |
@@ -72,6 +79,22 @@ NatuEve_API の本番デプロイ構成をまとめる。
 - **デプロイ後に確認する（未検証）**: Scheduler が付けるトークンに `email` と `email_verified` が入っているか、`iss` の値は何かを、
   公式ドキュメントでは確認できていない。`gcloud scheduler jobs run <ジョブ名>` で手動実行し、ログで 200 になることを確かめる。
   401 なら audience、403 ならサービスアカウントのメールアドレスか `email` クレームの有無を疑う。
+
+### Cloudflare Workers（API の中継）
+
+| 項目 | 値 |
+|---|---|
+| プラン | Workers Paid（フロントと共有。NatuEve_Web_Frontend ADR-0001） |
+| 割り当て | Custom Domain `api.〈ドメイン〉`（名前は未決） |
+| 転送先 | Cloud Run の run.app の URL（固定） |
+| `workers.dev`・Preview URL | 無効（Wrangler の `workers_dev = false`・`preview_urls = false`） |
+| キャッシュ | 使わない（`fetch()` は `cache: "no-store"`。API のホスト名にキャッシュルールを付けない） |
+| Pseudo IPv4（ゾーンの設定） | Off（既定） |
+| コードの置き場所 | 本リポジトリ（実装は #226） |
+
+- 含まれる量はフロントと共有で、月 1,000 万リクエスト・CPU 3,000 万ミリ秒。超過は 100 万リクエストあたり $0.30、CPU 100 万ミリ秒あたり $0.02。
+  `fetch()` の待ち時間は CPU 時間に数えられない。
+- 転送時に付けるヘッダーと API 側の確認は ADR-0034 の決定事項 3・4。実装上の注意は ADR-0034 の「トレードオフ・制約」。
 
 ### Supabase
 
@@ -99,7 +122,7 @@ NatuEve_API の本番デプロイ構成をまとめる。
 | `DB_AUTO_MIGRATE` | `false` | |
 | `SUPABASE_JWKS_URL` | `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json` | |
 | `SUPABASE_JWT_AUD` | `authenticated`（既定値のままなら設定不要） | |
-| `TRUSTED_PROXIES` | 未決（Cloud Run の前段での値を要検証） | |
+| `TRUSTED_PROXIES` | 使わない（利用者 IP は Worker が渡すヘッダーから読む。ADR-0034） | |
 | `CORS_ALLOW_ORIGINS` | 本番のフロントのオリジン（未決。フロント側 NatuEve_Web_Frontend#328 で決まる） | |
 | `R2_ACCOUNT_ID` | Cloudflare のアカウント ID | |
 | `R2_ACCESS_KEY_ID` | R2 の API トークン | ○ |
@@ -112,8 +135,9 @@ NatuEve_API の本番デプロイ構成をまとめる。
 | `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | Scheduler のジョブが使うサービスアカウントのメールアドレス | |
 | `OUTBOX_WORKER_ENABLED` | 設定しない（常駐ワーカーは本番では使わない） | |
 
+- 中継元を確かめる秘密値と、利用者 IP のヘッダー名を渡す環境変数は #226 で追加する（秘密値は秘密情報）。
 - Secret Manager の無料枠は、アクティブなシークレットバージョン 6 つ・アクセス 1 万回／月。
-  秘密情報は 4 つなので無料枠に収まる。
+  秘密情報は中継元の秘密値を含めて 5 つなので無料枠に収まる。
 - `SCHEDULER_OIDC_AUDIENCE` と `SCHEDULER_SERVICE_ACCOUNT_EMAIL` は、どちらか一方でも未設定だと内部エンドポイントが登録されず（404）、
   通知メールは送信されない。`RESEND_API_KEY` または `MAIL_FROM` が未設定の場合も登録されない。
 
@@ -143,10 +167,11 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
 | Cloud Run | 0 | 0 | 約 23 |
 | Cloud Run から外への通信 | 約 0.06 | 約 0.6 | 約 6 |
 | Cloud Scheduler | 0 | 0 | 0 |
+| Cloudflare Workers（API の中継） | 0 | 0 | 0〜約 3.4 |
 | Cloudflare R2 | 0 | 約 0.3 | 約 4.7 |
 | Resend | 0（Free） | 20（Pro） | 35（Pro） |
 | Supabase | 0（Free）／25（Pro） | 25 | 25〜 |
-| **合計** | **約 0〜25** | **約 46** | **約 94〜** |
+| **合計** | **約 0〜25** | **約 46** | **約 94〜97** |
 
 試算の前提:
 
@@ -155,11 +180,15 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
 - Cloud Run の無料枠（請求アカウント単位、リクエスト課金）: 月 200 万リクエスト・18 万 vCPU 秒・36 万 GiB 秒。
 - Cloud Run の超過単価は第三者サイトの us-central1 の値（vCPU 秒 $0.000024・GiB 秒 $0.0000025・100 万リクエスト $0.40）。東京の単価は未確認。
 - 外への通信は、アジア向けの単価 $0.12/GiB（2024 年の料金改定告知の値）で計算した。
-- 大規模で Supabase のコンピュート増強が必要になるかは未確認。
+- API の独自ドメインは Workers の中継（ADR-0034）で、ロードバランサー（転送ルールだけで月 約 $18）は使わない。
+  中継はフロントと共有する Workers Paid（月 $5、フロント側の試算に計上）の含まれる量を使う。
+  大規模はフロントが含まれる量を使い切った場合の超過分（1,000 万リクエスト × $0.30/100 万件、CPU は 1 リクエスト 2 ミリ秒と仮定）。
+- 大規模で Supabase のコンピュート増強が必要になるかは未確認。大規模の合計は、Workers の超過分の有無で幅を持たせた値で、
+  Supabase のコンピュート増強分は含まない。
 
 ## 未決事項・今後の作業
 
-1. **Cloud Scheduler ジョブの作成**（outbox の内部エンドポイントは #217、ADR-0034 で実装済み）
+1. **Cloud Scheduler ジョブの作成**（outbox の内部エンドポイントは #217、ADR-0035 で実装済み）
    - `POST /internal/outbox/process` を 1 分間隔で呼ぶジョブを作る。認証は OIDC トークンで、ジョブ用のサービスアカウントと
      audience を設定し、同じ値を Cloud Run の環境変数 `SCHEDULER_SERVICE_ACCOUNT_EMAIL`・`SCHEDULER_OIDC_AUDIENCE` に入れる。
    - **ジョブを作るまで、本番では通知メールが送信されない。** 常駐ワーカーは本番では使わない（`OUTBOX_WORKER_ENABLED` を設定しない）。
@@ -179,14 +208,33 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
    未設定のままだと開発用の `http://localhost:3000`・`http://localhost:8787` だけが許可され、本番のフロントから API を呼べない。
    プレビュー環境の URL を許可するか（NatuEve_Web_Frontend#330）は未決。ワイルドカードは使えないため、許可する場合は完全一致の値を追加する。
 6. **CI/CD**（#219）: GitHub Actions か Cloud Build で、マイグレーションの適用 → Cloud Run へのデプロイを自動化する。
-7. **`TRUSTED_PROXIES` の値**（#215）: Cloud Run の前段から見たクライアント IP の扱いを検証して決める。
-   参加申込の IP レート制限（`internal/middleware/ratelimit.go`）は `c.ClientIP()` ごとに数えるため、この値が正しいことが前提。
+7. **利用者 IP の取得方式の検証**（#215）: ADR-0034 で、Worker が渡すヘッダーを Gin の `TrustedPlatform` で読む方式に決めた。
+   本番では `TRUSTED_PROXIES` を使わない。独自ドメイン経由で利用者 IP が正しく取れ、偽装できないことを検証する。
+   参加申込の IP レート制限（`internal/middleware/ratelimit.go`）は `c.ClientIP()` ごとに数えるため、これが正しいことが前提。
 8. **停止時の待ち時間**（#216）: 現在の `cmd/api/main.go` は、HTTP サーバーの停止待ち（最大 10 秒）とワーカーの停止待ち（最大 10 秒）を順に行う。
    合計が Cloud Run の猶予（10 秒）を超えうる。
 9. **最大インスタンス数**（#215）: 費用の上限と、排他の実装状況を踏まえて決める。
    IP レート制限はインスタンスのメモリ上で数えるため、インスタンスが N 台あると制限は最大 N 倍まで緩む。
-10. **API の独自ドメイン**（#221）: Cloud Run への割り当て方法を決める。公式推奨のロードバランサーは転送ルールだけで約 $18/月かかり、
-    上の月額試算には含まれていない。無料の domain mapping は Preview 段階で、本番には非推奨。
+   最大インスタンス数で抑えられるのは CPU・メモリの費用で、run.app の URL への直接の大量アクセスによる件数の課金は抑えられない（ADR-0034）。
+10. **API の中継の実装と検証**（#226）: 方式は ADR-0034 で決めた（Workers の中継、秘密ヘッダーで中継元を確認）。
+    中継用 Worker と API 側の確認・利用者 IP の読み取りを実装し、独自ドメイン経由で動くことを検証する。
+    API のサブドメイン名もこのとき決める。検証で成り立たなければロードバランサーに切り替える（ADR-0034 の決定事項 7）。
+11. **予算アラート**: Cloud Billing の予算アラートを設定する。金額は未決。
+    run.app の URL への直接の大量アクセスによる費用の急増を、[下記](#runapp-の-url-へ直接の大量アクセスを受けたとき)の手順の起点として検知する。
+
+## run.app の URL へ直接の大量アクセスを受けたとき
+
+ADR-0034 の構成では、秘密ヘッダーのないリクエストも Cloud Run のコンテナまで届き、件数に応じて課金される。
+
+1. **検知**: 予算アラート、または Cloud Run のリクエスト数と、秘密ヘッダーの確認で拒否した件数の急増。
+2. **一時的な対処**: Cloud Run のサービスを別名で作り直し、新しい run.app の URL を Worker の転送先に設定してから、
+   古いサービスを削除する。Cloud Scheduler の呼び出し先も新しい URL に変える。run.app の URL はサービス名を含み、
+   プロジェクト番号は秘密ではないため、新しい名前はランダムな文字列を含む推測されにくいものにする。新しい URL を知られれば効果はない。
+3. **恒久的な対処**（ADR-0034 の決定事項 7）: Cloud Run の IAM 認証を追加し、Worker が ID トークンを付けて呼ぶ。
+   または外部ロードバランサーに切り替え、Cloud Run の ingress を「内部と Cloud Load Balancing」に制限する。
+   いずれも実装・設定の作業が必要で、終えるまでの間は課金が続く。
+4. **秘密ヘッダーの値が漏れた疑いがある場合**: 値を差し替える。新しい値を API に追加する → Worker を新しい値に切り替える →
+   古い値を API から削除する、の順で行う。
 
 ## メールの将来的な移行
 
@@ -224,5 +272,7 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
 - Cloud Run: [billing settings](https://docs.cloud.google.com/run/docs/configuring/billing-settings) / [CPU limits](https://docs.cloud.google.com/run/docs/configuring/services/cpu) / [pricing](https://cloud.google.com/run/pricing)
 - Google Cloud: [Free Tier](https://docs.cloud.google.com/free/docs/free-cloud-features) / [Cloud Scheduler pricing](https://cloud.google.com/scheduler/pricing) / [VPC pricing（egress 料金改定の告知）](https://cloud.google.com/vpc/pricing-announce)
 - Supabase: [Pricing](https://supabase.com/pricing) / [Regions](https://supabase.com/docs/guides/platform/regions) / [Connecting to Postgres](https://supabase.com/docs/guides/database/connecting-to-postgres) / [Securing your API](https://supabase.com/docs/guides/api/securing-your-api)
+- Cloud Run の独自ドメイン: [Mapping custom domains](https://docs.cloud.google.com/run/docs/mapping-custom-domains) / [Cloud Load Balancing pricing](https://cloud.google.com/load-balancing/pricing) / [Ingress](https://docs.cloud.google.com/run/docs/securing/ingress)
 - Cloudflare: [R2 pricing](https://developers.cloudflare.com/r2/pricing/) / [Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/)
+- Cloudflare Workers: [Pricing](https://developers.cloudflare.com/workers/platform/pricing/) / [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) / [workers.dev](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/) / [Protecting your origin server](https://developers.cloudflare.com/fundamentals/security/protect-your-origin-server/) / [HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/)
 - メール: [Resend pricing](https://resend.com/pricing) / [Amazon SES pricing](https://aws.amazon.com/ses/pricing/)

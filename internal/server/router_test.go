@@ -110,7 +110,7 @@ func TestNewRouterRejectsInvalidCORSOrigins(t *testing.T) {
 }
 
 // TestRegisterInternalRoutes_NotRegistered は、認証設定が揃っていない、または
-// 通知送信ワーカーが無いときに内部エンドポイントが登録されず 404 になることを検証する（ADR-0034）。
+// 通知送信ワーカーが無いときに内部エンドポイントが登録されず 404 になることを検証する（ADR-0035）。
 func TestRegisterInternalRoutes_NotRegistered(t *testing.T) {
 	worker := service.NewNotificationOutboxWorker(nil, nil, nil, nil)
 
@@ -149,7 +149,7 @@ func TestRegisterInternalRoutes_NotRegistered(t *testing.T) {
 }
 
 // TestRegisterInternalRoutes_RequiresSchedulerToken は、設定が揃っているとき内部エンドポイントが
-// OIDC トークンの検証付きで登録されることを検証する（ADR-0034）。JWKS はテスト用のサーバーから配る。
+// OIDC トークンの検証付きで登録されることを検証する（ADR-0035）。JWKS はテスト用のサーバーから配る。
 func TestRegisterInternalRoutes_RequiresSchedulerToken(t *testing.T) {
 	const (
 		kid      = "test-scheduler-key"

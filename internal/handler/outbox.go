@@ -16,7 +16,7 @@ type OutboxProcessor interface {
 }
 
 // OutboxHandler は Cloud Scheduler から呼ばれる内部エンドポイントを提供する。
-// swag のアノテーションは付けない（ADR-0034）。
+// swag のアノテーションは付けない（ADR-0035）。
 type OutboxHandler struct {
 	processor OutboxProcessor
 	// stop がキャンセルされると、処理中の ProcessOnce は新しい行の確保をやめる。

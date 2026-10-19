@@ -66,7 +66,7 @@ func run() error {
 	cfg := config.Load()
 
 	// SIGINT / SIGTERM を受け取るためのコンテキスト。通知送信ワーカーと内部エンドポイント
-	// （ADR-0034）にも同じ ctx を渡し、シャットダウンシグナルで新しい outbox 行の確保をやめさせる。
+	// （ADR-0035）にも同じ ctx を渡し、シャットダウンシグナルで新しい outbox 行の確保をやめさせる。
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -97,7 +97,7 @@ func run() error {
 	}
 
 	// 通知送信ワーカー（Resend 設定が揃っている場合のみ非 nil）を、OUTBOX_WORKER_ENABLED が
-	// 有効なときだけ常駐起動する（ローカル開発用。本番は Cloud Scheduler が呼ぶ。ADR-0034）。
+	// 有効なときだけ常駐起動する（ローカル開発用。本番は Cloud Scheduler が呼ぶ。ADR-0035）。
 	// ctx のキャンセルで自然に停止する。
 	// workerDone は Run の終了を待ち合わせるためのチャネル。defer conn.Close() より前に
 	// ワーカーの終了（＝後始末の DB 更新の完了）を待つことで、Close 済みの接続に対する
