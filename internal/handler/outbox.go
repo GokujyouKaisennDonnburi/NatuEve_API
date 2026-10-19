@@ -47,5 +47,5 @@ func (h *OutboxHandler) Process(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "outbox の処理に失敗しました"))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"processed": n})
+	c.JSON(http.StatusOK, model.OutboxProcessResponse{Processed: n})
 }
