@@ -135,7 +135,8 @@ func TestRegisterInternalRoutes_NotRegistered(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := gin.New()
-			if err := registerInternalRoutes(context.Background(), r, tt.cfg, tt.worker); err != nil {
+			// 登録されないケースだけなので、JWKS の URL は使われない。
+			if err := registerInternalRoutes(context.Background(), r, tt.cfg, tt.worker, ""); err != nil {
 				t.Fatalf("registerInternalRoutes() returned error: %v", err)
 			}
 
@@ -181,10 +182,6 @@ func TestRegisterInternalRoutes_RequiresSchedulerToken(t *testing.T) {
 	}))
 	t.Cleanup(jwksServer.Close)
 
-	orig := schedulerJWKSURL
-	schedulerJWKSURL = jwksServer.URL
-	t.Cleanup(func() { schedulerJWKSURL = orig })
-
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
 		"iss":            "https://accounts.google.com",
 		"aud":            audience,
@@ -214,7 +211,7 @@ func TestRegisterInternalRoutes_RequiresSchedulerToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := gin.New()
-			if err := registerInternalRoutes(context.Background(), r, cfg, worker); err != nil {
+			if err := registerInternalRoutes(context.Background(), r, cfg, worker, jwksServer.URL); err != nil {
 				t.Fatalf("registerInternalRoutes() returned error: %v", err)
 			}
 

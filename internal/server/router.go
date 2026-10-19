@@ -145,7 +145,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	reportHandler := handler.NewReportHandler(reportCmdSvc, reportQuerySvc)
 	eventParticipationLogHandler := handler.NewEventParticipationLogHandler(eventParticipationLogSvc)
 
-	if err := registerInternalRoutes(ctx, r, cfg, outboxWorker); err != nil {
+	if err := registerInternalRoutes(ctx, r, cfg, outboxWorker, middleware.GoogleJWKSURL); err != nil {
 		return nil, err
 	}
 
@@ -229,13 +229,11 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	return outboxWorker, nil
 }
 
-// schedulerJWKSURL は内部エンドポイントの OIDC トークン検証に使う JWKS の URL。テストで差し替える。
-var schedulerJWKSURL = middleware.GoogleJWKSURL
-
 // registerInternalRoutes は Cloud Scheduler から呼ばれる内部エンドポイントを登録する（ADR-0035）。
 // 認証用の設定（SCHEDULER_OIDC_AUDIENCE・SCHEDULER_SERVICE_ACCOUNT_EMAIL）が両方
 // 揃っていて、outboxWorker が生成済みのときだけ登録する。それ以外は 404 になる。
-func registerInternalRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, outboxWorker *service.NotificationOutboxWorker) error {
+// jwksURL は OIDC トークンの検証に使う JWKS の URL。
+func registerInternalRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, outboxWorker *service.NotificationOutboxWorker, jwksURL string) error {
 	if cfg.SchedulerOIDCAudience == "" || cfg.SchedulerServiceAccountEmail == "" {
 		if cfg.SchedulerOIDCAudience != "" || cfg.SchedulerServiceAccountEmail != "" {
 			slog.Warn("SCHEDULER_OIDC_AUDIENCE と SCHEDULER_SERVICE_ACCOUNT_EMAIL の片方だけが設定されているため、" +
@@ -248,7 +246,7 @@ func registerInternalRoutes(ctx context.Context, r *gin.Engine, cfg config.Confi
 		return nil
 	}
 
-	verifier, err := middleware.NewSchedulerVerifier(schedulerJWKSURL, cfg.SchedulerOIDCAudience, cfg.SchedulerServiceAccountEmail)
+	verifier, err := middleware.NewSchedulerVerifier(jwksURL, cfg.SchedulerOIDCAudience, cfg.SchedulerServiceAccountEmail)
 	if err != nil {
 		return fmt.Errorf("scheduler verifier: %w", err)
 	}
