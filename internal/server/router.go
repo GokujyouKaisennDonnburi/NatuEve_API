@@ -4,6 +4,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -28,6 +29,7 @@ import (
 // sqlDB が nil、または SUPABASE_JWKS_URL が未設定の場合、認証が必要な
 // user 系ルートは登録しない(health などは常に有効)。
 // cfg.CORSAllowOrigins が空、または不正な値を含む場合はエラーを返す（ADR-0033）。
+// 中継元の確認の設定（RELAY_*）が揃っていない場合もエラーを返す（newRelayGuard を参照）。
 //
 // 戻り値の *service.NotificationOutboxWorker は、通知メールの outbox 処理を担う。
 // sqlDB と Resend 設定（RESEND_API_KEY・MAIL_FROM）が揃っている場合のみ生成され、
@@ -42,12 +44,23 @@ func NewRouter(ctx context.Context, cfg config.Config, sqlDB *sql.DB) (*gin.Engi
 	if err != nil {
 		return nil, nil, fmt.Errorf("CORS_ALLOW_ORIGINS: %w", err)
 	}
+	relayGuard, err := newRelayGuard(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// gin.Default() の代わりに slog 連携のロガー/リカバリを使う。
 	r := gin.New()
-	r.Use(middleware.SlogLogger(),
-		middleware.SlogRecovery(),
-		corsMiddleware,
+	// 末尾スラッシュ違いのパスはリダイレクトせず 404 にする（ADR-0034）。
+	r.RedirectTrailingSlash = false
+	r.Use(middleware.SlogLogger(), middleware.SlogRecovery())
+	// 中継元の確認は CORS より前に置く。確認に通らないリクエストは、プリフライトも CORS の処理より前に拒否される（ADR-0034）。
+	// TrustedPlatform のヘッダーの値は検証されないため、確認を有効にするときだけ設定する。
+	if relayGuard != nil {
+		r.Use(relayGuard)
+		r.TrustedPlatform = cfg.RelayClientIPHeader
+	}
+	r.Use(corsMiddleware,
 		middleware.BodyLimit(),
 		// CORS より後ろに置く: 前に置くと 400 レスポンスに CORS ヘッダが付かず、
 		// ブラウザからは 400 ではなく CORS エラーに見えて原因が追えなくなる。
@@ -70,6 +83,42 @@ func NewRouter(ctx context.Context, cfg config.Config, sqlDB *sql.DB) (*gin.Engi
 	return r, worker, nil
 }
 
+// 中継元の確認から外すパス（ADR-0034）。
+// /health は Cloud Run のヘルスチェックが、/internal/outbox/process は Cloud Scheduler が
+// run.app の URL を直接呼ぶ（後者は OIDC トークンで認証する。ADR-0035）。
+const (
+	healthPath        = "/health"
+	outboxProcessPath = "/internal/outbox/process"
+)
+
+// newRelayGuard は中継元を確認する middleware を返す（ADR-0034）。
+//
+// RELAY_SECRET と RELAY_CLIENT_IP_HEADER が両方未設定なら nil を返す（確認しない）。
+// 片方だけが設定されている場合、RELAY_SECRET_PREVIOUS だけが設定されている場合、
+// 値が middleware.NewRelayGuard の条件を満たさない場合はエラーを返す。
+func newRelayGuard(cfg config.Config) (gin.HandlerFunc, error) {
+	if cfg.RelaySecret == "" && cfg.RelayClientIPHeader == "" {
+		if cfg.RelaySecretPrevious != "" {
+			return nil, errors.New("RELAY_SECRET_PREVIOUS is set without RELAY_SECRET")
+		}
+		slog.Warn("RELAY_SECRET と RELAY_CLIENT_IP_HEADER が未設定のため、中継元の確認を行いません")
+		return nil, nil
+	}
+	if cfg.RelaySecret == "" || cfg.RelayClientIPHeader == "" {
+		return nil, errors.New("RELAY_SECRET and RELAY_CLIENT_IP_HEADER must be set together")
+	}
+
+	secrets := []string{cfg.RelaySecret}
+	if cfg.RelaySecretPrevious != "" {
+		secrets = append(secrets, cfg.RelaySecretPrevious)
+	}
+	guard, err := middleware.NewRelayGuard(secrets, cfg.RelayClientIPHeader, []string{healthPath, outboxProcessPath})
+	if err != nil {
+		return nil, fmt.Errorf("RELAY_SECRET / RELAY_CLIENT_IP_HEADER: %w", err)
+	}
+	return guard, nil
+}
+
 // join のレートリミット設定。参加申込は匿名で叩けるため、同一 IP からの
 // 大量申込（架空メールでの定員埋め・DB 汚染）を平均 5回/分・バースト5回に絞る。
 const (
@@ -81,7 +130,7 @@ const (
 // 戻り値の *service.NotificationOutboxWorker については NewRouter の doc を参照。
 func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.NotificationOutboxWorker, error) {
 	health := handler.NewHealthHandler()
-	r.GET("/health", health.Check)
+	r.GET(healthPath, health.Check)
 
 	// DB が無ければ DB 依存のルートは何も登録しない。
 	if sqlDB == nil {
@@ -251,6 +300,6 @@ func registerInternalRoutes(ctx context.Context, r *gin.Engine, cfg config.Confi
 		return fmt.Errorf("scheduler verifier: %w", err)
 	}
 	outboxHandler := handler.NewOutboxHandler(ctx, outboxWorker)
-	r.POST("/internal/outbox/process", verifier.RequireScheduler(), outboxHandler.Process)
+	r.POST(outboxProcessPath, verifier.RequireScheduler(), outboxHandler.Process)
 	return nil
 }
