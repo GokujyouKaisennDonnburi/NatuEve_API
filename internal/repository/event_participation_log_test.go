@@ -91,7 +91,21 @@ func insertTestEvent(t *testing.T, db *sql.DB, profileID uuid.UUID) uuid.UUID {
 	); err != nil {
 		t.Fatalf("insert test event: %v", err)
 	}
+	cleanupTestOutbox(t, db, id)
 	return id
+}
+
+// cleanupTestOutbox は、テスト後に eventID のイベントに予約された通知（キャンセル・欠席連絡）の
+// outbox 行を消すよう登録する。
+func cleanupTestOutbox(t *testing.T, db *sql.DB, eventID uuid.UUID) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		const deleteOutbox = `DELETE FROM event_notification_outbox WHERE event_id = $1`
+		if _, err := db.ExecContext(context.Background(), deleteOutbox, eventID); err != nil {
+			t.Errorf("delete test outbox: %v", err)
+		}
+	})
 }
 
 // insertTestCost はテスト用の event_costs 行を1件作成し、その ID を返す。

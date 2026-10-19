@@ -52,3 +52,9 @@ type EventNotificationOutbox struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
+
+// OutboxProcessResponse は内部エンドポイント POST /internal/outbox/process のレスポンス。
+type OutboxProcessResponse struct {
+	// Processed は 1 回の呼び出しで処理した outbox 行の件数。
+	Processed int `json:"processed"`
+}

@@ -6,6 +6,8 @@
 - 変更: ADR-0016 の決定事項 4（送信ワーカーを goroutine 1 本で常駐させる）を置き換える（Supersedes, 部分的）。
   `.claude/rules/docker.md` にあった「Xserver VPS + Docker Compose、1 年後に AWS（App Runner/ECS + RDS/Aurora）へ移行」という前提を撤回する
 - 構成の詳細・設定値・月額試算は [docs/Deployment.md](../Deployment.md) を参照
+- 注記: 決定事項 2 の実装方式（内部エンドポイントの認証・排他・ローカル開発での起動方法）は [ADR-0035](./0035-outbox-scheduler-endpoint.md) で決めた。
+  30 秒ティッカーの常駐ワーカーは、ローカル開発用に `OUTBOX_WORKER_ENABLED=true` のときだけ残している（本番では使わない）
 
 ## コンテキストと課題
 

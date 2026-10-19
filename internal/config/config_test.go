@@ -45,3 +45,47 @@ func TestLoadCORSAllowOrigins(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadOutboxSettings(t *testing.T) {
+	t.Run("OUTBOX_WORKER_ENABLED", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			set   bool
+			value string
+			want  bool
+		}{
+			{name: "未設定なら無効（本番の既定）", set: false, want: false},
+			{name: "空文字なら無効", set: true, value: "", want: false},
+			{name: "true なら有効", set: true, value: "true", want: true},
+			{name: "1 なら有効", set: true, value: "1", want: true},
+			{name: "false なら無効", set: true, value: "false", want: false},
+			{name: "解釈できない値は無効", set: true, value: "yes please", want: false},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Setenv("OUTBOX_WORKER_ENABLED", tt.value)
+				if !tt.set {
+					if err := os.Unsetenv("OUTBOX_WORKER_ENABLED"); err != nil {
+						t.Fatalf("Unsetenv failed: %v", err)
+					}
+				}
+				if got := Load().OutboxWorkerEnabled; got != tt.want {
+					t.Errorf("OutboxWorkerEnabled = %v, want %v", got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("Scheduler の認証設定を読み取る", func(t *testing.T) {
+		t.Setenv("SCHEDULER_OIDC_AUDIENCE", "https://api.example.com")
+		t.Setenv("SCHEDULER_SERVICE_ACCOUNT_EMAIL", "scheduler@project.iam.gserviceaccount.com")
+
+		cfg := Load()
+		if cfg.SchedulerOIDCAudience != "https://api.example.com" {
+			t.Errorf("SchedulerOIDCAudience = %q", cfg.SchedulerOIDCAudience)
+		}
+		if cfg.SchedulerServiceAccountEmail != "scheduler@project.iam.gserviceaccount.com" {
+			t.Errorf("SchedulerServiceAccountEmail = %q", cfg.SchedulerServiceAccountEmail)
+		}
+	})
+}

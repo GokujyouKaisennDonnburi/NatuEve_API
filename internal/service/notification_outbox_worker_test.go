@@ -3,26 +3,34 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
 // fakeOutboxRepo は EventNotificationOutboxRepository のテスト用フェイク。
-// MarkSent/MarkRetry/MarkFailed への呼び出しを記録する。
+// ClaimNextDue が返す OutboxClaim 経由の MarkSent/MarkRetry/MarkFailed/Release を記録する。
 type fakeOutboxRepo struct {
-	dueItems   []model.EventNotificationOutbox
-	listDueErr error
+	dueItems []model.EventNotificationOutbox
+	claimErr error
+
+	// claimDeadline は確保した行の Deadline。ゼロ値なら確保時点から 1 時間後。
+	claimDeadline time.Time
 
 	sentIDs     []uuid.UUID
 	retryCalls  []outboxRetryCall
 	failedCalls []outboxFailedCall
+	released    int
 
 	// lastMarkSentCtxErr は直近の MarkSent 呼び出し時点での ctx.Err() を記録する。
 	lastMarkSentCtxErr error
+	// lastMarkRetryCtxErr は直近の MarkRetry 呼び出し時点での ctx.Err() を記録する。
+	lastMarkRetryCtxErr error
 }
 
 type outboxRetryCall struct {
@@ -36,27 +44,71 @@ type outboxFailedCall struct {
 	lastError string
 }
 
-func (f *fakeOutboxRepo) ListDue(_ context.Context, _ time.Time, _ int) ([]model.EventNotificationOutbox, error) {
-	return f.dueItems, f.listDueErr
+// ClaimNextDue は dueItems のうち excludeIDs に無い先頭の 1 件を確保して返す。
+// Mark* で確定した行は dueItems から外れる（実 DB で pending でなくなるのと同じ）。
+func (f *fakeOutboxRepo) ClaimNextDue(_ context.Context, _ time.Time, excludeIDs []uuid.UUID) (repository.OutboxClaim, error) {
+	if f.claimErr != nil {
+		return nil, f.claimErr
+	}
+	for _, item := range f.dueItems {
+		if !slices.Contains(excludeIDs, item.ID) {
+			return f.claim(item), nil
+		}
+	}
+	return nil, nil
 }
 
-func (f *fakeOutboxRepo) MarkSent(ctx context.Context, id uuid.UUID) error {
-	f.sentIDs = append(f.sentIDs, id)
+// claim は processOne を直接呼ぶテスト用に、指定の行を確保した状態の OutboxClaim を作る。
+func (f *fakeOutboxRepo) claim(item model.EventNotificationOutbox) repository.OutboxClaim {
+	deadline := f.claimDeadline
+	if deadline.IsZero() {
+		deadline = time.Now().Add(time.Hour)
+	}
+	return &fakeClaim{repo: f, item: item, deadline: deadline}
+}
+
+// fakeClaim は repository.OutboxClaim のテスト用フェイク。
+type fakeClaim struct {
+	repo     *fakeOutboxRepo
+	item     model.EventNotificationOutbox
+	deadline time.Time
+}
+
+func (c *fakeClaim) Item() model.EventNotificationOutbox { return c.item }
+
+func (c *fakeClaim) Deadline() time.Time { return c.deadline }
+
+func (c *fakeClaim) MarkSent(ctx context.Context) error {
+	c.repo.sentIDs = append(c.repo.sentIDs, c.item.ID)
 	// シャットダウン挙動のテスト用に、呼び出し時点の ctx の状態を記録する。
 	// 実 DB 実装ではキャンセル済み ctx を渡すとクエリが失敗するため、
 	// MarkSent がキャンセルされていない ctx（markCtx）で呼ばれたことを検証できる。
-	f.lastMarkSentCtxErr = ctx.Err()
+	c.repo.lastMarkSentCtxErr = ctx.Err()
+	c.repo.settle(c.item.ID)
 	return nil
 }
 
-func (f *fakeOutboxRepo) MarkRetry(_ context.Context, id uuid.UUID, nextAttemptAt time.Time, lastError string) error {
-	f.retryCalls = append(f.retryCalls, outboxRetryCall{id: id, nextAttemptAt: nextAttemptAt, lastError: lastError})
+func (c *fakeClaim) MarkRetry(ctx context.Context, nextAttemptAt time.Time, lastError string) error {
+	c.repo.lastMarkRetryCtxErr = ctx.Err()
+	c.repo.retryCalls = append(c.repo.retryCalls, outboxRetryCall{id: c.item.ID, nextAttemptAt: nextAttemptAt, lastError: lastError})
+	c.repo.settle(c.item.ID)
 	return nil
 }
 
-func (f *fakeOutboxRepo) MarkFailed(_ context.Context, id uuid.UUID, lastError string) error {
-	f.failedCalls = append(f.failedCalls, outboxFailedCall{id: id, lastError: lastError})
+func (c *fakeClaim) MarkFailed(_ context.Context, lastError string) error {
+	c.repo.failedCalls = append(c.repo.failedCalls, outboxFailedCall{id: c.item.ID, lastError: lastError})
+	c.repo.settle(c.item.ID)
 	return nil
+}
+
+func (c *fakeClaim) Release() error {
+	c.repo.released++
+	return nil
+}
+
+// settle は確定した行を dueItems から外す。
+func (f *fakeOutboxRepo) settle(id uuid.UUID) {
+	f.dueItems = slices.DeleteFunc(f.dueItems, func(i model.EventNotificationOutbox) bool { return i.ID == id })
 }
 
 // fakeWorkerJoinRepo は EventJoinRepository のテスト用フェイク。
@@ -191,7 +243,7 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 		mailer := &workerFakeMailer{}
 
 		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
-		w.processOne(context.Background(), item)
+		w.processOne(context.Background(), outboxRepo.claim(item))
 
 		if mailer.callCount != 1 {
 			t.Fatalf("SendBatch call count = %d, want 1", mailer.callCount)
@@ -217,7 +269,7 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 		mailer := &workerFakeMailer{}
 
 		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
-		w.processOne(context.Background(), item)
+		w.processOne(context.Background(), outboxRepo.claim(item))
 
 		if mailer.callCount != 0 {
 			t.Errorf("SendBatch call count = %d, want 0（宛先0件は送信しない）", mailer.callCount)
@@ -240,7 +292,7 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 
 		before := time.Now()
 		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
-		w.processOne(context.Background(), item)
+		w.processOne(context.Background(), outboxRepo.claim(item))
 
 		if len(outboxRepo.sentIDs) != 0 {
 			t.Errorf("sentIDs should be empty on failure, got %v", outboxRepo.sentIDs)
@@ -278,7 +330,7 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 		mailer := &workerFakeMailer{sendErr: sendErr}
 
 		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
-		w.processOne(context.Background(), item)
+		w.processOne(context.Background(), outboxRepo.claim(item))
 
 		if len(outboxRepo.sentIDs) != 0 {
 			t.Errorf("sentIDs should be empty on failure, got %v", outboxRepo.sentIDs)
@@ -306,7 +358,9 @@ func TestNotificationOutboxWorker_ProcessOne(t *testing.T) {
 		mailer := &workerFakeMailer{}
 
 		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
-		w.processDue(context.Background())
+		if _, err := w.ProcessOnce(context.Background()); err != nil {
+			t.Fatalf("ProcessOnce() returned error: %v", err)
+		}
 
 		if len(outboxRepo.sentIDs) != 2 {
 			t.Fatalf("sentIDs = %v, want 2件とも sent", outboxRepo.sentIDs)
@@ -343,7 +397,7 @@ func TestNotificationOutboxWorker_ProcessOneOrganizer(t *testing.T) {
 		mailer := &workerFakeMailer{}
 
 		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, eventRepo, mailer)
-		w.processOne(context.Background(), item)
+		w.processOne(context.Background(), outboxRepo.claim(item))
 
 		if mailer.callCount != 1 {
 			t.Fatalf("SendBatch call count = %d, want 1", mailer.callCount)
@@ -374,7 +428,7 @@ func TestNotificationOutboxWorker_ProcessOneOrganizer(t *testing.T) {
 		mailer := &workerFakeMailer{}
 
 		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, eventRepo, mailer)
-		w.processOne(context.Background(), item)
+		w.processOne(context.Background(), outboxRepo.claim(item))
 
 		if mailer.callCount != 0 {
 			t.Errorf("SendBatch call count = %d, want 0", mailer.callCount)
@@ -397,7 +451,7 @@ func TestNotificationOutboxWorker_ProcessOneOrganizer(t *testing.T) {
 		mailer := &workerFakeMailer{sendErr: sendErr}
 
 		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, eventRepo, mailer)
-		w.processOne(context.Background(), item)
+		w.processOne(context.Background(), outboxRepo.claim(item))
 
 		if len(outboxRepo.retryCalls) != 1 {
 			t.Fatalf("retryCalls = %d, want 1", len(outboxRepo.retryCalls))
@@ -436,7 +490,7 @@ func TestNotificationOutboxWorker_Shutdown(t *testing.T) {
 		{MailAddress: "yamada@example.com"},
 	}
 
-	t.Run("processDue はキャンセル済み ctx では新しい行の処理に着手しない", func(t *testing.T) {
+	t.Run("ProcessOnce はキャンセル済み ctx では新しい行の処理に着手しない", func(t *testing.T) {
 		item := model.EventNotificationOutbox{ID: uuid.New(), EventID: eventID}
 		outboxRepo := &fakeOutboxRepo{dueItems: []model.EventNotificationOutbox{item}}
 		joinRepo := &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{eventID: recipients}}
@@ -446,7 +500,10 @@ func TestNotificationOutboxWorker_Shutdown(t *testing.T) {
 		cancel() // シャットダウン中を模す
 
 		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
-		w.processDue(ctx)
+		n, err := w.ProcessOnce(ctx)
+		if err != nil || n != 0 {
+			t.Errorf("ProcessOnce() = (%d, %v), want (0, nil)", n, err)
+		}
 
 		if mailer.callCount != 0 {
 			t.Errorf("SendBatch call count = %d, want 0（キャンセル済み ctx では新規着手しない）", mailer.callCount)
@@ -465,7 +522,7 @@ func TestNotificationOutboxWorker_Shutdown(t *testing.T) {
 		mailer := &cancelingMailer{cancel: cancel} // SendBatch 実行中に ctx をキャンセルするが成功を返す
 
 		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
-		w.processOne(ctx, item)
+		w.processOne(ctx, outboxRepo.claim(item))
 
 		if mailer.callCount != 1 {
 			t.Fatalf("SendBatch call count = %d, want 1", mailer.callCount)
@@ -482,25 +539,98 @@ func TestNotificationOutboxWorker_Shutdown(t *testing.T) {
 	})
 }
 
-func TestNotificationOutboxWorker_Wake(t *testing.T) {
-	t.Run("nil レシーバでも panic しない", func(_ *testing.T) {
-		var w *NotificationOutboxWorker
-		w.Wake() // panic しないことを確認する
+func TestNotificationOutboxWorker_ProcessOnce(t *testing.T) {
+	eventID := uuid.New()
+	newWorker := func(outboxRepo *fakeOutboxRepo, joinRepo *fakeWorkerJoinRepo) *NotificationOutboxWorker {
+		return NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, &workerFakeMailer{})
+	}
+	noRecipients := &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{}}
+
+	t.Run("正常: 対象が0件でもエラーにならず 0 を返す", func(t *testing.T) {
+		outboxRepo := &fakeOutboxRepo{}
+		n, err := newWorker(outboxRepo, noRecipients).ProcessOnce(context.Background())
+		if err != nil || n != 0 {
+			t.Fatalf("ProcessOnce() = (%d, %v), want (0, nil)", n, err)
+		}
 	})
 
-	t.Run("バッファ1の非ブロッキング送信で、連続呼び出しでもブロックしない", func(t *testing.T) {
-		w := NewNotificationOutboxWorker(&fakeOutboxRepo{}, &fakeWorkerJoinRepo{}, &fakeWorkerEventRepo{}, &workerFakeMailer{})
-		done := make(chan struct{})
-		go func() {
-			w.Wake()
-			w.Wake()
-			w.Wake()
-			close(done)
+	t.Run("正常: 処理した件数を返し、確保した行を毎回解放する", func(t *testing.T) {
+		outboxRepo := &fakeOutboxRepo{dueItems: []model.EventNotificationOutbox{
+			{ID: uuid.New(), EventID: eventID},
+			{ID: uuid.New(), EventID: eventID},
+			{ID: uuid.New(), EventID: eventID},
+		}}
+		n, err := newWorker(outboxRepo, noRecipients).ProcessOnce(context.Background())
+		if err != nil || n != 3 {
+			t.Fatalf("ProcessOnce() = (%d, %v), want (3, nil)", n, err)
+		}
+		if outboxRepo.released != 3 {
+			t.Errorf("Release 呼び出し回数 = %d, want 3", outboxRepo.released)
+		}
+	})
+
+	t.Run("正常: 確定されずに残った行を同じ呼び出しで取り直さない", func(t *testing.T) {
+		// 宛先取得に失敗した行は Mark* されず pending のまま残る。
+		// 取り直すと同じ行を何度も処理してしまうため、excludeIDs で除外されることを確認する。
+		outboxRepo := &fakeOutboxRepo{dueItems: []model.EventNotificationOutbox{{ID: uuid.New(), EventID: eventID}}}
+		joinRepo := &fakeWorkerJoinRepo{recipientsErr: errors.New("db error")}
+		n, err := newWorker(outboxRepo, joinRepo).ProcessOnce(context.Background())
+		if err != nil || n != 1 {
+			t.Fatalf("ProcessOnce() = (%d, %v), want (1, nil)", n, err)
+		}
+	})
+
+	t.Run("正常: 1 回の呼び出しで処理する件数は outboxBatchSize まで", func(t *testing.T) {
+		items := make([]model.EventNotificationOutbox, 0, outboxBatchSize+5)
+		for range outboxBatchSize + 5 {
+			items = append(items, model.EventNotificationOutbox{ID: uuid.New(), EventID: eventID})
+		}
+		outboxRepo := &fakeOutboxRepo{dueItems: items}
+		n, err := newWorker(outboxRepo, noRecipients).ProcessOnce(context.Background())
+		if err != nil || n != outboxBatchSize {
+			t.Fatalf("ProcessOnce() = (%d, %v), want (%d, nil)", n, err, outboxBatchSize)
+		}
+	})
+
+	t.Run("正常: 時間予算を過ぎたら新しい行を確保しない", func(t *testing.T) {
+		outboxRepo := &fakeOutboxRepo{dueItems: []model.EventNotificationOutbox{{ID: uuid.New(), EventID: eventID}}}
+		w := newWorker(outboxRepo, noRecipients)
+		w.budget = 0
+		n, err := w.ProcessOnce(context.Background())
+		if err != nil || n != 0 {
+			t.Fatalf("ProcessOnce() = (%d, %v), want (0, nil)", n, err)
+		}
+		if len(outboxRepo.sentIDs) != 0 {
+			t.Errorf("sentIDs = %v, want 空", outboxRepo.sentIDs)
+		}
+	})
+
+	t.Run("異常: 処理中に panic しても確保した行は解放される", func(t *testing.T) {
+		outboxRepo := &fakeOutboxRepo{dueItems: []model.EventNotificationOutbox{{ID: uuid.New(), EventID: eventID}}}
+		w := NewNotificationOutboxWorker(outboxRepo, noRecipients, &fakeWorkerEventRepo{}, panicMailer{})
+		// 参加者0件だと送信されないため、宛先を1件にして SendBatch まで進める。
+		w.joinRepo = &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{
+			eventID: {{MailAddress: "yamada@example.com"}},
+		}}
+
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("panic が伝播しなかった")
+				}
+			}()
+			_, _ = w.ProcessOnce(context.Background())
 		}()
-		select {
-		case <-done:
-		case <-time.After(1 * time.Second):
-			t.Fatal("Wake() がブロックした")
+		if outboxRepo.released != 1 {
+			t.Errorf("Release 呼び出し回数 = %d, want 1", outboxRepo.released)
+		}
+	})
+
+	t.Run("異常: 行の確保に失敗したらエラーを返す", func(t *testing.T) {
+		outboxRepo := &fakeOutboxRepo{claimErr: errors.New("db down")}
+		n, err := newWorker(outboxRepo, noRecipients).ProcessOnce(context.Background())
+		if err == nil || n != 0 {
+			t.Fatalf("ProcessOnce() = (%d, %v), want (0, error)", n, err)
 		}
 	})
 }
@@ -521,4 +651,75 @@ func TestBackoffFor(t *testing.T) {
 			t.Errorf("backoffFor(%d) = %v, want %v", tt.attempts, got, tt.want)
 		}
 	}
+}
+
+// panicMailer は SendBatch で panic する Mailer のテスト用フェイク。
+type panicMailer struct{}
+
+func (panicMailer) SendBatch(context.Context, []Email) error {
+	panic("mailer panic")
+}
+
+func TestNotificationOutboxWorker_ClaimDeadline(t *testing.T) {
+	eventID := uuid.New()
+	recipients := &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{
+		eventID: {{MailAddress: "yamada@example.com"}},
+	}}
+
+	t.Run("送信に markReserve より長くかかっても、MarkSent の ctx は期限切れにならない", func(t *testing.T) {
+		item := model.EventNotificationOutbox{ID: uuid.New(), EventID: eventID}
+		outboxRepo := &fakeOutboxRepo{}
+		w := NewNotificationOutboxWorker(outboxRepo, recipients, &fakeWorkerEventRepo{}, &slowMailer{delay: 100 * time.Millisecond})
+		w.markReserve = 50 * time.Millisecond
+
+		w.processOne(context.Background(), outboxRepo.claim(item))
+
+		if len(outboxRepo.sentIDs) != 1 {
+			t.Fatalf("sentIDs = %v, want 1件", outboxRepo.sentIDs)
+		}
+		if outboxRepo.lastMarkSentCtxErr != nil {
+			t.Errorf("MarkSent に渡された ctx.Err() = %v, want nil", outboxRepo.lastMarkSentCtxErr)
+		}
+	})
+
+	t.Run("確保の期限の markReserve 前を過ぎた送信は打ち切られ、期限内に retry が記録される", func(t *testing.T) {
+		item := model.EventNotificationOutbox{ID: uuid.New(), EventID: eventID}
+		outboxRepo := &fakeOutboxRepo{claimDeadline: time.Now().Add(300 * time.Millisecond)}
+		mailer := &blockingMailer{}
+		w := NewNotificationOutboxWorker(outboxRepo, recipients, &fakeWorkerEventRepo{}, mailer)
+		w.markReserve = 250 * time.Millisecond
+
+		w.processOne(context.Background(), outboxRepo.claim(item))
+
+		if !errors.Is(mailer.gotErr, context.DeadlineExceeded) {
+			t.Errorf("SendBatch の ctx.Err() = %v, want DeadlineExceeded", mailer.gotErr)
+		}
+		if len(outboxRepo.retryCalls) != 1 {
+			t.Fatalf("retryCalls = %v, want 1件", outboxRepo.retryCalls)
+		}
+		if outboxRepo.lastMarkRetryCtxErr != nil {
+			t.Errorf("MarkRetry に渡された ctx.Err() = %v, want nil（確保の期限内に記録する）", outboxRepo.lastMarkRetryCtxErr)
+		}
+	})
+}
+
+// slowMailer は delay だけ待ってから成功を返す Mailer のテスト用フェイク。
+type slowMailer struct {
+	delay time.Duration
+}
+
+func (m *slowMailer) SendBatch(context.Context, []Email) error {
+	time.Sleep(m.delay)
+	return nil
+}
+
+// blockingMailer は ctx が終わるまで待ち、ctx.Err() を返す Mailer のテスト用フェイク。
+type blockingMailer struct {
+	gotErr error
+}
+
+func (m *blockingMailer) SendBatch(ctx context.Context, _ []Email) error {
+	<-ctx.Done()
+	m.gotErr = ctx.Err()
+	return m.gotErr
 }

@@ -775,6 +775,7 @@ func insertTestEventWithTitle(t *testing.T, db *sql.DB, profileID uuid.UUID, tit
 	); err != nil {
 		t.Fatalf("insert test event: %v", err)
 	}
+	cleanupTestOutbox(t, db, id)
 	return id
 }
 
@@ -802,6 +803,7 @@ func insertTestEventWithEndDate(t *testing.T, db *sql.DB, profileID uuid.UUID, e
 	); err != nil {
 		t.Fatalf("insert test event: %v", err)
 	}
+	cleanupTestOutbox(t, db, id)
 	return id
 }
 
@@ -829,6 +831,7 @@ func insertTestEventWithDates(t *testing.T, db *sql.DB, profileID uuid.UUID, eve
 	); err != nil {
 		t.Fatalf("insert test event: %v", err)
 	}
+	cleanupTestOutbox(t, db, id)
 	return id
 }
 
@@ -854,6 +857,7 @@ func insertTestEventWithLocation(t *testing.T, db *sql.DB, profileID uuid.UUID, 
 	); err != nil {
 		t.Fatalf("insert test event: %v", err)
 	}
+	cleanupTestOutbox(t, db, id)
 	return id
 }
 
@@ -881,6 +885,7 @@ func insertTestEventWithApplicationDeadline(t *testing.T, db *sql.DB, profileID 
 	); err != nil {
 		t.Fatalf("insert test event: %v", err)
 	}
+	cleanupTestOutbox(t, db, id)
 	return id
 }
 

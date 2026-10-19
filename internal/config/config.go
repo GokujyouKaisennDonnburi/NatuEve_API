@@ -46,6 +46,17 @@ type Config struct {
 	ResendAPIKey string
 	// MailFrom は送信元メールアドレス。
 	MailFrom string
+	// OutboxWorkerEnabled が true なら、API プロセス内で一定周期に outbox を処理する
+	// 常駐ワーカーを起動する（ローカル開発用）。本番は Cloud Scheduler から
+	// 内部エンドポイントを呼ぶため false のままにする（ADR-0035）。
+	OutboxWorkerEnabled bool
+	// SchedulerOIDCAudience は Cloud Scheduler が付ける OIDC トークンの aud クレーム。
+	// SchedulerServiceAccountEmail とあわせて両方設定したときだけ、
+	// 内部エンドポイント POST /internal/outbox/process を登録する（ADR-0035）。
+	SchedulerOIDCAudience string
+	// SchedulerServiceAccountEmail は Cloud Scheduler が使うサービスアカウントのメールアドレス。
+	// OIDC トークンの email クレームがこの値と一致する呼び出しだけを受け付ける。
+	SchedulerServiceAccountEmail string
 }
 
 // Load は環境変数から Config を構築する。
@@ -87,6 +98,12 @@ func Load() Config {
 	cfg.R2PublicBaseURL = os.Getenv("R2_PUBLIC_BASE_URL")
 	cfg.ResendAPIKey = os.Getenv("RESEND_API_KEY")
 	cfg.MailFrom = os.Getenv("MAIL_FROM")
+	if v := os.Getenv("OUTBOX_WORKER_ENABLED"); v != "" {
+		// パースできない値は false 扱い(明示的に true/1 のときだけ有効)。
+		cfg.OutboxWorkerEnabled, _ = strconv.ParseBool(v)
+	}
+	cfg.SchedulerOIDCAudience = os.Getenv("SCHEDULER_OIDC_AUDIENCE")
+	cfg.SchedulerServiceAccountEmail = os.Getenv("SCHEDULER_SERVICE_ACCOUNT_EMAIL")
 	return cfg
 }
 

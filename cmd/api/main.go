@@ -65,8 +65,8 @@ func run() error {
 
 	cfg := config.Load()
 
-	// SIGINT / SIGTERM を受け取るためのコンテキスト。通知送信ワーカーにも同じ ctx を渡し、
-	// シャットダウンシグナルで自然に停止させる。
+	// SIGINT / SIGTERM を受け取るためのコンテキスト。通知送信ワーカーと内部エンドポイント
+	// （ADR-0035）にも同じ ctx を渡し、シャットダウンシグナルで新しい outbox 行の確保をやめさせる。
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -91,18 +91,19 @@ func run() error {
 		}
 	}
 
-	r, notificationWorker, err := server.NewRouter(cfg, sqlDB)
+	r, notificationWorker, err := server.NewRouter(ctx, cfg, sqlDB)
 	if err != nil {
 		return fmt.Errorf("build router: %w", err)
 	}
 
-	// イベントキャンセル通知の送信ワーカー（Resend 設定が揃っている場合のみ非 nil）を
-	// 起動する。ctx のキャンセルで自然に停止する。
+	// 通知送信ワーカー（Resend 設定が揃っている場合のみ非 nil）を、OUTBOX_WORKER_ENABLED が
+	// 有効なときだけ常駐起動する（ローカル開発用。本番は Cloud Scheduler が呼ぶ。ADR-0035）。
+	// ctx のキャンセルで自然に停止する。
 	// workerDone は Run の終了を待ち合わせるためのチャネル。defer conn.Close() より前に
 	// ワーカーの終了（＝後始末の DB 更新の完了）を待つことで、Close 済みの接続に対する
 	// クエリ実行を防ぐ。
 	workerDone := make(chan struct{})
-	if notificationWorker != nil {
+	if cfg.OutboxWorkerEnabled && notificationWorker != nil {
 		go func() {
 			defer close(workerDone)
 			notificationWorker.Run(ctx)

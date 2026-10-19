@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
@@ -28,11 +29,15 @@ import (
 // user 系ルートは登録しない(health などは常に有効)。
 // cfg.CORSAllowOrigins が空、または不正な値を含む場合はエラーを返す（ADR-0033）。
 //
-// 戻り値の *service.NotificationOutboxWorker は、イベントキャンセル通知の
-// バックグラウンド送信ワーカー。sqlDB と Resend 設定（RESEND_API_KEY・MAIL_FROM）が
-// 揃っている場合のみ生成され、それ以外は nil を返す（呼び出し元は nil チェックのうえ
-// go worker.Run(ctx) すること。nil の場合は outbox に予約は溜まるが送信は行われない）。
-func NewRouter(cfg config.Config, sqlDB *sql.DB) (*gin.Engine, *service.NotificationOutboxWorker, error) {
+// 戻り値の *service.NotificationOutboxWorker は、通知メールの outbox 処理を担う。
+// sqlDB と Resend 設定（RESEND_API_KEY・MAIL_FROM）が揃っている場合のみ生成され、
+// それ以外は nil を返す。nil の場合は outbox に予約は溜まるが送信は行われない。
+// 本番では Cloud Scheduler が内部エンドポイントを呼んで処理する（ADR-0035）。
+// 呼び出し元が go worker.Run(ctx) するのは、cfg.OutboxWorkerEnabled が true のとき（ローカル開発用）だけ。
+//
+// ctx はシャットダウンのシグナルでキャンセルされるものを渡す。キャンセルされると、
+// 内部エンドポイントで処理中の outbox は新しい行の確保をやめる。
+func NewRouter(ctx context.Context, cfg config.Config, sqlDB *sql.DB) (*gin.Engine, *service.NotificationOutboxWorker, error) {
 	corsMiddleware, err := middleware.NewCORS(cfg.CORSAllowOrigins)
 	if err != nil {
 		return nil, nil, fmt.Errorf("CORS_ALLOW_ORIGINS: %w", err)
@@ -57,7 +62,7 @@ func NewRouter(cfg config.Config, sqlDB *sql.DB) (*gin.Engine, *service.Notifica
 	// Swagger UI: http://<host>/swagger/index.html
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	worker, err := registerRoutes(r, cfg, sqlDB)
+	worker, err := registerRoutes(ctx, r, cfg, sqlDB)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -74,7 +79,7 @@ const (
 
 // registerRoutes は各ハンドラをルーターに登録する。
 // 戻り値の *service.NotificationOutboxWorker については NewRouter の doc を参照。
-func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.NotificationOutboxWorker, error) {
+func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.NotificationOutboxWorker, error) {
 	health := handler.NewHealthHandler()
 	r.GET("/health", health.Check)
 
@@ -113,10 +118,8 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.N
 			"イベントキャンセル時の通知は outbox に蓄積されますが送信されません")
 	}
 
-	// worker.Wake はメソッド自体が nil レシーバ安全なため、outboxWorker が nil
-	// （Resend 未設定）でもそのまま注入してよい（呼んでも no-op になる）。
-	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo, outboxWorker.Wake)
-	eventCmdSvc := service.NewEventCommandService(eventRepo, store, outboxWorker.Wake)
+	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo)
+	eventCmdSvc := service.NewEventCommandService(eventRepo, store)
 
 	eventParticipationLogRepo := repository.NewEventParticipationLogRepository(sqlDB)
 	eventParticipationLogSvc := service.NewEventParticipationLogService(eventParticipationLogRepo, eventRepo)
@@ -141,6 +144,10 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.N
 	userHandler := handler.NewUserHandler(profileSvc)
 	reportHandler := handler.NewReportHandler(reportCmdSvc, reportQuerySvc)
 	eventParticipationLogHandler := handler.NewEventParticipationLogHandler(eventParticipationLogSvc)
+
+	if err := registerInternalRoutes(ctx, r, cfg, outboxWorker, middleware.GoogleJWKSURL); err != nil {
+		return nil, err
+	}
 
 	v1Public := r.Group("/api/v1")
 	v1Public.GET("/events", eventHandler.List)
@@ -220,4 +227,30 @@ func registerRoutes(r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.N
 	// 完結するため。Resend 未設定でも予約は成功し、後で設定が揃ってから
 	// ワーカーが遡って送信できる）。
 	return outboxWorker, nil
+}
+
+// registerInternalRoutes は Cloud Scheduler から呼ばれる内部エンドポイントを登録する（ADR-0035）。
+// 認証用の設定（SCHEDULER_OIDC_AUDIENCE・SCHEDULER_SERVICE_ACCOUNT_EMAIL）が両方
+// 揃っていて、outboxWorker が生成済みのときだけ登録する。それ以外は 404 になる。
+// jwksURL は OIDC トークンの検証に使う JWKS の URL。
+func registerInternalRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, outboxWorker *service.NotificationOutboxWorker, jwksURL string) error {
+	if cfg.SchedulerOIDCAudience == "" || cfg.SchedulerServiceAccountEmail == "" {
+		if cfg.SchedulerOIDCAudience != "" || cfg.SchedulerServiceAccountEmail != "" {
+			slog.Warn("SCHEDULER_OIDC_AUDIENCE と SCHEDULER_SERVICE_ACCOUNT_EMAIL の片方だけが設定されているため、" +
+				"内部エンドポイント /internal/outbox/process を登録しません")
+		}
+		return nil
+	}
+	if outboxWorker == nil {
+		slog.Warn("通知送信ワーカーが無いため、内部エンドポイント /internal/outbox/process を登録しません")
+		return nil
+	}
+
+	verifier, err := middleware.NewSchedulerVerifier(jwksURL, cfg.SchedulerOIDCAudience, cfg.SchedulerServiceAccountEmail)
+	if err != nil {
+		return fmt.Errorf("scheduler verifier: %w", err)
+	}
+	outboxHandler := handler.NewOutboxHandler(ctx, outboxWorker)
+	r.POST("/internal/outbox/process", verifier.RequireScheduler(), outboxHandler.Process)
+	return nil
 }
