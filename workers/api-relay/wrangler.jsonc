@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "natueve-api-relay",
+  "main": "src/index.ts",
+  // 2024-11-11 以降で fetch() の cache: "no-store" が使える。
+  "compatibility_date": "2026-10-01",
+  // workers.dev と Preview URL は無効にする。ダッシュボードで無効にしただけでは次のデプロイで有効に戻る（ADR-0034）。
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    { "pattern": "natueve-api.natuportal.org", "custom_domain": true }
+  ],
+  "vars": {
+    // 利用者 IP を入れるヘッダー名。API の RELAY_CLIENT_IP_HEADER と同じ値にする。
+    "CLIENT_IP_HEADER": "X-NatuEve-Client-IP"
+  },
+  // ORIGIN_URL（転送先の run.app の URL）と RELAY_SECRET（API の RELAY_SECRET と同じ値）は
+  // `wrangler secret put` で設定し、リポジトリには書かない（ADR-0034）。未設定だと deploy が失敗する。
+  "secrets": {
+    "required": ["ORIGIN_URL", "RELAY_SECRET"]
+  }
+}

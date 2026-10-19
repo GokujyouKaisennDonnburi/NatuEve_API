@@ -14,3 +14,10 @@
 # Claude Code (個人設定 — コミットしない)
 CLAUDE.local.md
 .claude/settings.local.json
+
+# 中継用 Worker（workers/api-relay）の依存・生成物・ローカル設定
+workers/api-relay/node_modules/
+workers/api-relay/.wrangler/
+workers/api-relay/.dev.vars*
+workers/api-relay/worker-configuration.d.ts
+workers/api-relay/dist/
