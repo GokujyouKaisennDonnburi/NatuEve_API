@@ -12,6 +12,17 @@
 | [jackc/pgx/v5](https://github.com/jackc/pgx) | PostgreSQL ドライバ（`pgx/stdlib` 経由で `database/sql` に接続） |
 | [pressly/goose/v3](https://github.com/pressly/goose) | DB マイグレーション（SQL を embed し起動時/CLI で適用。[Database.md](./Database.md)） |
 
+## 中継用 Worker（`workers/api-relay/`）
+
+実際のバージョンは `workers/api-relay/package.json` / `bun.lock` が正。すべて開発時の依存で、Worker の実行時に使うライブラリはない。
+
+| パッケージ | 用途 |
+|---|---|
+| [wrangler](https://developers.cloudflare.com/workers/wrangler/) | Worker のローカル実行・デプロイ・型生成（`wrangler types`） |
+| [typescript](https://www.typescriptlang.org/) | 型チェック |
+| [vitest](https://vitest.dev/) | テスト |
+| [@biomejs/biome](https://biomejs.dev/) | lint・フォーマット（フロントと同じ設定） |
+
 ## 導入予定（コード未使用のため go mod tidy で go.mod から外れている）
 
 以下は認証処理を実装する際に import すれば自動的に `go.mod` の直接依存へ戻る。

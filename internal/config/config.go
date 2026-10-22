@@ -12,7 +12,17 @@ type Config struct {
 	// Port はサーバの待ち受けポート。
 	Port string
 	// TrustedProxies は信頼するプロキシ(CIDR/IP)。nil = どのプロキシも信頼しない。
+	// 本番では使わない（利用者 IP は RelayClientIPHeader から読む。ADR-0034）。
 	TrustedProxies []string
+	// RelaySecret は中継用 Worker が秘密ヘッダーに入れる値（ADR-0034）。
+	// RelayClientIPHeader とあわせて両方設定したときだけ、中継元の確認を行う。
+	// 値の検証は middleware.NewRelayGuard が行う。
+	RelaySecret string
+	// RelaySecretPrevious は値の差し替え中だけ設定する古い秘密値。RelaySecret と同じく受け付ける。
+	RelaySecretPrevious string
+	// RelayClientIPHeader は中継用 Worker が利用者 IP を入れるヘッダー名。
+	// 中継元の確認に通ったリクエストでは、c.ClientIP() がこのヘッダーの値を返す。
+	RelayClientIPHeader string
 	// CORSAllowOrigins は CORS で許可するオリジン（scheme://host[:port]）。
 	// 値の検証は middleware.NewCORS が行う（ADR-0033）。
 	CORSAllowOrigins []string
@@ -64,6 +74,7 @@ type Config struct {
 // PORT が未設定なら 8085、TRUSTED_PROXIES が未設定なら nil(直接接続のみ信頼)。
 // CORS_ALLOW_ORIGINS はカンマ区切りで、各要素の前後の空白を除き空の要素は捨てる。
 // 未設定なら http://localhost:3000 と http://localhost:8787。空の要素しかない場合は空スライスになる（起動時に NewCORS がエラーにする）。
+// RELAY_SECRET・RELAY_SECRET_PREVIOUS・RELAY_CLIENT_IP_HEADER は前後の空白・改行を除く。
 func Load() Config {
 	cfg := Config{
 		Port:        os.Getenv("PORT"),
@@ -75,6 +86,9 @@ func Load() Config {
 	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
 		cfg.TrustedProxies = strings.Split(v, ",")
 	}
+	cfg.RelaySecret = strings.TrimSpace(os.Getenv("RELAY_SECRET"))
+	cfg.RelaySecretPrevious = strings.TrimSpace(os.Getenv("RELAY_SECRET_PREVIOUS"))
+	cfg.RelayClientIPHeader = strings.TrimSpace(os.Getenv("RELAY_CLIENT_IP_HEADER"))
 	cfg.CORSAllowOrigins = defaultCORSAllowOrigins()
 	if v := os.Getenv("CORS_ALLOW_ORIGINS"); v != "" {
 		cfg.CORSAllowOrigins = splitList(v)

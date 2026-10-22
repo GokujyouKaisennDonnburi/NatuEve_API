@@ -8,6 +8,7 @@
 # ドキュメント・コンテナ定義（ビルドに不要）
 *.md
 docs
+workers
 Dockerfile
 docker-compose.yml
 .dockerignore

@@ -2,6 +2,8 @@ module github.com/GokujyouKaisennDonnburi/NatuEve_API
 
 go 1.26.10
 
+ignore ./workers
+
 require (
 	github.com/MicahParks/jwkset v0.11.0
 	github.com/MicahParks/keyfunc/v3 v3.8.0

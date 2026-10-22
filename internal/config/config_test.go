@@ -89,3 +89,50 @@ func TestLoadOutboxSettings(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadRelaySettings(t *testing.T) {
+	tests := []struct {
+		name         string
+		secret       string
+		previous     string
+		header       string
+		wantSecret   string
+		wantPrevious string
+		wantHeader   string
+	}{
+		{name: "未設定", wantSecret: "", wantPrevious: "", wantHeader: ""},
+		{
+			name:       "値を読み込む",
+			secret:     "new-secret",
+			previous:   "old-secret",
+			header:     "X-NatuEve-Client-IP",
+			wantSecret: "new-secret", wantPrevious: "old-secret", wantHeader: "X-NatuEve-Client-IP",
+		},
+		{
+			name:       "前後の空白・改行を除く",
+			secret:     "  new-secret\n",
+			previous:   "\told-secret \r\n",
+			header:     " X-NatuEve-Client-IP\n",
+			wantSecret: "new-secret", wantPrevious: "old-secret", wantHeader: "X-NatuEve-Client-IP",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("RELAY_SECRET", tt.secret)
+			t.Setenv("RELAY_SECRET_PREVIOUS", tt.previous)
+			t.Setenv("RELAY_CLIENT_IP_HEADER", tt.header)
+
+			cfg := Load()
+			if cfg.RelaySecret != tt.wantSecret {
+				t.Errorf("RelaySecret = %q, want %q", cfg.RelaySecret, tt.wantSecret)
+			}
+			if cfg.RelaySecretPrevious != tt.wantPrevious {
+				t.Errorf("RelaySecretPrevious = %q, want %q", cfg.RelaySecretPrevious, tt.wantPrevious)
+			}
+			if cfg.RelayClientIPHeader != tt.wantHeader {
+				t.Errorf("RelayClientIPHeader = %q, want %q", cfg.RelayClientIPHeader, tt.wantHeader)
+			}
+		})
+	}
+}

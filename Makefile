@@ -21,6 +21,9 @@ MIGRATIONS_DIR := db/migrations
 GOOSE_EXEC ?= docker compose exec -T api sh -c
 GOOSE := go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION) -dir $(MIGRATIONS_DIR)
 
+# 中継用 Worker（ADR-0034）。
+WORKER_DIR := workers/api-relay
+
 # ローカル開発では .env を読み込み、DATABASE_URL などを Make の変数として取り込む。
 # (CI など .env が無い環境では、シェルの環境変数がそのまま使われる)
 ifneq (,$(wildcard .env))
@@ -112,3 +115,11 @@ up: ## 開発用コンテナを起動 (docker compose)
 .PHONY: down
 down: ## 開発用コンテナを停止
 	docker compose down
+
+.PHONY: worker-install
+worker-install: ## 中継用 Worker の依存を取得 (bun install --frozen-lockfile)
+	cd $(WORKER_DIR) && bun install --frozen-lockfile
+
+.PHONY: worker-check
+worker-check: ## 中継用 Worker の lint・型チェック・テスト
+	cd $(WORKER_DIR) && bun run check && bun run test

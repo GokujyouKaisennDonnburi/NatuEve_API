@@ -22,7 +22,7 @@ import (
 
 // @title						NatuEve API
 // @version					1.0
-// @description				NatuEve のバックエンド API
+// @description				NatuEve のバックエンド API。中継元の確認（RELAY_*）を有効にした環境では、秘密ヘッダー X-Relay-Auth が一致しないリクエストを 403 で拒否する（/health と /internal/outbox/process を除く。ADR-0034）
 // @BasePath					/
 // @securityDefinitions.apikey	BearerAuth
 // @in							header
@@ -42,8 +42,9 @@ func main() {
 //
 // Go の既定値は 1MB だが、現実的な最大リクエストは 8KB 程度（クエリ 2KB 未満・
 // Supabase JWT 約 1KB・通常ヘッダ）であり過剰である。公開エンドポイントには
-// レート制限がなく前段のプロキシもないため、巨大なリクエストラインを並列に
-// 投げられるとアプリケーションコードが動く前に http.Server がそれをバッファする。
+// レート制限がなく、run.app の URL へは前段の中継（ADR-0034）を通らずに届くため、
+// 巨大なリクエストラインを並列に投げられるとアプリケーションコードが動く前に
+// http.Server がそれをバッファする。
 //
 // 注意点:
 //   - net/http の実効上限はこの値 +4096 バイト（bufio のスロップ）になる。

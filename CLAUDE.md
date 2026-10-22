@@ -17,6 +17,7 @@
 ```
 cmd/api/main.go       # エントリーポイント
 internal/             # アプリケーションコード
+workers/api-relay/    # API の中継用 Cloudflare Worker（TypeScript、ADR-0034）
 docker-compose.yml    # PostgreSQL + API
 .env.example          # 環境変数テンプレート
 ```
