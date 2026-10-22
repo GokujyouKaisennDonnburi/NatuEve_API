@@ -2,7 +2,7 @@
 # ソースをマウントしているので、ホスト側の編集がそのままホットリロードされる。
 services:
   api:
-    image: golang:1.26.4-alpine
+    image: golang:1.26.10-alpine
     working_dir: /app
     # Air をバージョン固定で導入してから起動する。設定は .air.toml。
     command: sh -c "go install github.com/air-verse/air@v1.63.6 && air"

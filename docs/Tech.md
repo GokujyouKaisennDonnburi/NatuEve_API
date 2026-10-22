@@ -26,7 +26,7 @@ SupabaseAuth（Supabase が発行する JWT を JWKS で検証する想定。実
 
 ### 前提
 - Docker / Docker Compose
-- （Docker を使わずローカルで動かす場合のみ）Go 1.26.4 以上
+- （Docker を使わずローカルで動かす場合のみ）Go 1.26.10 以上
 
 ### 環境変数
 リポジトリ直下に `.env` を置く（`.env.example` をコピーして作成）。
