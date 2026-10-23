@@ -4,6 +4,7 @@
 - 日付: 2026-10-18
 - 関連: #221, #226, #215, #217, #219, ADR-0032, NatuEve_Web_Frontend ADR-0001
 - 構成の詳細・設定値は [docs/Deployment.md](../Deployment.md) を参照
+- 注記: 最大インスタンス数は #240 で扱い、[ADR-0037](./0037-cloud-run-max-instances.md) で決めた（サービス単位で 1）
 
 ## コンテキストと課題
 
