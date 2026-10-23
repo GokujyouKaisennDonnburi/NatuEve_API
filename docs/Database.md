@@ -24,6 +24,7 @@ db/
 | 変数 | 説明 | デフォルト |
 |---|---|---|
 | `DATABASE_URL` | Postgres 接続文字列。**未設定なら DB に接続せず起動する** | （未設定） |
+| `DB_MAX_OPEN_CONNS` | 1 プロセスあたりの接続数の上限（2 以上の整数）。未設定なら上限なし（起動時に警告ログを出す）。`DATABASE_URL` が未設定のときは値を検証しない。本番の値は [Deployment.md](./Deployment.md)（[ADR-0037](./adr/0037-cloud-run-max-instances.md)） | （未設定） |
 | `DB_AUTO_MIGRATE` | `true` のとき起動時にマイグレーションを自動適用（開発用）。本番は `false` | `false` |
 
 接続文字列の例:

@@ -75,13 +75,22 @@ func run() error {
 	// ルーター構築まで接続を生かすため、スコープを run() 全体に広げる。
 	var sqlDB *sql.DB
 	if cfg.DatabaseURL != "" {
+		maxOpenConns, err := db.ParseMaxOpenConns(cfg.DBMaxOpenConns)
+		if err != nil {
+			return fmt.Errorf("DB_MAX_OPEN_CONNS: %w", err)
+		}
 		conn, err := db.Open(context.Background(), cfg.DatabaseURL)
 		if err != nil {
 			return fmt.Errorf("connect database: %w", err)
 		}
 		defer func() { _ = conn.Close() }()
 		sqlDB = conn
-		slog.Info("database connected")
+		// 1 プロセスあたりの接続数の上限（ADR-0037）。0 なら上限なし。
+		sqlDB.SetMaxOpenConns(maxOpenConns)
+		if maxOpenConns == 0 {
+			slog.Warn("DB_MAX_OPEN_CONNS が未設定のため、DB の接続数に上限を設けません")
+		}
+		slog.Info("database connected", slog.Int("max_open_conns", maxOpenConns))
 
 		// 開発用: AutoMigrate が有効なら起動時にマイグレーションを適用する。
 		if cfg.AutoMigrate {
