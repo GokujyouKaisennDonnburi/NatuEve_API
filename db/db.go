@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"strconv"
 	"time"
 
 	// database/sql 用の pgx ドライバ("pgx")を登録する。
@@ -23,6 +24,29 @@ var migrationsFS embed.FS
 
 // migrationsDir は embed 内のマイグレーション格納ディレクトリ名。
 const migrationsDir = "migrations"
+
+// minMaxOpenConns は DB_MAX_OPEN_CONNS に指定できる最小値。
+// outbox の処理は 1 件につき接続を 2 本同時に使う（確保した行のトランザクションと、宛先の取得）。
+// 上限が 1 だと、宛先の取得に使う接続が空かず、どの行も送信されない。
+// 2 以上でも、同時に走る outbox の処理の数が上限以上になると、確保の期限まで宛先の取得が進まない。
+const minMaxOpenConns = 2
+
+// ParseMaxOpenConns は DB_MAX_OPEN_CONNS の値を、1 プロセスあたりの接続数の上限として解釈する。
+//
+// 空なら 0（上限なし）を返す。整数でない値と minMaxOpenConns 未満の値はエラーにする（ADR-0037）。
+func ParseMaxOpenConns(s string) (int, error) {
+	if s == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("max open conns must be an integer: %q", s)
+	}
+	if n < minMaxOpenConns {
+		return 0, fmt.Errorf("max open conns must be at least %d: %d", minMaxOpenConns, n)
+	}
+	return n, nil
+}
 
 // Open は DSN を使って Postgres への *sql.DB を開き、疎通確認する。
 //

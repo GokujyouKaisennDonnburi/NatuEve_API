@@ -136,3 +136,25 @@ func TestLoadRelaySettings(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadDBMaxOpenConns(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "未設定なら空", value: "", want: ""},
+		{name: "値を読み込む", value: "6", want: "6"},
+		{name: "前後の空白・改行を除く", value: " 6\n", want: "6"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DB_MAX_OPEN_CONNS", tt.value)
+
+			if got := Load().DBMaxOpenConns; got != tt.want {
+				t.Errorf("DBMaxOpenConns = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

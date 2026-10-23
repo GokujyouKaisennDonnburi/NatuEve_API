@@ -28,6 +28,9 @@ type Config struct {
 	CORSAllowOrigins []string
 	// DatabaseURL は Postgres の接続文字列。空なら DB に接続せず起動する。
 	DatabaseURL string
+	// DBMaxOpenConns は 1 プロセスあたりの DB 接続数の上限（DB_MAX_OPEN_CONNS の値）。
+	// 値の検証は db.ParseMaxOpenConns が行う（ADR-0037）。
+	DBMaxOpenConns string
 	// AutoMigrate が true なら起動時にマイグレーションを自動適用する(開発用)。
 	// 本番では false にし、デプロイ手順で `make migrate-up` を実行する。
 	AutoMigrate bool
@@ -74,7 +77,7 @@ type Config struct {
 // PORT が未設定なら 8085、TRUSTED_PROXIES が未設定なら nil(直接接続のみ信頼)。
 // CORS_ALLOW_ORIGINS はカンマ区切りで、各要素の前後の空白を除き空の要素は捨てる。
 // 未設定なら http://localhost:3000 と http://localhost:8787。空の要素しかない場合は空スライスになる（起動時に NewCORS がエラーにする）。
-// RELAY_SECRET・RELAY_SECRET_PREVIOUS・RELAY_CLIENT_IP_HEADER は前後の空白・改行を除く。
+// RELAY_SECRET・RELAY_SECRET_PREVIOUS・RELAY_CLIENT_IP_HEADER・DB_MAX_OPEN_CONNS は前後の空白・改行を除く。
 func Load() Config {
 	cfg := Config{
 		Port:        os.Getenv("PORT"),
@@ -93,6 +96,7 @@ func Load() Config {
 	if v := os.Getenv("CORS_ALLOW_ORIGINS"); v != "" {
 		cfg.CORSAllowOrigins = splitList(v)
 	}
+	cfg.DBMaxOpenConns = strings.TrimSpace(os.Getenv("DB_MAX_OPEN_CONNS"))
 	if v := os.Getenv("DB_AUTO_MIGRATE"); v != "" {
 		// パースできない値は false 扱い(明示的に true/1 のときだけ有効)。
 		cfg.AutoMigrate, _ = strconv.ParseBool(v)

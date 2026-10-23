@@ -47,6 +47,7 @@ cp .env.example .env
 | `SCHEDULER_OIDC_AUDIENCE` | Cloud Scheduler の OIDC トークンの audience。`SCHEDULER_SERVICE_ACCOUNT_EMAIL` と両方設定すると `POST /internal/outbox/process` が有効になる（ADR-0035） | （未設定） |
 | `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | Cloud Scheduler のジョブが使うサービスアカウントのメールアドレス | （未設定） |
 | `DATABASE_URL` | Postgres 接続文字列。未設定なら DB に接続せず起動する | （未設定） |
+| `DB_MAX_OPEN_CONNS` | 1 プロセスあたりの DB 接続数の上限（2 以上の整数）。未設定なら上限なし（起動時に警告ログを出す）。整数でない値・2 未満の値では起動しない。本番は `6`（ADR-0037） | （未設定） |
 | `DB_AUTO_MIGRATE` | `true` で起動時にマイグレーションを自動適用（開発用）。本番は `false` | `false` |
 
 > DB・マイグレーションの詳細（接続文字列の例・`make migrate-*`・本番での適用手順）は [Database.md](./Database.md) を参照。
