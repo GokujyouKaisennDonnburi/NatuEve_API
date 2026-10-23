@@ -299,71 +299,8 @@ API と Worker をデプロイした後に行う。結果は #226 に返信し�
 | 応答時間 | `curl -sS -o /dev/null -w '%{time_starttransfer}\n'` で、独自ドメインと run.app の `/health` を各 20 回程度 | 中央値の差を記録する |
 | WAF・レート制限 | ゾーンに検証用のカスタムルール（例: パスが `/__waf-test` ならブロック）を一時的に作り、独自ドメインの `/__waf-test` を呼ぶ。レート制限ルールも同様に確かめ、終わったら削除する | Cloudflare がブロックする（API のログに出ない） |
 
-- 利用者 IP が正しく取れることと偽装できないこと、IP レート制限の検証は #215 で行う（[下記](#利用者-ip-の検証215)）。
+- 利用者 IP が正しく取れることと偽装できないこと、IP レート制限の検証は #215 で行う。
 - 秘密値をコマンドラインに書かない（シェルの履歴に残る）。
-
-## 利用者 IP の検証（#215）
-
-API と Worker をデプロイした後、利用者に公開する前に行う。検証の手順は #242 で追記する。
-結果は #215 に返信する。返信には run.app の URL と秘密値を書かず、確認に使った端末の IP アドレスは一部を伏せる。
-ヘッダーの値（`Forwarded` の `host=` など）に run.app のホスト名が含まれていた場合も伏せる。
-
-### 検証用サービス（`cmd/headerecho`）
-
-コンテナに届く接続元 IP と IP 系ヘッダーを確かめるため、API とは別の Cloud Run サービスとしてデプロイする
-（[ADR-0038](./adr/0038-ip-verification-header-echo.md)）。どのパス・メソッドで呼んでも、次の項目を JSON で返す。
-
-| 項目 | 中身 |
-|---|---|
-| `remote_addr` | コンテナから見た接続元（`IP:ポート`） |
-| `ip_headers` | `X-Forwarded-For`・`Forwarded`・`X-Real-IP`・`True-Client-IP`・`CF-Connecting-IP`・`CF-Connecting-IPv6`・`CF-Pseudo-IPv4`・`RELAY_CLIENT_IP_HEADER` に指定したヘッダーのうち、届いたものの値。キーは Go が正規化した名前（例: `Cf-Connecting-Ip`） |
-| `header_names` | 届いた全ヘッダーの名前（値は返さない。Host は含まない） |
-| `relay_auth_present` | 秘密ヘッダー（`X-Relay-Auth`）が付いていたか（値は返さない） |
-
-- 環境変数 `RELAY_CLIENT_IP_HEADER`（API と同じ `X-NatuEve-Client-IP`）が必須。未設定、または `X-Relay-Auth` と同じ名前だと起動しない。
-- `PORT` で待ち受ける（未設定なら 8080）。リクエストの中身はログに出さない。
-- 秘密ヘッダーを確かめないため、デプロイしている間は誰でも呼べる。返すのは呼び出したリクエスト自身の情報だけ。
-- Worker の転送先を検証用サービスに向けている間は、独自ドメインから API に届かない。
-
-手順は次のとおり。`<検証用サービス名>` はランダムな文字列を含む推測されにくい名前にする。
-`<イメージ>` は Artifact Registry のイメージ名（例: `asia-northeast1-docker.pkg.dev/<プロジェクト ID>/<リポジトリ>/headerecho`）。
-push の前に `gcloud auth configure-docker asia-northeast1-docker.pkg.dev` を実行しておく。
-
-1. ビルドしてデプロイする（リポジトリ直下で実行する）。ingress と認証は API と同じにする
-   （`--ingress` は指定せず既定の `all`、`--allow-unauthenticated` で認証なし）。
-
-   ```bash
-   docker build --platform linux/amd64 -f cmd/headerecho/Dockerfile -t <イメージ> .
-   docker push <イメージ>
-   gcloud run deploy <検証用サービス名> --image <イメージ> --region asia-northeast1 \
-     --allow-unauthenticated --max-instances 1 \
-     --set-env-vars RELAY_CLIENT_IP_HEADER=X-NatuEve-Client-IP
-   ```
-
-2. Worker の転送先を検証用サービスの run.app の URL に切り替え、独自ドメインの応答が検証用サービスのもの
-   （`remote_addr` を含む JSON）になったことを確かめる。
-
-   ```bash
-   cd workers/api-relay
-   bunx wrangler secret put ORIGIN_URL     # https://<検証用サービス名>-<プロジェクト番号>.asia-northeast1.run.app
-   curl -sS https://natueve-api.natuportal.org/health
-   ```
-
-3. 独自ドメイン経由（`https://natueve-api.natuportal.org/`）と、検証用サービスの run.app の URL への直接アクセスで確かめる（手順は #242 で追記する）。
-4. Worker の転送先を API の run.app の URL に戻し、独自ドメインの `/health` が API の応答（`{"status":"ok"}`）を返すことを確かめる
-   （手順 2 と同じ `workers/api-relay` で実行する）。
-
-   ```bash
-   bunx wrangler secret put ORIGIN_URL     # API の run.app の URL
-   curl -sS https://natueve-api.natuportal.org/health
-   ```
-
-5. 検証用サービスとイメージを削除する。コードはリポジトリに残す。
-
-   ```bash
-   gcloud run services delete <検証用サービス名> --region asia-northeast1
-   gcloud artifacts docker images delete <イメージ> --delete-tags
-   ```
 
 ## メールの将来的な移行
 
