@@ -3,6 +3,7 @@
 NatuEve_API の本番デプロイ構成をまとめる。
 構成を選んだ理由と退けた代替案は [ADR-0032](./adr/0032-production-deployment-cloud-run-supabase.md) を参照。
 API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-domain-workers-relay.md) を参照。
+最大インスタンス数と DB の接続数の上限は [ADR-0037](./adr/0037-cloud-run-max-instances.md) を参照。
 料金・仕様は 2026-10 時点で各公式ページを確認した値（出典は末尾）。
 
 ## 使用するサービス
@@ -46,7 +47,8 @@ API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-
 | リージョン | `asia-northeast1`（東京） |
 | 課金方式 | リクエスト課金（CPU はリクエスト処理中のみ割り当て） |
 | 最小インスタンス数 | 0 |
-| 最大インスタンス数 | 未決（[未決事項](#未決事項今後の作業)） |
+| 最大インスタンス数 | 1（サービス単位。`gcloud run services update <サービス> --max 1`。ADR-0037） |
+| 同時実行数 | 既定値（80）のまま |
 | CPU / メモリ | 1 vCPU / 512MiB（初期値） |
 | 待ち受けポート | 環境変数 `PORT`（Cloud Run が注入する値をそのまま使う） |
 | ヘルスチェック | `GET /health`（秘密ヘッダーの確認から外している。ADR-0034） |
@@ -58,6 +60,12 @@ API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-
   バックグラウンド処理を API プロセス内に置かない。
 - 1 vCPU 未満にする場合は、同時実行数 1・第 1 世代実行環境が条件になる。
 - 停止時は SIGTERM を受けてから 10 秒の猶予がある。
+- 最大インスタンス数は、リビジョン単位では設定しない（リビジョンごとの上限で、デプロイ中は旧・新の合計が上限を超えうる）。
+- **デプロイ後に確認する（未確認）**: サービス単位の上限が、デプロイ中の旧・新のリビジョンをどう数えるかは、公式ドキュメントで確認できていない。
+  新しいリビジョンへの切り替え中に 429 が出ないかを、Cloud Run のログで確かめる。
+- 通常の運用でも、最大インスタンス数を短時間超えることがある（公式: 週に数回）。その間は IP レート制限が最大 2 倍まで緩む。
+- 最大インスタンス数に達すると、リクエストは「10 秒」と「インスタンスの平均起動時間の 3.5 倍」の長い方まで待ち、空かなければ 429 になる。
+  正規の利用で 429 が出る場合は、最大インスタンス数を見直す（ADR-0037 の決定事項 5）。
 
 ### Cloud Scheduler
 
@@ -127,6 +135,12 @@ bunx wrangler deploy
 - Free プランの制限: DB 500MB、自動バックアップなし、1 週間アクティビティがないと一時停止、アクティブなプロジェクトは 2 つまで
   （組織ごとではなくユーザーごとに数え、Owner / Administrator になっている全組織を合算する）。
 - Pro プラン（$25/月〜）: 日次バックアップ（7 日保持）。コンピュート Micro（1GB RAM）1 つ分のクレジット（$10/月）を含む。
+- Free のコンピュートは Nano。DB の最大接続数 60、プーラーの最大クライアント数 200。Auth・Storage・PostgREST なども同じ DB の接続数を使う。
+- プールの大きさ（Pool Size）は「ユーザー・DB・モード」の組ごとの、プーラーが DB へ張る接続の上限。Nano での既定値は未確認（第三者の情報では 15 または 20）。
+  セッションモードでは、空きがないとクライアントは最大 1 分待たされ、空かなければエラーになる。
+- **デプロイ前に確認する（未確認）**: ダッシュボードの Database Settings で Pool Size を確かめ、
+  `(最大インスタンス数 + 1) × DB_MAX_OPEN_CONNS + 2 ≦ Pool Size` を満たすこと（ADR-0037 の決定事項 4。15 とみなして本番の値を 6 にした）。
+  満たさなければ `DB_MAX_OPEN_CONNS` を下げる。検証環境のプロジェクトでも確かめる。
 - 既定では `public` スキーマに作ったテーブルに、API 用ロールの SELECT／INSERT／UPDATE／DELETE 権限が付く。
   RLS のないテーブルは、権限を持つロールなら誰でも読み書きできる。
 
@@ -139,6 +153,7 @@ bunx wrangler deploy
 | `PORT` | Cloud Run が注入（設定不要） | |
 | `GIN_MODE` | `release` | |
 | `DATABASE_URL` | Supabase の接続文字列（接続方式は未決） | ○ |
+| `DB_MAX_OPEN_CONNS` | `6`（1 プロセスあたりの DB 接続数の上限。ADR-0037） | |
 | `DB_AUTO_MIGRATE` | `false` | |
 | `SUPABASE_JWKS_URL` | `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json` | |
 | `SUPABASE_JWT_AUD` | `authenticated`（既定値のままなら設定不要） | |
@@ -164,6 +179,8 @@ bunx wrangler deploy
 - Secret Manager の無料枠は、アクティブなシークレットバージョン 6 つ・アクセス 1 万回／月。
   秘密情報は中継元の秘密値を含めて 5 つなので無料枠に収まる。値の差し替え中は中継元の秘密値が 2 バージョンになり 6 つになる。
   差し替えを終えたら古いバージョンを無効化する。
+- `DB_MAX_OPEN_CONNS` は必ず設定する。未設定でも起動するが、接続数に上限がなくなる（起動時に警告ログを出す）。
+  整数でない値・2 未満の値では起動しない。値は [Supabase](#supabase) の Pool Size から決める。
 - `SCHEDULER_OIDC_AUDIENCE` と `SCHEDULER_SERVICE_ACCOUNT_EMAIL` は、どちらか一方でも未設定だと内部エンドポイントが登録されず（404）、
   通知メールは送信されない。`RESEND_API_KEY` または `MAIL_FROM` が未設定の場合も登録されない。
 
@@ -207,6 +224,8 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
 - 1 PV あたり画像を 5 枚読み込む。Scheduler は 1 分ごと（月 約 4.3 万回）。
 - Cloud Run の無料枠（請求アカウント単位、リクエスト課金）: 月 200 万リクエスト・18 万 vCPU 秒・36 万 GiB 秒。
 - Cloud Run の超過単価は第三者サイトの us-central1 の値（vCPU 秒 $0.000024・GiB 秒 $0.0000025・100 万リクエスト $0.40）。東京の単価は未確認。
+- Cloud Run の CPU・メモリの費用の上限は、最大インスタンス数 1（ADR-0037）で、1 台が 1 か月休まず処理し続けた場合の 約 $60（無料枠を引いた値）。
+  大量のアクセスを受け続けた場合の値で、上の表には含めない。リクエストの件数による課金は、この上限とは別にかかる（ADR-0034）。
 - 外への通信は、アジア向けの単価 $0.12/GiB（2024 年の料金改定告知の値）で計算した。
 - API の独自ドメインは Workers の中継（ADR-0034）で、ロードバランサー（転送ルールだけで月 約 $18）は使わない。
   中継はフロントと共有する Workers Paid（月 $5、フロント側の試算に計上）の含まれる量を使う。
@@ -253,9 +272,11 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
    参加申込の IP レート制限（`internal/middleware/ratelimit.go`）は `c.ClientIP()` ごとに数えるため、これが正しいことが前提。
 8. **停止時の待ち時間**（#216）: 現在の `cmd/api/main.go` は、HTTP サーバーの停止待ち（最大 10 秒）とワーカーの停止待ち（最大 10 秒）を順に行う。
    合計が Cloud Run の猶予（10 秒）を超えうる。
-9. **最大インスタンス数**（#215）: 費用の上限と、排他の実装状況を踏まえて決める。
-   IP レート制限はインスタンスのメモリ上で数えるため、インスタンスが N 台あると制限は最大 N 倍まで緩む。
-   最大インスタンス数で抑えられるのは CPU・メモリの費用で、run.app の URL への直接の大量アクセスによる件数の課金は抑えられない（ADR-0034）。
+9. **最大インスタンス数**（#240、ADR-0037 で決定）: サービス単位で 1 にする。1 プロセスあたりの DB 接続数の上限 `DB_MAX_OPEN_CONNS` は 6。
+   - デプロイ時に `gcloud run services update <サービス> --max 1` で設定する（CI/CD の手順は #219）。検証環境も同じ値にする。
+   - デプロイ前に Supabase の Pool Size を確かめる（[Supabase](#supabase) の「デプロイ前に確認する」）。
+   - 最大インスタンス数で抑えられるのは CPU・メモリの費用で、run.app の URL への直接の大量アクセスによる件数の課金は抑えられない（ADR-0034）。
+   - 最大インスタンス数を上げる場合は、IP レート制限の緩み（インスタンスが N 台あると最大 N 倍）と、DB の接続数の関係（ADR-0037 の決定事項 4）を見直す。
 10. **API の中継の検証**（#226）: 方式は ADR-0034 で決めた（Workers の中継、秘密ヘッダーで中継元を確認）。
     サブドメインは `natueve-api.natuportal.org`。中継用 Worker（`workers/api-relay/`）と API 側の確認・利用者 IP の読み取り
     （`internal/middleware/relay.go`）は実装済み。
@@ -335,9 +356,9 @@ API と Worker をデプロイした後に行う。結果は #226 に返信し�
 
 ## 参考（料金・仕様の出典）
 
-- Cloud Run: [billing settings](https://docs.cloud.google.com/run/docs/configuring/billing-settings) / [CPU limits](https://docs.cloud.google.com/run/docs/configuring/services/cpu) / [pricing](https://cloud.google.com/run/pricing)
+- Cloud Run: [billing settings](https://docs.cloud.google.com/run/docs/configuring/billing-settings) / [CPU limits](https://docs.cloud.google.com/run/docs/configuring/services/cpu) / [pricing](https://cloud.google.com/run/pricing) / [max instances](https://docs.cloud.google.com/run/docs/configuring/max-instances) / [about maximum instances](https://docs.cloud.google.com/run/docs/configuring/max-instances-limits) / [instance autoscaling](https://docs.cloud.google.com/run/docs/about-instance-autoscaling) / [concurrency](https://docs.cloud.google.com/run/docs/about-concurrency)
 - Google Cloud: [Free Tier](https://docs.cloud.google.com/free/docs/free-cloud-features) / [Cloud Scheduler pricing](https://cloud.google.com/scheduler/pricing) / [VPC pricing（egress 料金改定の告知）](https://cloud.google.com/vpc/pricing-announce)
-- Supabase: [Pricing](https://supabase.com/pricing) / [Regions](https://supabase.com/docs/guides/platform/regions) / [Connecting to Postgres](https://supabase.com/docs/guides/database/connecting-to-postgres) / [Securing your API](https://supabase.com/docs/guides/api/securing-your-api)
+- Supabase: [Pricing](https://supabase.com/pricing) / [Regions](https://supabase.com/docs/guides/platform/regions) / [Connecting to Postgres](https://supabase.com/docs/guides/database/connecting-to-postgres) / [Securing your API](https://supabase.com/docs/guides/api/securing-your-api) / [Compute and Disk](https://supabase.com/docs/guides/platform/compute-and-disk) / [Pooling and limits](https://supabase.com/docs/guides/database/connecting-to-postgres/pooling-and-limits) / [Supavisor FAQ](https://supabase.com/docs/guides/troubleshooting/supavisor-faq-YyP5tI)
 - Cloud Run の独自ドメイン: [Mapping custom domains](https://docs.cloud.google.com/run/docs/mapping-custom-domains) / [Cloud Load Balancing pricing](https://cloud.google.com/load-balancing/pricing) / [Ingress](https://docs.cloud.google.com/run/docs/securing/ingress)
 - Cloudflare: [R2 pricing](https://developers.cloudflare.com/r2/pricing/) / [Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/)
 - Cloudflare Workers: [Pricing](https://developers.cloudflare.com/workers/platform/pricing/) / [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) / [workers.dev](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/) / [Protecting your origin server](https://developers.cloudflare.com/fundamentals/security/protect-your-origin-server/) / [HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/)
