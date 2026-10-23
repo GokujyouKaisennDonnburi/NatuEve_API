@@ -8,6 +8,9 @@
 - 構成の詳細・設定値・月額試算は [docs/Deployment.md](../Deployment.md) を参照
 - 注記: 決定事項 2 の実装方式（内部エンドポイントの認証・排他・ローカル開発での起動方法）は [ADR-0035](./0035-outbox-scheduler-endpoint.md) で決めた。
   30 秒ティッカーの常駐ワーカーは、ローカル開発用に `OUTBOX_WORKER_ENABLED=true` のときだけ残している（本番では使わない）
+- 被変更: 「トレードオフ・制約」の「本番公開時は Supabase Pro が前提」は [ADR-0036](./0036-github-flow-staging-approval.md) で撤回した
+  （本番も Free のまま運用し、バックアップは一旦取らない）。
+  「理由」の運用負担と「Supabase を DB にする理由」に挙げた Supabase Pro の日次バックアップは、本番では得られない
 
 ## コンテキストと課題
 

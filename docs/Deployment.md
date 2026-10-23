@@ -120,11 +120,12 @@ bunx wrangler deploy
 | 項目 | 値 |
 |---|---|
 | リージョン | `ap-northeast-1`（東京） |
-| プラン | 公開前は Free、本番公開時に Pro |
+| プラン | Free（本番公開後も Pro にしない。[ADR-0036](./adr/0036-github-flow-staging-approval.md)） |
 | Data API（PostgREST） | NatuEve のテーブルに到達できない状態にする（無効化、または API 用ロールへ権限を付与しない） |
 | Storage | 使わない（ファイルは Cloudflare R2） |
 
-- Free プランの制限: DB 500MB、自動バックアップなし、1 週間アクティビティがないと一時停止、アクティブなプロジェクトは 2 つまで。
+- Free プランの制限: DB 500MB、自動バックアップなし、1 週間アクティビティがないと一時停止、アクティブなプロジェクトは 2 つまで
+  （組織ごとではなくユーザーごとに数え、Owner / Administrator になっている全組織を合算する）。
 - Pro プラン（$25/月〜）: 日次バックアップ（7 日保持）。コンピュート Micro（1GB RAM）1 つ分のクレジット（$10/月）を含む。
 - 既定では `public` スキーマに作ったテーブルに、API 用ロールの SELECT／INSERT／UPDATE／DELETE 権限が付く。
   RLS のないテーブルは、権限を持つロールなら誰でも読み書きできる。
@@ -200,6 +201,8 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
 
 試算の前提:
 
+- Supabase の中・大の値は Pro にした場合の参考値。本番も Free のまま運用する（ADR-0036）が、DB が 500MB を超える規模では Free に収まらない。
+- 検証環境（ADR-0036）の費用は含まない。
 - API は 1 リクエストあたり処理 0.1 秒・応答 5KB、1 vCPU・512MiB。同時に処理したリクエストの時間を重ねずに足しているため、Cloud Run は多めの見積もり。
 - 1 PV あたり画像を 5 枚読み込む。Scheduler は 1 分ごと（月 約 4.3 万回）。
 - Cloud Run の無料枠（請求アカウント単位、リクエスト課金）: 月 200 万リクエスト・18 万 vCPU 秒・36 万 GiB 秒。
@@ -244,6 +247,7 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
    未設定のままだと開発用の `http://localhost:3000`・`http://localhost:8787` だけが許可され、本番のフロントから API を呼べない。
    プレビュー環境の URL を許可するか（NatuEve_Web_Frontend#330）は未決。ワイルドカードは使えないため、許可する場合は完全一致の値を追加する。
 6. **CI/CD**（#219）: GitHub Actions か Cloud Build で、マイグレーションの適用 → Cloud Run へのデプロイを自動化する。
+   main へのマージで検証環境へデプロイし、本番へは承認を経て同じイメージを出す（[ADR-0036](./adr/0036-github-flow-staging-approval.md)）。
 7. **利用者 IP の取得方式の検証**（#215）: ADR-0034 で、Worker が渡すヘッダーを Gin の `TrustedPlatform` で読む方式に決めた。
    本番では `TRUSTED_PROXIES` を使わない。独自ドメイン経由で利用者 IP が正しく取れ、偽装できないことを検証する。
    参加申込の IP レート制限（`internal/middleware/ratelimit.go`）は `c.ClientIP()` ごとに数えるため、これが正しいことが前提。
