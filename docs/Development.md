@@ -32,6 +32,7 @@ docker コマンドは基本使わない。make経由で使用する。
 
 ```
 cmd/api/main.go        起動のみ（設定読込 → ルーター構築 → graceful shutdown）
+cmd/headerecho/        利用者 IP の検証用サービス。API とは別にデプロイし、検証後に削除する（ADR-0038）
 internal/
   config/              環境変数 → Config 構造体
   server/              ルーター構築（NewRouter）・ミドルウェア登録・ルート定義

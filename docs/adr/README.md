@@ -53,3 +53,4 @@
 | [0034](./0034-api-custom-domain-workers-relay.md) | API の独自ドメインを Cloudflare Workers の中継で Cloud Run に割り当て、中継元を秘密ヘッダーで確かめる | Accepted（サブドメイン名・確認から外す経路を #226 で追記） |
 | [0035](./0035-outbox-scheduler-endpoint.md) | outbox の処理を Cloud Scheduler の OIDC 認証付き内部エンドポイントで起動し、行ごとのトランザクションで排他する | Accepted |
 | [0036](./0036-github-flow-staging-approval.md) | GitHub Flow を続け、main へのマージで検証環境へ、承認後に同じイメージを本番へデプロイする | Accepted |
+| [0038](./0038-ip-verification-header-echo.md) | 利用者 IP の検証は、ヘッダーを返す検証用サービスを API とは別にデプロイして行う | Accepted |
