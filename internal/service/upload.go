@@ -207,6 +207,9 @@ func stripEXIFAndReencode(data []byte, contentType string) ([]byte, error) {
 // destination には "events" または "reports" を指定する。
 // 画像: natueve/{destination}/images/{uuid}{ext}
 // PDF:  natueve/{destination}/documents/{uuid}{ext}
+//
+// 画像のキーの形式を変えるときは、フロントの next.config.ts の images.remotePatterns の
+// pathname も合わせて変える（docs/Deployment.md）。
 func buildFinalKey(destination, contentType string) string {
 	ext := contentTypeToExt[contentType]
 	id := uuid.New().String()
