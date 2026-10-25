@@ -147,12 +147,12 @@ bunx wrangler deploy
 
 ### Cloudflare R2
 
-| 項目 | 本番 | ローカル開発 |
+| 項目 | 本番 | ローカル開発・検証環境 |
 |---|---|---|
 | バケット | 本番用のバケット | ローカル開発用のバケット |
 | 公開ドメイン（`R2_PUBLIC_BASE_URL`） | `https://assets.natuportal.org` | `https://assets-dev.natuportal.org` |
-| トークンの対象 | 本番用のバケットだけ | ローカル開発用のバケットだけ |
-| CORS | `https://natueve-web.natuportal.org` からの `GET`・`PUT`・`HEAD` | `http://localhost:3000`・`http://localhost:8787` からの `GET`・`PUT`・`HEAD` |
+| トークンの対象 | 本番用のバケットだけ | ローカル開発用のバケットだけ（検証環境用は別に発行） |
+| CORS | `https://natueve-web.natuportal.org` からの `GET`・`PUT`・`HEAD` | `http://localhost:3000`・`http://localhost:8787` からの `GET`・`PUT`・`HEAD`（検証環境のフロントのオリジンも加える） |
 | ライフサイクルルール | `natueve/tmp/` を 1 日後に削除 | 同じ |
 
 | キー・URL | 値 |
@@ -164,7 +164,7 @@ bunx wrangler deploy
 
 - バケットの設定（公開ドメイン・CORS・ライフサイクルルール）はダッシュボードで行い、リポジトリには無い。
 - トークンにクライアント IP アドレスの制限はかけない（ADR-0039）。
-- 検証環境は専用のバケットを使う（ADR-0036、作成は #219）。その公開ドメインもフロントの許可リストに要る。
+- 検証環境もローカル開発用のバケットを使う（ADR-0039）。
 - 公開ドメインはバケット全体を配信する。一時領域のファイルも URL を知っていれば取得できる。
   - 一時領域の画像は、EXIF の位置情報を除去する前の元ファイル（除去は昇格時）。API は昇格後も元ファイルを消さない。
   - キーを受け取るのはアップロードした本人だけで、ランダムな UUID を含む。
@@ -178,7 +178,7 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 
 | `remotePatterns` の項目 | 値 | 対応する API 側の値 |
 |---|---|---|
-| `hostname` | `assets.natuportal.org`（ローカル開発の `assets-dev.natuportal.org` は開発時だけ。NatuEve_Web_Frontend#353） | `R2_PUBLIC_BASE_URL` |
+| `hostname` | `assets.natuportal.org`（ローカル開発・検証環境の `assets-dev.natuportal.org` は本番以外のビルドだけ。NatuEve_Web_Frontend#353） | `R2_PUBLIC_BASE_URL` |
 | `pathname` | `/natueve/events/images/*`・`/natueve/reports/images/*`（予定。NatuEve_Web_Frontend#351） | 画像のキーの形式（`buildFinalKey`） |
 
 次を変えるときは、フロントの `remotePatterns` も合わせて変える。

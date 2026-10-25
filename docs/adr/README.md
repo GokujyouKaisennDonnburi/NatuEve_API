@@ -55,4 +55,4 @@
 | [0036](./0036-github-flow-staging-approval.md) | GitHub Flow を続け、main へのマージで検証環境へ、承認後に同じイメージを本番へデプロイする | Accepted |
 | [0037](./0037-cloud-run-max-instances.md) | Cloud Run の最大インスタンス数をサービス単位で 1 とし、1 台あたりの DB 接続数に上限を設ける | Accepted |
 | [0038](./0038-ip-verification-via-api.md) | 利用者 IP の検証は本番の API で行い、ヘッダーを返す検証用アプリは使わない | Accepted |
-| [0039](./0039-r2-production-bucket-split.md) | R2 の本番用バケットを新しく作り、今のバケットをローカル開発用にする | Accepted |
+| [0039](./0039-r2-production-bucket-split.md) | R2 の本番用バケットを新しく作り、今のバケットをローカル開発と検証環境で使う | Accepted |
