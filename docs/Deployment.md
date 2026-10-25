@@ -4,6 +4,7 @@ NatuEve_API の本番デプロイ構成をまとめる。
 構成を選んだ理由と退けた代替案は [ADR-0032](./adr/0032-production-deployment-cloud-run-supabase.md) を参照。
 API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-domain-workers-relay.md) を参照。
 最大インスタンス数と DB の接続数の上限は [ADR-0037](./adr/0037-cloud-run-max-instances.md) を参照。
+R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-split.md) を参照。
 料金・仕様は 2026-10 時点で各公式ページを確認した値（出典は末尾）。
 
 ## 使用するサービス
@@ -146,22 +147,24 @@ bunx wrangler deploy
 
 ### Cloudflare R2
 
-| 項目 | 値 |
+| 項目 | 本番 | ローカル開発 |
+|---|---|---|
+| バケット | 本番用のバケット | ローカル開発用のバケット |
+| 公開ドメイン（`R2_PUBLIC_BASE_URL`） | `https://assets.natuportal.org` | `https://assets-dev.natuportal.org` |
+| トークンの対象 | 本番用のバケットだけ | ローカル開発用のバケットだけ |
+| CORS | `https://natueve-web.natuportal.org` からの `PUT`（`Content-Type`） | ローカル開発用の設定（本番と別） |
+| ライフサイクルルール | `natueve/tmp/` を 1 日後に削除 | 同じ |
+
+| キー・URL | 値 |
 |---|---|
-| バケット | 本番とローカル開発で共用。#247 で本番用のバケットを分ける |
-| 公開ドメイン | `assets.natuportal.org`（`R2_PUBLIC_BASE_URL` は `https://assets.natuportal.org`） |
 | 画像・PDF の URL | `R2_PUBLIC_BASE_URL + "/" + オブジェクトキー`（`internal/service/object_url.go`） |
 | 一時領域のキー | `natueve/tmp/{profileID}/{uuid}{ext}`（presign で発行。`internal/service/upload.go` の `PresignPut`） |
 | 画像のキー | `natueve/{events\|reports}/images/{uuid}{ext}`（同 `buildFinalKey`） |
 | PDF のキー | `natueve/{events\|reports}/documents/{uuid}{ext}`（同 `buildFinalKey`） |
-| ライフサイクルルール | `natueve/tmp/` を 1 日後に削除（`expire-tmp-uploads`。ダッシュボードで設定） |
 
-- 共用している間は、次の状態になる（#247 で解消する）。
-  - ローカル開発で上げたファイルも、本番のドメインで配信される。
-  - 開発者の `.env` のトークンで、本番のファイルを書き換え・削除できる。
-  - GC（#41）や手作業の削除が、本番とローカル開発の両方のファイルに効く。
-- ライフサイクルルールはリポジトリに無い。バケットを作るときは同じルールを作る。
-- 検証環境は専用のバケットを使う（ADR-0036）。その公開ドメインもフロントの許可リストに要る。
+- バケットの設定（公開ドメイン・CORS・ライフサイクルルール）はダッシュボードで行い、リポジトリには無い。
+- トークンにクライアント IP アドレスの制限はかけない（ADR-0039）。
+- 検証環境は専用のバケットを使う（ADR-0036、作成は #219）。その公開ドメインもフロントの許可リストに要る。
 - 公開ドメインはバケット全体を配信する。一時領域のファイルも URL を知っていれば取得できる。
   - 一時領域の画像は、EXIF の位置情報を除去する前の元ファイル（除去は昇格時）。API は昇格後も元ファイルを消さない。
   - キーを受け取るのはアップロードした本人だけで、ランダムな UUID を含む。
@@ -175,14 +178,13 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 
 | `remotePatterns` の項目 | 値 | 対応する API 側の値 |
 |---|---|---|
-| `hostname` | `assets.natuportal.org` | `R2_PUBLIC_BASE_URL` |
+| `hostname` | `assets.natuportal.org`（ローカル開発の `assets-dev.natuportal.org` は開発時だけ。NatuEve_Web_Frontend#353） | `R2_PUBLIC_BASE_URL` |
 | `pathname` | `/natueve/events/images/*`・`/natueve/reports/images/*`（予定。NatuEve_Web_Frontend#351） | 画像のキーの形式（`buildFinalKey`） |
 
 次を変えるときは、フロントの `remotePatterns` も合わせて変える。
 
 - 配信ドメイン（`R2_PUBLIC_BASE_URL`）を変える: `hostname`
 - 画像のキーの形式（`buildFinalKey`）を変える: `pathname`
-- 本番用のバケットを分ける（#247）: 開発用のドメインを開発時だけ許可する（NatuEve_Web_Frontend#353）
 
 ## 本番の環境変数
 
@@ -203,9 +205,9 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 | `RELAY_CLIENT_IP_HEADER` | `X-NatuEve-Client-IP`（Worker の `CLIENT_IP_HEADER` と同じ値） | |
 | `CORS_ALLOW_ORIGINS` | 本番のフロントのオリジン（未決。フロント側 NatuEve_Web_Frontend#328 で決まる） | |
 | `R2_ACCOUNT_ID` | Cloudflare のアカウント ID | |
-| `R2_ACCESS_KEY_ID` | R2 の API トークン | ○ |
-| `R2_SECRET_ACCESS_KEY` | R2 の API トークン | ○ |
-| `R2_BUCKET` | バケット名（本番用のバケットは #247 で作る） | |
+| `R2_ACCESS_KEY_ID` | R2 の API トークン（対象は本番用のバケットだけ） | ○ |
+| `R2_SECRET_ACCESS_KEY` | R2 の API トークン（対象は本番用のバケットだけ） | ○ |
+| `R2_BUCKET` | 本番用のバケット名（必ず設定する。未設定だと既定値 `natuportal` になる） | |
 | `R2_PUBLIC_BASE_URL` | `https://assets.natuportal.org`（変えるときは[フロントの画像の許可リスト](#フロントの画像の許可リスト)も変える） | |
 | `RESEND_API_KEY` | Resend の API キー | ○ |
 | `MAIL_FROM` | 送信元アドレス | |
