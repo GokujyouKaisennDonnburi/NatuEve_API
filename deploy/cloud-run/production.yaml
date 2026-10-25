@@ -1,0 +1,8 @@
+# Cloud Run（本番）の環境変数のうち、リポジトリに置く値（ADR-0040）。値の説明は docs/Deployment.md の「本番の環境変数」。
+# 秘密値（Secret Manager）と、ID・run.app の URL を含む値（GitHub Environments の変数）は deploy/cloud-run-deploy.sh が足す。
+GIN_MODE: "release"
+DB_MAX_OPEN_CONNS: "6"
+DB_AUTO_MIGRATE: "false"
+RELAY_CLIENT_IP_HEADER: "X-NatuEve-Client-IP"
+CORS_ALLOW_ORIGINS: "https://natueve-web.natuportal.org"
+R2_PUBLIC_BASE_URL: "https://assets.natuportal.org"
