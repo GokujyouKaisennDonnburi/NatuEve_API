@@ -74,8 +74,8 @@ func promoteMedia(
 
 // promoteOneObject は tmp 領域のオブジェクトを検証・洗浄して最終キーに配置する。
 //
-// buildKey は最終キーを生成する関数。ドメインごとに異なるパスを渡す。
-// 例: イベント → buildFinalKey、レポート → buildReportFinalKey
+// buildKey は contentType から最終キーを生成する関数。
+// promoteMedia は destination（"events" / "reports"）を固定した buildFinalKey を渡す。
 //
 // filename は元ファイル名。最終オブジェクトに Content-Disposition（inline）として
 // 付与し、ダウンロード時に元名で保存されるようにする（空なら fallback 名を使う）。
