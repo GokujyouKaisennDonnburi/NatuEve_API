@@ -189,10 +189,14 @@ bunx wrangler deploy
 本番は `DB_AUTO_MIGRATE=false`。新しいリビジョンをデプロイする前に、マイグレーションを適用する。
 
 ```bash
-DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
+read -rs -p 'DATABASE_URL: ' DATABASE_URL; echo   # bash。本番 DB の接続文字列を入力する（履歴に残さない）
+DATABASE_URL="$DATABASE_URL" make migrate-up GOOSE_EXEC='sh -c'
+unset DATABASE_URL
 ```
 
 - 順序は「マイグレーション → API のデプロイ」。
+- 環境変数で渡した `DATABASE_URL` は、手元の `.env` の値より優先される。
+  `export` せず、終わったら `unset` する（残ると、同じシェルの `make run` で手元の API が本番 DB につながる）。
 - 詳細は [Database.md](./Database.md) を参照。
 
 ## 月額の試算
