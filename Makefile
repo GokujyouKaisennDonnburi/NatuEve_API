@@ -26,16 +26,13 @@ WORKER_DIR := workers/api-relay
 
 # ローカル開発では .env を読み込み、DATABASE_URL などを Make の変数として取り込む。
 # (CI など .env が無い環境では、シェルの環境変数がそのまま使われる)
-# 環境変数で渡した DATABASE_URL は .env の値より優先する（godotenv.Load と同じ）。
+# 環境変数で渡した DATABASE_URL は、空でも .env の値より優先する（godotenv.Load と同じ）。
 ifneq (,$(wildcard .env))
 ifeq ($(origin DATABASE_URL),environment)
-DATABASE_URL_FROM_ENV := $(value DATABASE_URL)
+override DATABASE_URL := $(value DATABASE_URL)
 endif
 include .env
 export
-ifdef DATABASE_URL_FROM_ENV
-DATABASE_URL := $(DATABASE_URL_FROM_ENV)
-endif
 endif
 
 .DEFAULT_GOAL := help
