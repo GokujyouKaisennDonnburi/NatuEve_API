@@ -52,7 +52,8 @@ type Config struct {
 	// R2PublicBaseURL は公開バケット（R2 パブリックバケット/カスタムドメイン）の
 	// 配信ベースURL。設定するとイベント等のレスポンスに imageUrls/pdfUrls を含める。
 	// 末尾スラッシュは正規化されるため有無を問わない。未設定なら URL は付与しない。
-	// 例: https://media.natuportal.com
+	// 本番の値は https://assets.natuportal.org（docs/Deployment.md）。
+	// 変えるときはフロントの next.config.ts の images.remotePatterns も合わせて変える。
 	R2PublicBaseURL string
 	// ResendAPIKey は Resend の API キー。
 	// 空なら一斉送信系ルートを登録しない（R2 の gating と同じ方針）。

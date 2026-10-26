@@ -144,6 +144,46 @@ bunx wrangler deploy
 - 既定では `public` スキーマに作ったテーブルに、API 用ロールの SELECT／INSERT／UPDATE／DELETE 権限が付く。
   RLS のないテーブルは、権限を持つロールなら誰でも読み書きできる。
 
+### Cloudflare R2
+
+| 項目 | 値 |
+|---|---|
+| バケット | 本番とローカル開発で共用。#247 で本番用のバケットを分ける |
+| 公開ドメイン | `assets.natuportal.org`（`R2_PUBLIC_BASE_URL` は `https://assets.natuportal.org`） |
+| 画像・PDF の URL | `R2_PUBLIC_BASE_URL + "/" + オブジェクトキー`（`internal/service/object_url.go`） |
+| 一時領域のキー | `natueve/tmp/{profileID}/{uuid}{ext}`（presign で発行。`internal/service/upload.go` の `PresignPut`） |
+| 画像のキー | `natueve/{events\|reports}/images/{uuid}{ext}`（同 `buildFinalKey`） |
+| PDF のキー | `natueve/{events\|reports}/documents/{uuid}{ext}`（同 `buildFinalKey`） |
+| ライフサイクルルール | `natueve/tmp/` を 1 日後に削除（`expire-tmp-uploads`。ダッシュボードで設定） |
+
+- 共用している間は、次の状態になる（#247 で解消する）。
+  - ローカル開発で上げたファイルも、本番のドメインで配信される。
+  - 開発者の `.env` のトークンで、本番のファイルを書き換え・削除できる。
+  - GC（#41）や手作業の削除が、本番とローカル開発の両方のファイルに効く。
+- ライフサイクルルールはリポジトリに無い。バケットを作るときは同じルールを作る。
+- 検証環境は専用のバケットを使う（ADR-0036）。その公開ドメインもフロントの許可リストに要る。
+- 公開ドメインはバケット全体を配信する。一時領域のファイルも URL を知っていれば取得できる。
+  - 一時領域の画像は、EXIF の位置情報を除去する前の元ファイル（除去は昇格時）。API は昇格後も元ファイルを消さない。
+  - キーを受け取るのはアップロードした本人だけで、ランダムな UUID を含む。
+  - ライフサイクルルールの削除は期限から通常 24 時間以内（公式）で、アップロードから通常 2 日程度は取得できる。
+- アップロードから 1 日を過ぎた一時領域のキーは消えている場合があり、昇格に失敗する。
+
+#### フロントの画像の許可リスト
+
+フロント（NatuEve_Web_Frontend）の `next.config.ts` の `images.remotePatterns` は、画像最適化で変換する画像のホストとパスを絞っている。
+API が返す画像の URL がこれに合わないと、フロントで画像が表示されない。
+
+| `remotePatterns` の項目 | 値 | 対応する API 側の値 |
+|---|---|---|
+| `hostname` | `assets.natuportal.org` | `R2_PUBLIC_BASE_URL` |
+| `pathname` | `/natueve/events/images/*`・`/natueve/reports/images/*`（予定。NatuEve_Web_Frontend#351） | 画像のキーの形式（`buildFinalKey`） |
+
+次を変えるときは、フロントの `remotePatterns` も合わせて変える。
+
+- 配信ドメイン（`R2_PUBLIC_BASE_URL`）を変える: `hostname`
+- 画像のキーの形式（`buildFinalKey`）を変える: `pathname`
+- 本番用のバケットを分ける（#247）: 開発用のドメインを開発時だけ許可する（NatuEve_Web_Frontend#353）
+
 ## 本番の環境変数
 
 本番では `.env` を使わず、Cloud Run の環境変数として注入する。秘密情報は Secret Manager から渡す。
@@ -165,8 +205,8 @@ bunx wrangler deploy
 | `R2_ACCOUNT_ID` | Cloudflare のアカウント ID | |
 | `R2_ACCESS_KEY_ID` | R2 の API トークン | ○ |
 | `R2_SECRET_ACCESS_KEY` | R2 の API トークン | ○ |
-| `R2_BUCKET` | バケット名 | |
-| `R2_PUBLIC_BASE_URL` | 公開配信のベース URL | |
+| `R2_BUCKET` | バケット名（本番用のバケットは #247 で作る） | |
+| `R2_PUBLIC_BASE_URL` | `https://assets.natuportal.org`（変えるときは[フロントの画像の許可リスト](#フロントの画像の許可リスト)も変える） | |
 | `RESEND_API_KEY` | Resend の API キー | ○ |
 | `MAIL_FROM` | 送信元アドレス | |
 | `SCHEDULER_OIDC_AUDIENCE` | Scheduler のジョブに設定した OIDC の audience（API の URL） | |
@@ -360,6 +400,6 @@ API と Worker をデプロイした後に行う。結果は #226 に返信し�
 - Google Cloud: [Free Tier](https://docs.cloud.google.com/free/docs/free-cloud-features) / [Cloud Scheduler pricing](https://cloud.google.com/scheduler/pricing) / [VPC pricing（egress 料金改定の告知）](https://cloud.google.com/vpc/pricing-announce)
 - Supabase: [Pricing](https://supabase.com/pricing) / [Regions](https://supabase.com/docs/guides/platform/regions) / [Connecting to Postgres](https://supabase.com/docs/guides/database/connecting-to-postgres) / [Securing your API](https://supabase.com/docs/guides/api/securing-your-api) / [Compute and Disk](https://supabase.com/docs/guides/platform/compute-and-disk) / [Pooling and limits](https://supabase.com/docs/guides/database/connecting-to-postgres/pooling-and-limits) / [Supavisor FAQ](https://supabase.com/docs/guides/troubleshooting/supavisor-faq-YyP5tI)
 - Cloud Run の独自ドメイン: [Mapping custom domains](https://docs.cloud.google.com/run/docs/mapping-custom-domains) / [Cloud Load Balancing pricing](https://cloud.google.com/load-balancing/pricing) / [Ingress](https://docs.cloud.google.com/run/docs/securing/ingress)
-- Cloudflare: [R2 pricing](https://developers.cloudflare.com/r2/pricing/) / [Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/)
+- Cloudflare: [R2 pricing](https://developers.cloudflare.com/r2/pricing/) / [R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/) / [R2 object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/) / [Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/)
 - Cloudflare Workers: [Pricing](https://developers.cloudflare.com/workers/platform/pricing/) / [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) / [workers.dev](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/) / [Protecting your origin server](https://developers.cloudflare.com/fundamentals/security/protect-your-origin-server/) / [HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/)
 - メール: [Resend pricing](https://resend.com/pricing) / [Amazon SES pricing](https://aws.amazon.com/ses/pricing/)
