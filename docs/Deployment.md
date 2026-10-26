@@ -130,20 +130,22 @@ bunx wrangler deploy
 |---|---|
 | リージョン | `ap-northeast-1`（東京） |
 | プラン | Free（本番公開後も Pro にしない。[ADR-0036](./adr/0036-github-flow-staging-approval.md)） |
-| Data API（PostgREST） | NatuEve のテーブルに到達できない状態にする（無効化、または API 用ロールへ権限を付与しない） |
+| PostgreSQL | 17.11（2026-10-26 確認） |
+| 接続方式 | Session pooler（ポート 5432、IPv4）。接続文字列の末尾に `?sslmode=require` を付ける |
+| Data API（PostgREST） | 無効（ダッシュボードの「Enable Data API」をオフ。#214） |
 | Storage | 使わない（ファイルは Cloudflare R2） |
 
 - Free プランの制限: DB 500MB、自動バックアップなし、1 週間アクティビティがないと一時停止、アクティブなプロジェクトは 2 つまで
   （組織ごとではなくユーザーごとに数え、Owner / Administrator になっている全組織を合算する）。
 - Pro プラン（$25/月〜）: 日次バックアップ（7 日保持）。コンピュート Micro（1GB RAM）1 つ分のクレジット（$10/月）を含む。
 - Free のコンピュートは Nano。DB の最大接続数 60、プーラーの最大クライアント数 200。Auth・Storage・PostgREST なども同じ DB の接続数を使う。
-- プールの大きさ（Pool Size）は「ユーザー・DB・モード」の組ごとの、プーラーが DB へ張る接続の上限。Nano での既定値は未確認（第三者の情報では 15 または 20）。
+- プールの大きさ（Pool Size）は「ユーザー・DB・モード」の組ごとの、プーラーが DB へ張る接続の上限。本番は 15（Nano の既定値。ダッシュボードで確認）。
   セッションモードでは、空きがないとクライアントは最大 1 分待たされ、空かなければエラーになる。
-- **デプロイ前に確認する（未確認）**: ダッシュボードの Database Settings で Pool Size を確かめ、
-  `(最大インスタンス数 + 1) × DB_MAX_OPEN_CONNS + 2 ≦ Pool Size` を満たすこと（ADR-0037 の決定事項 4。15 とみなして本番の値を 6 にした）。
-  満たさなければ `DB_MAX_OPEN_CONNS` を下げる。検証環境のプロジェクトでも確かめる。
+- `(最大インスタンス数 + 1) × DB_MAX_OPEN_CONNS + 2 ≦ Pool Size` を満たすこと（ADR-0037 の決定事項 4）。本番は `(1 + 1) × 6 + 2 = 14 ≦ 15`。
+  Pool Size を変えたときと、検証環境のプロジェクトでも確かめる。満たさなければ `DB_MAX_OPEN_CONNS` を下げる。
 - 既定では `public` スキーマに作ったテーブルに、API 用ロールの SELECT／INSERT／UPDATE／DELETE 権限が付く。
-  RLS のないテーブルは、権限を持つロールなら誰でも読み書きできる。
+  RLS のないテーブルは、権限を持つロールなら誰でも読み書きできる。Data API が有効だと、公開されている anon キーで REST から読み書きできる。
+  検証環境のプロジェクトでも Data API を無効にする。
 
 ### Cloudflare R2
 
@@ -194,7 +196,7 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 |---|---|---|
 | `PORT` | Cloud Run が注入（設定不要） | |
 | `GIN_MODE` | `release` | |
-| `DATABASE_URL` | Supabase の接続文字列（接続方式は未決） | ○ |
+| `DATABASE_URL` | Supabase の Session pooler の接続文字列（末尾に `?sslmode=require`） | ○ |
 | `DB_MAX_OPEN_CONNS` | `6`（1 プロセスあたりの DB 接続数の上限。ADR-0037） | |
 | `DB_AUTO_MIGRATE` | `false` | |
 | `SUPABASE_JWKS_URL` | `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json` | |
@@ -231,10 +233,14 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 本番は `DB_AUTO_MIGRATE=false`。新しいリビジョンをデプロイする前に、マイグレーションを適用する。
 
 ```bash
-DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
+read -rs -p 'DATABASE_URL: ' DATABASE_URL; echo   # bash。本番 DB の接続文字列を入力する（履歴に残さない）
+DATABASE_URL="$DATABASE_URL" make migrate-up GOOSE_EXEC='sh -c'
+unset DATABASE_URL
 ```
 
 - 順序は「マイグレーション → API のデプロイ」。
+- 環境変数で渡した `DATABASE_URL` は、手元の `.env` の値より優先される。
+  `export` せず、終わったら `unset` する（残ると、同じシェルの `make run` で手元の API が本番 DB につながる）。
 - 詳細は [Database.md](./Database.md) を参照。
 
 ## 月額の試算
@@ -283,26 +289,14 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
    - **ジョブを作るまで、本番では通知メールが送信されない。** 常駐ワーカーは本番では使わない（`OUTBOX_WORKER_ENABLED` を設定しない）。
    - 複数の呼び出しが同時に走っても、行ごとの `FOR UPDATE SKIP LOCKED` で排他するため、同じ通知を同時に送ることはない。ただし、送信後に記録できなかった場合と、送信を打ち切ったが実際には届いていた場合は再送されうる（at-least-once）。
    - ローカル開発では `OUTBOX_WORKER_ENABLED=true`（`.env.example` に記載）で、API プロセス内の 30 秒ティッカーが同じ処理を呼ぶ。
-2. **Supabase への接続方式**（#213）
-   - 接続方式の種類
-     - 直接接続は IPv6 のみ（IPv4 は有料アドオン）。
-     - セッションモードのプーラー（ポート 5432）は IPv4 で使える。
-     - トランザクションモードのプーラー（ポート 6543）は prepared statement に対応していない。
-   - セッションモードのプーラー（SessionPooler、ポート5432）を第一候補とする
-     - IPv4 で接続でき、pgx（pgx/stdlib 経由の database/sql）の既定動作で使用される prepared statement にも対応しているため。
-     - 実際の接続・クエリ・トランザクションの動作確認は別 Issue で実施する。
-   - 接続手順
-     - Supabase Dashboard の Connect から Session Pooler の接続情報（ホスト名、ポート、ユーザー名、データベース名）を取得する。
-     - 接続情報を用いて DATABASE_URL を設定し、Cloud Run から接続する。認証情報は Secret Manager などで安全に管理する。
-     - 接続先の PostgreSQL バージョンが 17 であること、および pg_trgm 拡張が利用可能であることを確認する。
-     - pgx/stdlib 経由の database/sql でクエリとトランザクションを実行し、Goose によるマイグレーションの適用を確認する。
-   - pgx（`pgx/stdlib` 経由の `database/sql`）の既定動作との組み合わせを検証して決める。
-3. **Supabase で PostgreSQL 17 と `pg_trgm` が使えるかの確認**（ADR-0030 のインデックスが前提、#213）。
-   - Supabase の PostgreSQL バージョンが 17 であること、および pg_trgm 拡張が利用可能であることを確認する(未確認)
-   - 実際のバージョン確認と、pg_trgm を使用するマイグレーションの適用確認は別 Issue で実施する。
+2. **Supabase への接続方式**（#213・#210、確認済み）: Session pooler（ポート 5432）。
+   - 直接接続は IPv6 のみ（IPv4 は有料アドオン）。トランザクションモードのプーラー（ポート 6543）は prepared statement に対応していない。
+   - 本番 DB へのマイグレーション（goose。pgx/stdlib 経由の database/sql で、1 件ずつトランザクションで適用）が Session pooler 経由で通った。
+3. **Supabase で PostgreSQL 17 と `pg_trgm` が使えるかの確認**（#213・#210、確認済み）: PostgreSQL 17.11。`CREATE EXTENSION pg_trgm` を含むマイグレーションが通った。
 4. **DB を Auth と同じ Supabase プロジェクトに置くか、別プロジェクトにするか**（#214）
    - Auth は NatuPortal の複数プロダクトで共有しているため、Data API を無効化すると他プロダクトに影響しうる。
    - 別プロジェクトにすると、Pro でもコンピュート費用（Micro で月 $10）が追加される。
+   - 本番 DB のプロジェクトでは Data API を無効にした（#214）。
 5. **CORS の許可オリジンの値**: 環境変数 `CORS_ALLOW_ORIGINS` で設定できる（#218、ADR-0033）。
    本番の値は `https://natueve-web.natuportal.org`（NatuEve_Web_Frontend#328 で決定）。
    未設定のままだと開発用の `http://localhost:3000`・`http://localhost:8787` だけが許可され、本番のフロントから API を呼べない。
@@ -316,7 +310,7 @@ DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
    合計が Cloud Run の猶予（10 秒）を超えうる。
 9. **最大インスタンス数**（#240、ADR-0037 で決定）: サービス単位で 1 にする。1 プロセスあたりの DB 接続数の上限 `DB_MAX_OPEN_CONNS` は 6。
    - デプロイ時に `gcloud run services update <サービス> --max 1` で設定する（CI/CD の手順は #219）。検証環境も同じ値にする。
-   - デプロイ前に Supabase の Pool Size を確かめる（[Supabase](#supabase) の「デプロイ前に確認する」）。
+   - 本番の Supabase の Pool Size は 15 で、条件を満たす（[Supabase](#supabase)）。
    - 最大インスタンス数で抑えられるのは CPU・メモリの費用で、run.app の URL への直接の大量アクセスによる件数の課金は抑えられない（ADR-0034）。
    - 最大インスタンス数を上げる場合は、IP レート制限の緩み（インスタンスが N 台あると最大 N 倍）と、DB の接続数の関係（ADR-0037 の決定事項 4）を見直す。
 10. **API の中継の検証**（#226）: 方式は ADR-0034 で決めた（Workers の中継、秘密ヘッダーで中継元を確認）。

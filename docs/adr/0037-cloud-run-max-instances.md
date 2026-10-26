@@ -4,6 +4,7 @@
 - 日付: 2026-10-23
 - 関連: #240, #215, #213, #214, ADR-0032, ADR-0034, ADR-0035, ADR-0036
 - 構成の詳細・設定値は [docs/Deployment.md](../Deployment.md) を参照
+- 注記（2026-10-26）: 本文中の「Pool Size は未確認」は確認済み。本番の Pool Size は 15（Nano の既定値）で、決定事項 4 を満たす（[docs/Deployment.md](../Deployment.md) の「Supabase」）
 
 ## コンテキストと課題
 

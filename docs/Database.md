@@ -47,7 +47,7 @@ postgres://app:app@localhost:5432/NatuEve?sslmode=disable
 | `make migrate-down` | マイグレーションを 1 つ戻す |
 | `make migrate-status` | 適用状況を表示 |
 
-> `migrate-*` はデフォルトで api コンテナ内（`docker compose exec api`）で goose を実行し、コンテナの環境変数 `DATABASE_URL`（`db:5432`）を使う。CI や本番のように compose を使わない環境では `make migrate-up GOOSE_EXEC='sh -c'` のようにホスト実行へ切り替え、`DATABASE_URL` はシェルの環境変数から取得する。
+> `migrate-*` はデフォルトで api コンテナ内（`docker compose exec api`）で goose を実行し、コンテナの環境変数 `DATABASE_URL`（`db:5432`）を使う。CI や本番のように compose を使わない環境では `make migrate-up GOOSE_EXEC='sh -c'` のようにホスト実行へ切り替え、`DATABASE_URL` はシェルの環境変数から取得する（`.env` があっても環境変数の値が優先される）。
 
 ## 開発の流れ
 
@@ -98,11 +98,7 @@ DROP TABLE example;
 ## 本番でのマイグレーション
 
 本番は `DB_AUTO_MIGRATE=false`（起動時に勝手にスキーマが変わらないように）。
-デプロイ手順の中で明示的に適用する。
-
-```bash
-DATABASE_URL=... make migrate-up GOOSE_EXEC='sh -c'
-```
+デプロイ手順の中で明示的に適用する。手順は [Deployment.md](./Deployment.md#マイグレーション) を参照。
 
 ## CI での検証
 
