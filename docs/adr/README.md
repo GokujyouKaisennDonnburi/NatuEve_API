@@ -52,8 +52,9 @@
 | [0033](./0033-cors-allow-origins-env.md) | CORS の許可オリジンを環境変数で設定し、起動時に検証する | Accepted |
 | [0034](./0034-api-custom-domain-workers-relay.md) | API の独自ドメインを Cloudflare Workers の中継で Cloud Run に割り当て、中継元を秘密ヘッダーで確かめる | Accepted（サブドメイン名・確認から外す経路を #226 で追記） |
 | [0035](./0035-outbox-scheduler-endpoint.md) | outbox の処理を Cloud Scheduler の OIDC 認証付き内部エンドポイントで起動し、行ごとのトランザクションで排他する | Accepted |
-| [0036](./0036-github-flow-staging-approval.md) | GitHub Flow を続け、main へのマージで検証環境へ、承認後に同じイメージを本番へデプロイする | Accepted（#219 に任せた事項を ADR-0040 で決定。検証環境の R2 を ADR-0039 で変更） |
+| [0036](./0036-github-flow-staging-approval.md) | GitHub Flow を続け、main へのマージで検証環境へ、承認後に同じイメージを本番へデプロイする | Accepted（#219 に任せた事項を ADR-0040 で決定。検証環境の R2 を ADR-0039、Supabase を ADR-0041 で変更） |
 | [0037](./0037-cloud-run-max-instances.md) | Cloud Run の最大インスタンス数をサービス単位で 1 とし、1 台あたりの DB 接続数に上限を設ける | Accepted |
 | [0038](./0038-ip-verification-via-api.md) | 利用者 IP の検証は本番の API で行い、ヘッダーを返す検証用アプリは使わない | Accepted |
 | [0039](./0039-r2-production-bucket-split.md) | R2 の本番用バケットを新しく作り、今のバケットをローカル開発と検証環境で使う | Accepted |
 | [0040](./0040-github-actions-deploy-separate-gcp-projects.md) | デプロイを GitHub Actions で自動化し、検証環境と本番を別の GCP プロジェクトに置く | Accepted |
+| [0041](./0041-staging-supabase-auth-db-split.md) | 検証環境の Supabase は本番と同じく Auth と DB を別のプロジェクトにし、Auth はローカル開発と共有する | Accepted |
