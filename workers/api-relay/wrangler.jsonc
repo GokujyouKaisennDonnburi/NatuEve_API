@@ -18,5 +18,23 @@
   // `wrangler secret put` で設定し、リポジトリには書かない（ADR-0034）。未設定だと deploy が失敗する。
   "secrets": {
     "required": ["ORIGIN_URL", "RELAY_SECRET"]
+  },
+  // 検証環境（ADR-0040）。`wrangler deploy --env staging` で使う。vars と secrets は環境ごとに書く（継承されない）。
+  // ORIGIN_URL・RELAY_SECRET は `wrangler secret put <名前> --env staging` で、本番と別の値を設定する。
+  "env": {
+    "staging": {
+      "name": "natueve-api-relay-stg",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [
+        { "pattern": "natueve-api-stg.natuportal.org", "custom_domain": true }
+      ],
+      "vars": {
+        "CLIENT_IP_HEADER": "X-NatuEve-Client-IP"
+      },
+      "secrets": {
+        "required": ["ORIGIN_URL", "RELAY_SECRET"]
+      }
+    }
   }
 }
