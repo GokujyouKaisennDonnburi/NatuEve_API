@@ -16,7 +16,7 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 | **Google Cloud Scheduler** | outbox 処理エンドポイントの定期呼び出し（1 分間隔） | 確定 |
 | **Supabase**（`ap-northeast-1`） | PostgreSQL 17（DB） | 確定 |
 | **Supabase Auth** | 認証（JWT 発行・JWKS による検証） | 確定（既存） |
-| **Cloudflare Workers** | API の独自ドメインの中継（[ADR-0034](./adr/0034-api-custom-domain-workers-relay.md)） | 確定（`workers/api-relay/`。独自ドメイン経由の検証は #226） |
+| **Cloudflare Workers** | API の独自ドメインの中継（[ADR-0034](./adr/0034-api-custom-domain-workers-relay.md)） | 確定（`workers/api-relay/`。独自ドメイン経由の検証は検証環境が #254、本番が #209） |
 | Cloudflare R2 | 画像・PDF の保存と配信 | 既存 |
 | Resend | トランザクションメールの送信（[ADR-0001](./adr/0001-resend-transactional-email.md)） | 既存 |
 | **GitHub Actions** | 検証環境・本番へのデプロイ（承認は GitHub Environments。[デプロイ（CI/CD）](#デプロイcicd)） | 確定（ADR-0040） |
@@ -154,7 +154,7 @@ read -rs -p "RELAY_SECRET: " v; echo; printf '%s' "$v" | sha256sum; unset v     
   Pool Size を変えたときと、検証環境のプロジェクトでも確かめる。満たさなければ `DB_MAX_OPEN_CONNS` を下げる。
 - 既定では `public` スキーマに作ったテーブルに、API 用ロールの SELECT／INSERT／UPDATE／DELETE 権限が付く。
   RLS のないテーブルは、権限を持つロールなら誰でも読み書きできる。Data API が有効だと、公開されている anon キーで REST から読み書きできる。
-  検証環境のプロジェクトでも Data API を無効にする。
+  検証用 DB のプロジェクトでも Data API を無効にする。
 
 ### Cloudflare R2
 
@@ -290,7 +290,7 @@ GitHub Environments（`staging`・`production`）の変数:
 | `SUPABASE_JWKS_URL` | その環境の Auth 用の Supabase プロジェクトの JWKS の URL |
 | `R2_ACCOUNT_ID`・`CLOUDFLARE_ACCOUNT_ID` | Cloudflare のアカウント ID |
 | `R2_BUCKET` | 本番: 本番用のバケット名。検証環境: ローカル開発用のバケット名（ADR-0039） |
-| `MAIL_FROM` | 送信元アドレス |
+| `MAIL_FROM` | 送信元アドレス。本番は `mail.natuportal.org`、検証環境は `dev-mail.natuportal.org` のアドレス（ADR-0041） |
 | `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | `scheduler@<プロジェクト ID>.iam.gserviceaccount.com` |
 | `RELAY_SECRET_PREVIOUS_VERSION` | 中継元の秘密値の差し替え中だけ、`RELAY_SECRET` の古いバージョン番号 |
 
@@ -361,7 +361,9 @@ GitHub Environments（`staging`・`production`）の変数:
 
 5. **Supabase**（検証環境だけ）: 個人アカウントに検証用 DB のプロジェクトを作る。Auth はローカル開発の Auth 用プロジェクトを使う（ADR-0041）。
    DB のプロジェクトは Data API を無効にし、Session pooler の接続文字列（末尾に `?sslmode=require`）を `DATABASE_URL` に入れる。Pool Size を確かめる（[Supabase](#supabase)）。
-6. **R2・Resend**（検証環境だけ）: ローカル開発用のバケットだけを対象にした R2 のトークンと、検証用の Resend の送信専用キーを発行し、手順 3 で登録する。
+6. **R2・Resend**: 手順 3 で登録する値を用意する。
+   - R2: 環境ごとにトークンを発行する。本番は本番用のバケットだけ、検証環境はローカル開発用のバケットだけを対象にする（ADR-0039）。検証環境のトークンはローカル開発のトークンと別にする。
+   - Resend: 本番は送信元 `mail.natuportal.org` のキー、検証環境はローカル開発と共用のキー（送信元 `dev-mail.natuportal.org`）を使う（ADR-0041）。
 7. **GitHub Environments**（Settings → Environments）: `staging` と `production` を作り、[変数とシークレット](#設定値の置き場所)を入れる。
    - 両方: Deployment branches を `main` だけにする。
    - `production`: Required reviewers に承認者を入れ、Prevent self-review を有効にする。管理者が保護ルールを迂回できる設定は無効にする。
@@ -495,7 +497,7 @@ ADR-0034 の構成では、秘密ヘッダーのないリクエストも Cloud R
 
 ## 独自ドメイン経由の検証（#226）
 
-API と Worker をデプロイした後に行う。結果は #226 に返信し、[未決事項](#未決事項今後の作業) 10 に反映する。
+API と Worker をデプロイした後に行う。結果は検証環境が #254、本番が #209 に返信し、[未決事項](#未決事項今後の作業) 10 に反映する。
 `<run.app>` は Cloud Run の URL、`<フロント>` は `CORS_ALLOW_ORIGINS` に入れたオリジン。
 
 | 確認すること | 手順 | 期待する結果 |
@@ -504,7 +506,7 @@ API と Worker をデプロイした後に行う。結果は #226 に返信し�
 | 認証付きの API | `curl -sS -H "Authorization: Bearer <JWT>" https://natueve-api.natuportal.org/api/v1/me` | 200 |
 | CORS のプリフライト | `curl -sS -i -X OPTIONS -H "Origin: <フロント>" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: authorization,content-type" https://natueve-api.natuportal.org/api/v1/events` | 204、`Access-Control-Allow-Origin: <フロント>` |
 | run.app への直接アクセス | `curl -sS -i https://<run.app>/api/v1/events` | 403（`/health` は 200） |
-| `workers.dev`・Preview URL | ダッシュボードの Worker の「Domains & Routes」で無効になっていること。`https://natueve-api-relay.<アカウントのサブドメイン>.workers.dev/health` | 届かない |
+| `workers.dev`・Preview URL | ダッシュボードの Worker の「Domains & Routes」で無効になっていること。`https://<Worker 名>.<アカウントのサブドメイン>.workers.dev/health`（Worker 名は本番が `natueve-api-relay`、検証環境が `natueve-api-relay-stg`） | 届かない |
 | Pseudo IPv4 | ダッシュボードのゾーンの「Network」の Pseudo IPv4 | Off |
 | キャッシュルール | ゾーンの「Caching」の Cache Rules と Page Rules に、`natueve-api.natuportal.org` に当たるルールがないこと | ない |
 | フロントの SSR から呼べる | フロントの `NEXT_PUBLIC_API_BASE_URL` を `https://natueve-api.natuportal.org` にして SSR のページを開く | データが表示される。API のログの `ip` の値を #215 のために記録する |
