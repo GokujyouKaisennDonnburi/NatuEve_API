@@ -1,11 +1,12 @@
 # デプロイ構成（バックエンド）
 
-NatuEve_API の本番デプロイ構成をまとめる。
+NatuEve_API の本番と検証環境のデプロイ構成をまとめる。
 構成を選んだ理由と退けた代替案は [ADR-0032](./adr/0032-production-deployment-cloud-run-supabase.md) を参照。
 API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-domain-workers-relay.md) を参照。
 最大インスタンス数と DB の接続数の上限は [ADR-0037](./adr/0037-cloud-run-max-instances.md) を参照。
 R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-split.md) を参照。
 デプロイの自動化と GCP のプロジェクトの分け方は [ADR-0040](./adr/0040-github-actions-deploy-separate-gcp-projects.md) を参照。
+検証環境の Supabase とメールの送信元は [ADR-0041](./adr/0041-staging-shares-auth-mail-with-dev.md) を参照。
 料金・仕様は 2026-10 時点で各公式ページを確認した値（出典は末尾）。
 
 ## 使用するサービス
@@ -25,21 +26,39 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 
 ## 構成図
 
+本番の構成。検証環境も同じ構成で、接続先は[環境ごとの対応](#環境ごとの対応)のとおり。デプロイの流れは[デプロイ（CI/CD）](#デプロイcicd)。
+
 ```
 [Web フロント（SSR を含む） / モバイルアプリ]
    │
-   ├─ ログイン ─────────────→ Supabase Auth（JWT 発行）
+   ├─ ログイン ──────────────────→ Supabase Auth（JWT 発行。DB とは別のプロジェクト）
    │
-   └─ API 呼び出し（JWT 付き）─→ Cloudflare Workers: 中継（natueve-api.natuportal.org）
-                                   │ 秘密ヘッダーと利用者 IP を付けて run.app の URL へ転送
-                                   ▼
-                                 Cloud Run: NatuEve_API ←── Cloud Scheduler（1 分ごと、outbox 処理）
-                                   │
-                                   ├─→ Supabase PostgreSQL（DB）
-                                   ├─→ Supabase Auth の JWKS（JWT 検証）
-                                   ├─→ Cloudflare R2（presign・配信 URL の生成）
-                                   └─→ Resend（メール送信）
+   ├─ ファイルのアップロード ─────→ Cloudflare R2（API が発行した presign の URL へ直接 PUT）
+   ├─ 画像・PDF の取得 ───────────→ R2 の公開ドメイン（assets.natuportal.org）
+   │
+   └─ API 呼び出し（JWT 付き）───→ Cloudflare Workers: 中継（natueve-api.natuportal.org）
+                                     │ 秘密ヘッダーと利用者 IP を付けて run.app の URL へ転送
+                                     ▼
+                                   Cloud Run: NatuEve_API ←── Cloud Scheduler（1 分ごと、outbox 処理）
+                                     │（秘密値は Secret Manager から注入）
+                                     ├─→ Supabase PostgreSQL（DB）
+                                     ├─→ Supabase Auth の JWKS（JWT 検証）
+                                     ├─→ Cloudflare R2（presign・配信 URL の生成）
+                                     └─→ Resend（メール送信）
 ```
+
+### 環境ごとの対応
+
+| 対象 | 本番 | 検証環境 |
+|---|---|---|
+| API のドメイン | `natueve-api.natuportal.org` | `natueve-api-stg.natuportal.org` |
+| Worker | `natueve-api-relay` | `natueve-api-relay-stg` |
+| GCP のプロジェクト | `natueve` | `natueve-dev` |
+| Supabase Auth | NatuPortal の共有 Auth | ローカル開発の Auth 用プロジェクト（ADR-0041） |
+| Supabase DB | 本番用のプロジェクト | 検証用のプロジェクト（ADR-0041） |
+| R2 のバケット・公開ドメイン | 本番用（`assets.natuportal.org`） | ローカル開発用（`assets-dev.natuportal.org`。ADR-0039） |
+| メールの送信元 | `mail.natuportal.org` | `dev-mail.natuportal.org`（ADR-0041） |
+| フロントのオリジン（`CORS_ALLOW_ORIGINS`） | `https://natueve-web.natuportal.org` | 未定（未設定のため `localhost` だけ許可） |
 
 ## 各サービスの設定
 
