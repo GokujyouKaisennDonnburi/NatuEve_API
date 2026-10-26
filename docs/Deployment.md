@@ -4,6 +4,7 @@ NatuEve_API の本番デプロイ構成をまとめる。
 構成を選んだ理由と退けた代替案は [ADR-0032](./adr/0032-production-deployment-cloud-run-supabase.md) を参照。
 API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-domain-workers-relay.md) を参照。
 最大インスタンス数と DB の接続数の上限は [ADR-0037](./adr/0037-cloud-run-max-instances.md) を参照。
+R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-split.md) を参照。
 料金・仕様は 2026-10 時点で各公式ページを確認した値（出典は末尾）。
 
 ## 使用するサービス
@@ -146,6 +147,47 @@ bunx wrangler deploy
   RLS のないテーブルは、権限を持つロールなら誰でも読み書きできる。Data API が有効だと、公開されている anon キーで REST から読み書きできる。
   検証環境のプロジェクトでも Data API を無効にする。
 
+### Cloudflare R2
+
+| 項目 | 本番 | ローカル開発・検証環境 |
+|---|---|---|
+| バケット | 本番用のバケット | ローカル開発用のバケット |
+| 公開ドメイン（`R2_PUBLIC_BASE_URL`） | `https://assets.natuportal.org` | `https://assets-dev.natuportal.org` |
+| トークンの対象 | 本番用のバケットだけ | ローカル開発用のバケットだけ（検証環境用は別に発行） |
+| CORS | `https://natueve-web.natuportal.org` からの `GET`・`PUT`・`HEAD` | `http://localhost:3000`・`http://localhost:8787` からの `GET`・`PUT`・`HEAD`（検証環境のフロントのオリジンも加える） |
+| ライフサイクルルール | `natueve/tmp/` を 1 日後に削除 | 同じ |
+
+| キー・URL | 値 |
+|---|---|
+| 画像・PDF の URL | `R2_PUBLIC_BASE_URL + "/" + オブジェクトキー`（`internal/service/object_url.go`） |
+| 一時領域のキー | `natueve/tmp/{profileID}/{uuid}{ext}`（presign で発行。`internal/service/upload.go` の `PresignPut`） |
+| 画像のキー | `natueve/{events\|reports}/images/{uuid}{ext}`（同 `buildFinalKey`） |
+| PDF のキー | `natueve/{events\|reports}/documents/{uuid}{ext}`（同 `buildFinalKey`） |
+
+- バケットの設定（公開ドメイン・CORS・ライフサイクルルール）はダッシュボードで行い、リポジトリには無い。
+- トークンにクライアント IP アドレスの制限はかけない（ADR-0039）。
+- 検証環境もローカル開発用のバケットを使う（ADR-0039）。
+- 公開ドメインはバケット全体を配信する。一時領域のファイルも URL を知っていれば取得できる。
+  - 一時領域の画像は、EXIF の位置情報を除去する前の元ファイル（除去は昇格時）。API は昇格後も元ファイルを消さない。
+  - キーを受け取るのはアップロードした本人だけで、ランダムな UUID を含む。
+  - ライフサイクルルールの削除は期限から通常 24 時間以内（公式）で、アップロードから通常 2 日程度は取得できる。
+- アップロードから 1 日を過ぎた一時領域のキーは消えている場合があり、昇格に失敗する。
+
+#### フロントの画像の許可リスト
+
+フロント（NatuEve_Web_Frontend）の `next.config.ts` の `images.remotePatterns` は、画像最適化で変換する画像のホストとパスを絞っている。
+API が返す画像の URL がこれに合わないと、フロントで画像が表示されない。
+
+| `remotePatterns` の項目 | 値 | 対応する API 側の値 |
+|---|---|---|
+| `hostname` | `assets.natuportal.org`（ローカル開発・検証環境の `assets-dev.natuportal.org` は本番以外のビルドだけ。NatuEve_Web_Frontend#353） | `R2_PUBLIC_BASE_URL` |
+| `pathname` | `/natueve/events/images/*`・`/natueve/reports/images/*`（予定。NatuEve_Web_Frontend#351） | 画像のキーの形式（`buildFinalKey`） |
+
+次を変えるときは、フロントの `remotePatterns` も合わせて変える。
+
+- 配信ドメイン（`R2_PUBLIC_BASE_URL`）を変える: `hostname`
+- 画像のキーの形式（`buildFinalKey`）を変える: `pathname`
+
 ## 本番の環境変数
 
 本番では `.env` を使わず、Cloud Run の環境変数として注入する。秘密情報は Secret Manager から渡す。
@@ -163,12 +205,12 @@ bunx wrangler deploy
 | `RELAY_SECRET` | 中継元の秘密値（32 バイト以上のランダム値。例: `openssl rand -hex 32`）。Worker の `RELAY_SECRET` と同じ値 | ○ |
 | `RELAY_SECRET_PREVIOUS` | 値の差し替え中だけ、古い値を設定する（[手順](#runapp-の-url-へ直接の大量アクセスを受けたとき)） | ○ |
 | `RELAY_CLIENT_IP_HEADER` | `X-NatuEve-Client-IP`（Worker の `CLIENT_IP_HEADER` と同じ値） | |
-| `CORS_ALLOW_ORIGINS` | 本番のフロントのオリジン（未決。フロント側 NatuEve_Web_Frontend#328 で決まる） | |
+| `CORS_ALLOW_ORIGINS` | `https://natueve-web.natuportal.org`（NatuEve_Web_Frontend#328 で決定） | |
 | `R2_ACCOUNT_ID` | Cloudflare のアカウント ID | |
-| `R2_ACCESS_KEY_ID` | R2 の API トークン | ○ |
-| `R2_SECRET_ACCESS_KEY` | R2 の API トークン | ○ |
-| `R2_BUCKET` | バケット名 | |
-| `R2_PUBLIC_BASE_URL` | 公開配信のベース URL | |
+| `R2_ACCESS_KEY_ID` | R2 の API トークン（対象は本番用のバケットだけ） | ○ |
+| `R2_SECRET_ACCESS_KEY` | R2 の API トークン（対象は本番用のバケットだけ） | ○ |
+| `R2_BUCKET` | 本番用のバケット名（必ず設定する。未設定だと既定値 `natuportal` になる） | |
+| `R2_PUBLIC_BASE_URL` | `https://assets.natuportal.org`（変えるときは[フロントの画像の許可リスト](#フロントの画像の許可リスト)も変える） | |
 | `RESEND_API_KEY` | Resend の API キー | ○ |
 | `MAIL_FROM` | 送信元アドレス | |
 | `SCHEDULER_OIDC_AUDIENCE` | Scheduler のジョブに設定した OIDC の audience（API の URL） | |
@@ -256,7 +298,7 @@ unset DATABASE_URL
    - 別プロジェクトにすると、Pro でもコンピュート費用（Micro で月 $10）が追加される。
    - 本番 DB のプロジェクトでは Data API を無効にした（#214）。
 5. **CORS の許可オリジンの値**: 環境変数 `CORS_ALLOW_ORIGINS` で設定できる（#218、ADR-0033）。
-   本番の値は、フロントのオリジン（NatuEve_Web_Frontend#328）が決まり次第設定する。
+   本番の値は `https://natueve-web.natuportal.org`（NatuEve_Web_Frontend#328 で決定）。
    未設定のままだと開発用の `http://localhost:3000`・`http://localhost:8787` だけが許可され、本番のフロントから API を呼べない。
    プレビュー環境の URL を許可するか（NatuEve_Web_Frontend#330）は未決。ワイルドカードは使えないため、許可する場合は完全一致の値を追加する。
 6. **CI/CD**（#219）: GitHub Actions か Cloud Build で、マイグレーションの適用 → Cloud Run へのデプロイを自動化する。
@@ -354,6 +396,6 @@ API と Worker をデプロイした後に行う。結果は #226 に返信し�
 - Google Cloud: [Free Tier](https://docs.cloud.google.com/free/docs/free-cloud-features) / [Cloud Scheduler pricing](https://cloud.google.com/scheduler/pricing) / [VPC pricing（egress 料金改定の告知）](https://cloud.google.com/vpc/pricing-announce)
 - Supabase: [Pricing](https://supabase.com/pricing) / [Regions](https://supabase.com/docs/guides/platform/regions) / [Connecting to Postgres](https://supabase.com/docs/guides/database/connecting-to-postgres) / [Securing your API](https://supabase.com/docs/guides/api/securing-your-api) / [Compute and Disk](https://supabase.com/docs/guides/platform/compute-and-disk) / [Pooling and limits](https://supabase.com/docs/guides/database/connecting-to-postgres/pooling-and-limits) / [Supavisor FAQ](https://supabase.com/docs/guides/troubleshooting/supavisor-faq-YyP5tI)
 - Cloud Run の独自ドメイン: [Mapping custom domains](https://docs.cloud.google.com/run/docs/mapping-custom-domains) / [Cloud Load Balancing pricing](https://cloud.google.com/load-balancing/pricing) / [Ingress](https://docs.cloud.google.com/run/docs/securing/ingress)
-- Cloudflare: [R2 pricing](https://developers.cloudflare.com/r2/pricing/) / [Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/)
+- Cloudflare: [R2 pricing](https://developers.cloudflare.com/r2/pricing/) / [R2 public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/) / [R2 object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/) / [Email Service pricing](https://developers.cloudflare.com/email-service/platform/pricing/)
 - Cloudflare Workers: [Pricing](https://developers.cloudflare.com/workers/platform/pricing/) / [Custom Domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) / [workers.dev](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/) / [Protecting your origin server](https://developers.cloudflare.com/fundamentals/security/protect-your-origin-server/) / [HTTP headers](https://developers.cloudflare.com/fundamentals/reference/http-headers/)
 - メール: [Resend pricing](https://resend.com/pricing) / [Amazon SES pricing](https://aws.amazon.com/ses/pricing/)

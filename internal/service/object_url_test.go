@@ -14,21 +14,21 @@ func TestPublicURLResolver_URL(t *testing.T) {
 	}{
 		{
 			name:    "通常のキーを連結する",
-			baseURL: "https://media.natuportal.com",
+			baseURL: "https://assets.natuportal.org",
 			key:     "natueve/events/images/abc.jpg",
-			want:    "https://media.natuportal.com/natueve/events/images/abc.jpg",
+			want:    "https://assets.natuportal.org/natueve/events/images/abc.jpg",
 		},
 		{
 			name:    "ベースURLの末尾スラッシュは正規化される",
-			baseURL: "https://media.natuportal.com/",
+			baseURL: "https://assets.natuportal.org/",
 			key:     "natueve/events/images/abc.jpg",
-			want:    "https://media.natuportal.com/natueve/events/images/abc.jpg",
+			want:    "https://assets.natuportal.org/natueve/events/images/abc.jpg",
 		},
 		{
 			name:    "キー先頭のスラッシュは重複させない",
-			baseURL: "https://media.natuportal.com",
+			baseURL: "https://assets.natuportal.org",
 			key:     "/natueve/events/images/abc.jpg",
-			want:    "https://media.natuportal.com/natueve/events/images/abc.jpg",
+			want:    "https://assets.natuportal.org/natueve/events/images/abc.jpg",
 		},
 		{
 			name:    "ベースURL未設定なら空文字",
@@ -38,7 +38,7 @@ func TestPublicURLResolver_URL(t *testing.T) {
 		},
 		{
 			name:    "キーが空なら空文字",
-			baseURL: "https://media.natuportal.com",
+			baseURL: "https://assets.natuportal.org",
 			key:     "",
 			want:    "",
 		},
@@ -63,16 +63,16 @@ func TestPublicURLResolver_URLs(t *testing.T) {
 	}{
 		{
 			name:    "複数キーを変換する",
-			baseURL: "https://media.natuportal.com",
+			baseURL: "https://assets.natuportal.org",
 			keys:    []string{"natueve/events/images/a.jpg", "natueve/events/images/b.png"},
 			want: []string{
-				"https://media.natuportal.com/natueve/events/images/a.jpg",
-				"https://media.natuportal.com/natueve/events/images/b.png",
+				"https://assets.natuportal.org/natueve/events/images/a.jpg",
+				"https://assets.natuportal.org/natueve/events/images/b.png",
 			},
 		},
 		{
 			name:    "nil 入力でも空スライス（非 nil）を返す",
-			baseURL: "https://media.natuportal.com",
+			baseURL: "https://assets.natuportal.org",
 			keys:    nil,
 			want:    []string{},
 		},
