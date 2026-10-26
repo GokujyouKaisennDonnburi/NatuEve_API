@@ -56,7 +56,7 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 | GCP のプロジェクト | `natueve` | `natueve-dev` |
 | Supabase Auth | NatuPortal の共有 Auth | ローカル開発の Auth 用プロジェクト（ADR-0041） |
 | Supabase DB | 本番用のプロジェクト | 検証用のプロジェクト（ADR-0041） |
-| R2 のバケット・公開ドメイン | 本番用（`assets.natuportal.org`） | ローカル開発用（`assets-dev.natuportal.org`。ADR-0039） |
+| R2 のバケット・公開ドメイン | `natuportal-prod`（`assets.natuportal.org`） | `natuportal`（ローカル開発と共用。`assets-dev.natuportal.org`。ADR-0039） |
 | メールの送信元 | `mail.natuportal.org` | `dev-mail.natuportal.org`（ADR-0041） |
 | フロントのオリジン（`CORS_ALLOW_ORIGINS`） | `https://natueve-web.natuportal.org` | 未定（未設定のため `localhost` だけ許可） |
 
