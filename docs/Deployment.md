@@ -5,6 +5,7 @@ NatuEve_API の本番デプロイ構成をまとめる。
 API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-domain-workers-relay.md) を参照。
 最大インスタンス数と DB の接続数の上限は [ADR-0037](./adr/0037-cloud-run-max-instances.md) を参照。
 R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-split.md) を参照。
+デプロイの自動化と GCP のプロジェクトの分け方は [ADR-0040](./adr/0040-github-actions-deploy-separate-gcp-projects.md) を参照。
 料金・仕様は 2026-10 時点で各公式ページを確認した値（出典は末尾）。
 
 ## 使用するサービス
@@ -18,8 +19,9 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 | **Cloudflare Workers** | API の独自ドメインの中継（[ADR-0034](./adr/0034-api-custom-domain-workers-relay.md)） | 確定（`workers/api-relay/`。独自ドメイン経由の検証は #226） |
 | Cloudflare R2 | 画像・PDF の保存と配信 | 既存 |
 | Resend | トランザクションメールの送信（[ADR-0001](./adr/0001-resend-transactional-email.md)） | 既存 |
-| Google Artifact Registry | コンテナイメージの保管 | 予定 |
-| Google Secret Manager | 秘密情報の注入 | 予定 |
+| **GitHub Actions** | 検証環境・本番へのデプロイ（承認は GitHub Environments。[デプロイ（CI/CD）](#デプロイcicd)） | 確定（ADR-0040） |
+| Google Artifact Registry | コンテナイメージの保管（検証用・本番用のプロジェクトにそれぞれ置く） | 確定（ADR-0040） |
+| Google Secret Manager | 秘密情報の注入（検証用・本番用のプロジェクトにそれぞれ置く） | 確定（ADR-0040） |
 
 ## 構成図
 
@@ -94,8 +96,8 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 | 項目 | 値 |
 |---|---|
 | プラン | Workers Paid（フロントと共有。NatuEve_Web_Frontend ADR-0001） |
-| Worker 名 | `natueve-api-relay` |
-| 割り当て | Custom Domain `natueve-api.natuportal.org` |
+| Worker 名 | `natueve-api-relay`（検証環境: `natueve-api-relay-stg`） |
+| 割り当て | Custom Domain `natueve-api.natuportal.org`（検証環境: `natueve-api-stg.natuportal.org`） |
 | 転送先 | Cloud Run の run.app の URL（固定。secret `ORIGIN_URL`） |
 | 秘密ヘッダー | `X-Relay-Auth`（値は secret `RELAY_SECRET`。API の `RELAY_SECRET` と同じ値） |
 | 利用者 IP のヘッダー | `X-NatuEve-Client-IP`（`wrangler.jsonc` の `CLIENT_IP_HEADER`。API の `RELAY_CLIENT_IP_HEADER` と同じ値） |
@@ -111,14 +113,16 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
   該当するリクエストは IP レート制限を共有する（利用者 IP の検証は #215）。
 - `ORIGIN_URL` と `RELAY_SECRET` は `wrangler.jsonc` の `secrets.required` に宣言しており、未設定だと `wrangler deploy` が失敗する。
   run.app の URL と秘密値はリポジトリに書かない（ADR-0034）。
-- デプロイの自動化（#219）までは手動で行う。API を先にデプロイし、`RELAY_SECRET`・`RELAY_CLIENT_IP_HEADER` を設定してから Worker をデプロイする。
+- デプロイは CI が API の後に行う（[デプロイ（CI/CD）](#デプロイcicd)）。検証環境は `wrangler.jsonc` の `env.staging`。
+- secret は環境ごとに 1 回だけ手で入れる。本番は `--env=""`（最上位の設定）を指定する。指定しないと、環境が複数あるため wrangler が警告を出す。
 
 ```bash
 cd workers/api-relay
 bun install --frozen-lockfile
-bunx wrangler secret put ORIGIN_URL     # https://<サービス名>-<プロジェクト番号>.asia-northeast1.run.app
-bunx wrangler secret put RELAY_SECRET   # API の RELAY_SECRET と同じ値
-bunx wrangler deploy
+bunx wrangler secret put ORIGIN_URL --env staging     # https://<サービス名>-<プロジェクト番号>.asia-northeast1.run.app
+bunx wrangler secret put RELAY_SECRET --env staging   # その環境の API の RELAY_SECRET と同じ値
+bunx wrangler secret put ORIGIN_URL --env=""          # 本番
+bunx wrangler secret put RELAY_SECRET --env=""
 ```
 
 - 初回（Worker がまだ無い状態）で `wrangler secret put` から始める手順が通るかは未確認。通らない場合は、`wrangler deploy --secrets-file <ファイル>` で
@@ -191,6 +195,7 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 ## 本番の環境変数
 
 本番では `.env` を使わず、Cloud Run の環境変数として注入する。秘密情報は Secret Manager から渡す。
+設定はデプロイのたびに CI が行う。値の置き場所は [設定値の置き場所](#設定値の置き場所)。
 
 | 変数 | 本番の値 | 秘密情報 |
 |---|---|---|
@@ -213,7 +218,7 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 | `R2_PUBLIC_BASE_URL` | `https://assets.natuportal.org`（変えるときは[フロントの画像の許可リスト](#フロントの画像の許可リスト)も変える） | |
 | `RESEND_API_KEY` | Resend の API キー | ○ |
 | `MAIL_FROM` | 送信元アドレス | |
-| `SCHEDULER_OIDC_AUDIENCE` | Scheduler のジョブに設定した OIDC の audience（API の URL） | |
+| `SCHEDULER_OIDC_AUDIENCE` | Scheduler のジョブに設定した OIDC の audience（API の run.app の URL） | |
 | `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | Scheduler のジョブが使うサービスアカウントのメールアドレス | |
 | `OUTBOX_WORKER_ENABLED` | 設定しない（常駐ワーカーは本番では使わない） | |
 
@@ -230,7 +235,8 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 
 ## マイグレーション
 
-本番は `DB_AUTO_MIGRATE=false`。新しいリビジョンをデプロイする前に、マイグレーションを適用する。
+本番は `DB_AUTO_MIGRATE=false`。CI が API のデプロイの前に適用する（`deploy/migrate.sh`）。
+手元から適用するときは次のとおり。
 
 ```bash
 read -rs -p 'DATABASE_URL: ' DATABASE_URL; echo   # bash。本番 DB の接続文字列を入力する（履歴に残さない）
@@ -242,6 +248,138 @@ unset DATABASE_URL
 - 環境変数で渡した `DATABASE_URL` は、手元の `.env` の値より優先される。
   `export` せず、終わったら `unset` する（残ると、同じシェルの `make run` で手元の API が本番 DB につながる）。
 - 詳細は [Database.md](./Database.md) を参照。
+
+## デプロイ（CI/CD）
+
+方式は [ADR-0040](./adr/0040-github-actions-deploy-separate-gcp-projects.md)（ADR-0036 の流れの具体化）。ワークフローは `.github/workflows/deploy.yml`。
+
+1. main への push で CI（`ci.yml`）が成功すると、Deploy ワークフローが動く。
+2. 検証環境: main の最新か確かめる → イメージをビルドして検証用の Artifact Registry に置く → マイグレーション → Cloud Run → Worker。
+3. `production` 環境の承認を待つ。Actions の実行画面の「Review deployments」で承認する。マージした本人は承認できない。
+4. 本番: main の最新か確かめる → イメージを本番用の Artifact Registry へコピー（ダイジェストは同じ）→ マイグレーション → Cloud Run → Worker。
+
+- 承認待ちの間に次のマージがあると、古い実行の本番のジョブは失敗する。最新の実行を承認する。
+  後のコミットで CI が失敗すると、それを直すコミットが入るまで本番に出せない（古い実行は main の最新でないため失敗し、最新のコミットではデプロイが始まらない）。
+- 設定（変数・シークレット）だけを反映するときは、Actions の Deploy から main を対象に手動で実行する（Run workflow）。
+- Cloud Run の環境変数・シークレットはデプロイのたびに置き換わる。ダッシュボードで手で足した値は、次のデプロイで消える。
+- 初期設定が済むまで、main への push のたびに Deploy ワークフローは失敗する。
+
+### 設定値の置き場所
+
+| 置き場所 | 値 |
+|---|---|
+| `deploy/cloud-run/<環境>.yaml` | `GIN_MODE`・`DB_MAX_OPEN_CONNS`・`DB_AUTO_MIGRATE`・`RELAY_CLIENT_IP_HEADER`・`CORS_ALLOW_ORIGINS`・`R2_PUBLIC_BASE_URL` |
+| GitHub Environments の変数 | 下の表 |
+| GitHub Environments のシークレット | `CLOUD_RUN_SERVICE`・`SCHEDULER_OIDC_AUDIENCE`（run.app の URL を組み立てられる値）、`CLOUDFLARE_API_TOKEN` |
+| Secret Manager（環境ごとのプロジェクト） | `DATABASE_URL`・`RELAY_SECRET`・`R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY`・`RESEND_API_KEY` |
+
+GitHub Environments（`staging`・`production`）の変数:
+
+| 変数 | 値 |
+|---|---|
+| `GCP_PROJECT_ID` | その環境の GCP プロジェクト ID |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/<プロジェクト番号>/locations/global/workloadIdentityPools/github/providers/github` |
+| `GCP_DEPLOYER_SERVICE_ACCOUNT` | `deployer@<プロジェクト ID>.iam.gserviceaccount.com` |
+| `GCP_RUNTIME_SERVICE_ACCOUNT` | `api-runtime@<プロジェクト ID>.iam.gserviceaccount.com` |
+| `ARTIFACT_REGISTRY_REPOSITORY` | `natueve` |
+| `SUPABASE_JWKS_URL` | その環境の Supabase の JWKS の URL |
+| `R2_ACCOUNT_ID`・`CLOUDFLARE_ACCOUNT_ID` | Cloudflare のアカウント ID |
+| `R2_BUCKET` | 本番: 本番用のバケット名。検証環境: ローカル開発用のバケット名（ADR-0039） |
+| `MAIL_FROM` | 送信元アドレス |
+| `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | `scheduler@<プロジェクト ID>.iam.gserviceaccount.com` |
+| `RELAY_SECRET_PREVIOUS_VERSION` | 中継元の秘密値の差し替え中だけ、`RELAY_SECRET` の古いバージョン番号 |
+
+- `SCHEDULER_SERVICE_ACCOUNT_EMAIL`・`RELAY_SECRET_PREVIOUS_VERSION`・シークレットの `SCHEDULER_OIDC_AUDIENCE` 以外は必須で、未設定だとデプロイが止まる。
+
+### 初期設定（1 回だけ）
+
+検証環境と本番で、それぞれ行う。`<環境>` は `staging` または `production`。
+
+1. **GCP のプロジェクト**: 作成して請求アカウントにつなぎ、API を有効にして、Artifact Registry のリポジトリを作る。
+
+   ```bash
+   PROJECT_ID=<プロジェクト ID>
+   ENVIRONMENT=<環境>
+   PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+   gcloud services enable cloudresourcemanager.googleapis.com iam.googleapis.com run.googleapis.com \
+     artifactregistry.googleapis.com secretmanager.googleapis.com iamcredentials.googleapis.com sts.googleapis.com \
+     cloudscheduler.googleapis.com --project "$PROJECT_ID"
+   gcloud artifacts repositories create natueve --repository-format=docker --location=asia-northeast1 --project "$PROJECT_ID"
+   ```
+
+2. **サービスアカウント**: `deployer`（CI）・`api-runtime`（Cloud Run）・`scheduler`（Cloud Scheduler）。
+
+   ```bash
+   for sa in deployer api-runtime scheduler; do gcloud iam service-accounts create "$sa" --project "$PROJECT_ID"; done
+   DEPLOYER="deployer@${PROJECT_ID}.iam.gserviceaccount.com"
+   RUNTIME="api-runtime@${PROJECT_ID}.iam.gserviceaccount.com"
+   gcloud projects add-iam-policy-binding "$PROJECT_ID" --member="serviceAccount:${DEPLOYER}" --role=roles/run.admin
+   gcloud iam service-accounts add-iam-policy-binding "$RUNTIME" --project "$PROJECT_ID" \
+     --member="serviceAccount:${DEPLOYER}" --role=roles/iam.serviceAccountUser
+   gcloud artifacts repositories add-iam-policy-binding natueve --location=asia-northeast1 --project "$PROJECT_ID" \
+     --member="serviceAccount:${DEPLOYER}" --role=roles/artifactregistry.writer
+   ```
+
+   本番だけ、本番の `deployer` に検証用の Artifact Registry の読み取りを付ける（イメージのコピー元）。
+
+   ```bash
+   gcloud artifacts repositories add-iam-policy-binding natueve --location=asia-northeast1 --project <検証用のプロジェクト ID> \
+     --member="serviceAccount:deployer@<本番のプロジェクト ID>.iam.gserviceaccount.com" --role=roles/artifactregistry.reader
+   ```
+
+3. **Secret Manager**: 秘密値を登録し、`api-runtime` に読み取りを、`deployer` に `DATABASE_URL` の読み取りを付ける。
+   値は環境ごとに別にする。`RELAY_SECRET` は `openssl rand -hex 32` で作り、Worker にも同じ値を入れる（手順 7）。
+
+   ```bash
+   for name in DATABASE_URL RELAY_SECRET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY RESEND_API_KEY; do
+     read -rs -p "${name}: " value; echo
+     printf '%s' "$value" | gcloud secrets create "$name" --data-file=- --project "$PROJECT_ID"
+     gcloud secrets add-iam-policy-binding "$name" --project "$PROJECT_ID" \
+       --member="serviceAccount:${RUNTIME}" --role=roles/secretmanager.secretAccessor
+   done
+   unset value
+   gcloud secrets add-iam-policy-binding DATABASE_URL --project "$PROJECT_ID" \
+     --member="serviceAccount:${DEPLOYER}" --role=roles/secretmanager.secretAccessor
+   ```
+
+4. **Workload Identity**: GitHub Actions のその環境のジョブだけが `deployer` を使えるようにする。
+
+   ```bash
+   gcloud iam workload-identity-pools create github --location=global --project "$PROJECT_ID"
+   gcloud iam workload-identity-pools providers create-oidc github --location=global --workload-identity-pool=github \
+     --project "$PROJECT_ID" --issuer-uri="https://token.actions.githubusercontent.com" \
+     --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
+     --attribute-condition="assertion.repository == 'GokujyouKaisennDonnburi/NatuEve_API'"
+   gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" --project "$PROJECT_ID" --role=roles/iam.workloadIdentityUser \
+     --member="principal://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/subject/repo:GokujyouKaisennDonnburi/NatuEve_API:environment:${ENVIRONMENT}"
+   ```
+
+5. **Supabase**（検証環境だけ）: 個人アカウントに検証用の組織とプロジェクトを作る（ADR-0036 の決定事項 5）。
+   Data API を無効にし、Session pooler の接続文字列（末尾に `?sslmode=require`）を `DATABASE_URL` に入れる。Pool Size を確かめる（[Supabase](#supabase)）。
+6. **R2・Resend**（検証環境だけ）: ローカル開発用のバケットだけを対象にした R2 のトークンと、検証用の Resend の送信専用キーを発行し、手順 3 で登録する。
+7. **GitHub Environments**（Settings → Environments）: `staging` と `production` を作り、[変数とシークレット](#設定値の置き場所)を入れる。
+   - 両方: Deployment branches を `main` だけにする。
+   - `production`: Required reviewers に承認者を入れ、Prevent self-review を有効にする。管理者が保護ルールを迂回できる設定は無効にする。
+   - `CLOUD_RUN_SERVICE` は推測されにくい名前にする（例: `natueve-api-` にランダムな文字列を足す。[run.app の URL へ直接の大量アクセスを受けたとき](#runapp-の-url-へ直接の大量アクセスを受けたとき)）。
+     `SCHEDULER_OIDC_AUDIENCE` は `https://<CLOUD_RUN_SERVICE>-<プロジェクト番号>.asia-northeast1.run.app`。
+8. **Cloudflare**: API トークン（「Edit Cloudflare Workers」）を作り、`CLOUDFLARE_API_TOKEN` に入れる。
+   Worker の secret を環境ごとに入れる（[Cloudflare Workers](#cloudflare-workersapi-の中継)）。`ORIGIN_URL` は `SCHEDULER_OIDC_AUDIENCE` と同じ値。
+   - **確かめる（未確認）**: Custom Domain 付きのデプロイに、Zone の DNS の編集権限が要るか。初回のデプロイが権限のエラーで失敗したら足す。
+   - **確かめる（未確認）**: トークンを Worker ごとに絞れるか。絞れない場合、検証環境のトークンでも本番の Worker を変更できる。
+9. **初回のデプロイ**: main へのマージ、または手動の実行で Deploy ワークフローを動かす。
+10. **Cloud Scheduler**: 初回のデプロイの後に、ジョブを作って手動で実行し、ログで 200 になることを確かめる（[Cloud Scheduler](#cloud-scheduler)）。
+    失敗した呼び出しは、1 分後の呼び出しで処理される。
+
+    ```bash
+    RUN_URL=<SCHEDULER_OIDC_AUDIENCE と同じ値>
+    gcloud scheduler jobs create http natueve-outbox --location=asia-northeast1 --project "$PROJECT_ID" \
+      --schedule="* * * * *" --uri="${RUN_URL}/internal/outbox/process" --http-method=POST \
+      --oidc-service-account-email="scheduler@${PROJECT_ID}.iam.gserviceaccount.com" --oidc-token-audience="${RUN_URL}" \
+      --max-retry-attempts=0
+    gcloud scheduler jobs run natueve-outbox --location=asia-northeast1 --project "$PROJECT_ID"
+    ```
+
+11. **確認**: [独自ドメイン経由の検証](#独自ドメイン経由の検証226)の表を確かめる。検証環境のドメインは `natueve-api-stg.natuportal.org`。
 
 ## 月額の試算
 
@@ -284,7 +422,7 @@ unset DATABASE_URL
 ## 未決事項・今後の作業
 
 1. **Cloud Scheduler ジョブの作成**（outbox の内部エンドポイントは #217、ADR-0035 で実装済み）
-   - `POST /internal/outbox/process` を 1 分間隔で呼ぶジョブを作る。認証は OIDC トークンで、ジョブ用のサービスアカウントと
+   - `POST /internal/outbox/process` を 1 分間隔で呼ぶジョブを作る（手順は[初期設定](#初期設定1-回だけ)の 10）。認証は OIDC トークンで、ジョブ用のサービスアカウントと
      audience を設定し、同じ値を Cloud Run の環境変数 `SCHEDULER_SERVICE_ACCOUNT_EMAIL`・`SCHEDULER_OIDC_AUDIENCE` に入れる。
    - **ジョブを作るまで、本番では通知メールが送信されない。** 常駐ワーカーは本番では使わない（`OUTBOX_WORKER_ENABLED` を設定しない）。
    - 複数の呼び出しが同時に走っても、行ごとの `FOR UPDATE SKIP LOCKED` で排他するため、同じ通知を同時に送ることはない。ただし、送信後に記録できなかった場合と、送信を打ち切ったが実際には届いていた場合は再送されうる（at-least-once）。
@@ -301,15 +439,15 @@ unset DATABASE_URL
    本番の値は `https://natueve-web.natuportal.org`（NatuEve_Web_Frontend#328 で決定）。
    未設定のままだと開発用の `http://localhost:3000`・`http://localhost:8787` だけが許可され、本番のフロントから API を呼べない。
    プレビュー環境の URL を許可するか（NatuEve_Web_Frontend#330）は未決。ワイルドカードは使えないため、許可する場合は完全一致の値を追加する。
-6. **CI/CD**（#219）: GitHub Actions か Cloud Build で、マイグレーションの適用 → Cloud Run へのデプロイを自動化する。
-   main へのマージで検証環境へデプロイし、本番へは承認を経て同じイメージを出す（[ADR-0036](./adr/0036-github-flow-staging-approval.md)）。
+6. **CI/CD**（#219、ADR-0040 で決定）: GitHub Actions で、main へのマージで検証環境へ、承認後に同じイメージを本番へ出す（[デプロイ（CI/CD）](#デプロイcicd)）。
+   **[初期設定](#初期設定1-回だけ)は未実施**。
 7. **利用者 IP の取得方式の検証**（#215）: ADR-0034 で、Worker が渡すヘッダーを Gin の `TrustedPlatform` で読む方式に決めた。
    本番では `TRUSTED_PROXIES` を使わない。独自ドメイン経由で利用者 IP が正しく取れ、偽装できないことを検証する。
    参加申込の IP レート制限（`internal/middleware/ratelimit.go`）は `c.ClientIP()` ごとに数えるため、これが正しいことが前提。
 8. **停止時の待ち時間**（#216）: 現在の `cmd/api/main.go` は、HTTP サーバーの停止待ち（最大 10 秒）とワーカーの停止待ち（最大 10 秒）を順に行う。
    合計が Cloud Run の猶予（10 秒）を超えうる。
 9. **最大インスタンス数**（#240、ADR-0037 で決定）: サービス単位で 1 にする。1 プロセスあたりの DB 接続数の上限 `DB_MAX_OPEN_CONNS` は 6。
-   - デプロイ時に `gcloud run services update <サービス> --max 1` で設定する（CI/CD の手順は #219）。検証環境も同じ値にする。
+   - CI がデプロイのたびに `--max 1` を指定する（`deploy/cloud-run-deploy.sh`）。検証環境も同じ値。
    - 本番の Supabase の Pool Size は 15 で、条件を満たす（[Supabase](#supabase)）。
    - 最大インスタンス数で抑えられるのは CPU・メモリの費用で、run.app の URL への直接の大量アクセスによる件数の課金は抑えられない（ADR-0034）。
    - 最大インスタンス数を上げる場合は、IP レート制限の緩み（インスタンスが N 台あると最大 N 倍）と、DB の接続数の関係（ADR-0037 の決定事項 4）を見直す。
@@ -328,15 +466,17 @@ ADR-0034 の構成では、秘密ヘッダーのないリクエストも Cloud R
 1. **検知**: 予算アラート、または Cloud Run のリクエスト数と、秘密ヘッダーの確認で拒否した件数の急増。
    拒否したリクエストは、API のログに `中継元の確認に失敗したリクエストを拒否しました`（Warn）として出る。
 2. **一時的な対処**: Cloud Run のサービスを別名で作り直し、新しい run.app の URL を Worker の転送先（`wrangler secret put ORIGIN_URL`）に設定してから、
-   古いサービスを削除する。Cloud Scheduler の呼び出し先も新しい URL に変える。run.app の URL はサービス名を含み、
+   古いサービスを削除する。Cloud Scheduler の呼び出し先も新しい URL に変える。
+   作り直しは、GitHub Environments のシークレット `CLOUD_RUN_SERVICE`・`SCHEDULER_OIDC_AUDIENCE` を変えて Deploy ワークフローを手動で実行する。run.app の URL はサービス名を含み、
    プロジェクト番号は秘密ではないため、新しい名前はランダムな文字列を含む推測されにくいものにする。新しい URL を知られれば効果はない。
 3. **恒久的な対処**（ADR-0034 の決定事項 7）: Cloud Run の IAM 認証を追加し、Worker が ID トークンを付けて呼ぶ。
    または外部ロードバランサーに切り替え、Cloud Run の ingress を「内部と Cloud Load Balancing」に制限する。
    いずれも実装・設定の作業が必要で、終えるまでの間は課金が続く。
 4. **秘密ヘッダーの値が漏れた疑いがある場合**: 値を差し替える。次の順で行う。
-   1. Secret Manager に新しいバージョンを追加し、API の `RELAY_SECRET` を新しいバージョン、`RELAY_SECRET_PREVIOUS` を古いバージョンにしてデプロイする。
-   2. Worker を新しい値に切り替える（`wrangler secret put RELAY_SECRET`）。
-   3. API から `RELAY_SECRET_PREVIOUS` を外してデプロイし、Secret Manager の古いバージョンを無効化する。
+   1. Secret Manager の `RELAY_SECRET` に新しいバージョンを追加し、GitHub Environments の変数 `RELAY_SECRET_PREVIOUS_VERSION` に古いバージョンの番号を入れて、
+      Deploy ワークフローを手動で実行する（API の `RELAY_SECRET` は最新、`RELAY_SECRET_PREVIOUS` は古いバージョンになる）。
+   2. Worker を新しい値に切り替える（`wrangler secret put RELAY_SECRET --env=""`）。
+   3. 変数 `RELAY_SECRET_PREVIOUS_VERSION` を消して Deploy ワークフローを手動で実行し、Secret Manager の古いバージョンを無効化する。
 
 ## 独自ドメイン経由の検証（#226）
 
@@ -392,7 +532,7 @@ API と Worker をデプロイした後に行う。結果は #226 に返信し�
 
 ## 参考（料金・仕様の出典）
 
-- Cloud Run: [billing settings](https://docs.cloud.google.com/run/docs/configuring/billing-settings) / [CPU limits](https://docs.cloud.google.com/run/docs/configuring/services/cpu) / [pricing](https://cloud.google.com/run/pricing) / [max instances](https://docs.cloud.google.com/run/docs/configuring/max-instances) / [about maximum instances](https://docs.cloud.google.com/run/docs/configuring/max-instances-limits) / [instance autoscaling](https://docs.cloud.google.com/run/docs/about-instance-autoscaling) / [concurrency](https://docs.cloud.google.com/run/docs/about-concurrency)
+- Cloud Run: [billing settings](https://docs.cloud.google.com/run/docs/configuring/billing-settings) / [CPU limits](https://docs.cloud.google.com/run/docs/configuring/services/cpu) / [pricing](https://cloud.google.com/run/pricing) / [max instances](https://docs.cloud.google.com/run/docs/configuring/max-instances) / [about maximum instances](https://docs.cloud.google.com/run/docs/configuring/max-instances-limits) / [instance autoscaling](https://docs.cloud.google.com/run/docs/about-instance-autoscaling) / [concurrency](https://docs.cloud.google.com/run/docs/about-concurrency) / [secrets](https://docs.cloud.google.com/run/docs/configuring/services/secrets)
 - Google Cloud: [Free Tier](https://docs.cloud.google.com/free/docs/free-cloud-features) / [Cloud Scheduler pricing](https://cloud.google.com/scheduler/pricing) / [VPC pricing（egress 料金改定の告知）](https://cloud.google.com/vpc/pricing-announce)
 - Supabase: [Pricing](https://supabase.com/pricing) / [Regions](https://supabase.com/docs/guides/platform/regions) / [Connecting to Postgres](https://supabase.com/docs/guides/database/connecting-to-postgres) / [Securing your API](https://supabase.com/docs/guides/api/securing-your-api) / [Compute and Disk](https://supabase.com/docs/guides/platform/compute-and-disk) / [Pooling and limits](https://supabase.com/docs/guides/database/connecting-to-postgres/pooling-and-limits) / [Supavisor FAQ](https://supabase.com/docs/guides/troubleshooting/supavisor-faq-YyP5tI)
 - Cloud Run の独自ドメイン: [Mapping custom domains](https://docs.cloud.google.com/run/docs/mapping-custom-domains) / [Cloud Load Balancing pricing](https://cloud.google.com/load-balancing/pricing) / [Ingress](https://docs.cloud.google.com/run/docs/securing/ingress)

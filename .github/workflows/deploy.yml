@@ -1,12 +1,15 @@
 name: Deploy
 
 # main への push で CI が成功したら、検証環境へデプロイし、承認後に同じイメージを本番へデプロイする（ADR-0036・ADR-0040）。
-# 初期設定（GCP・GitHub Environments・Cloudflare）は docs/Deployment.md の「CI/CD の初期設定」を参照。
+# 設定だけを反映するときは、main を対象に手動で実行する（workflow_dispatch）。
+# 初期設定（GCP・GitHub Environments・Cloudflare）は docs/Deployment.md の「デプロイ（CI/CD）」の「初期設定」を参照。
+# run.app の URL を組み立てられる値（サービス名・audience）はシークレットで渡し、ログに出さない（ADR-0040 決定事項 9）。
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,14 +17,15 @@ permissions:
 
 env:
   REGION: asia-northeast1
-  SHA: ${{ github.event.workflow_run.head_sha }}
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   staging:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_repository.full_name == github.repository
+      github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     environment: staging
     concurrency:
@@ -31,25 +35,36 @@ jobs:
       image: ${{ steps.image.outputs.image }}
       digest: ${{ steps.build.outputs.digest }}
     steps:
+      # 承認待ちの間や CI の完了順の前後で main が進んでいたら、古いコミットで上書きしないよう止める（ADR-0040 決定事項 5）。
+      - name: Check this run is the latest main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq .sha)"
+          if [ "$latest" != "$SHA" ]; then
+            echo "::error::この実行のコミット（${SHA}）は main の最新（${latest}）ではありません。最新の実行を承認してください。"
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.SHA }}
 
-      - uses: google-github-actions/auth@v3
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      # Cloud Run に渡すイメージを 1 つのマニフェストにするため、provenance と SBOM は付けない。
+      # provenance と SBOM は付けず、イメージを 1 つのマニフェストにする（ADR-0040 決定事項 3）。
       - id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: true
@@ -74,18 +89,18 @@ jobs:
       - name: Deploy API
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-          CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+          CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
           GCP_RUNTIME_SERVICE_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
           SUPABASE_JWKS_URL: ${{ vars.SUPABASE_JWKS_URL }}
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
-          SCHEDULER_OIDC_AUDIENCE: ${{ vars.SCHEDULER_OIDC_AUDIENCE }}
+          SCHEDULER_OIDC_AUDIENCE: ${{ secrets.SCHEDULER_OIDC_AUDIENCE }}
           SCHEDULER_SERVICE_ACCOUNT_EMAIL: ${{ vars.SCHEDULER_SERVICE_ACCOUNT_EMAIL }}
           RELAY_SECRET_PREVIOUS_VERSION: ${{ vars.RELAY_SECRET_PREVIOUS_VERSION }}
         run: deploy/cloud-run-deploy.sh staging "${{ steps.image.outputs.image }}"
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.0
 
@@ -107,7 +122,7 @@ jobs:
       group: deploy-production
       cancel-in-progress: false
     steps:
-      # 承認待ちの間に main が進んでいたら、古いイメージで本番を上書きしないよう止める（ADR-0040 決定事項 5）。
+      # 承認待ちの間や CI の完了順の前後で main が進んでいたら、古いコミットで上書きしないよう止める（ADR-0040 決定事項 5）。
       - name: Check this run is the latest main
         env:
           GH_TOKEN: ${{ github.token }}
@@ -122,12 +137,12 @@ jobs:
         with:
           ref: ${{ env.SHA }}
 
-      - uses: google-github-actions/auth@v3
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
 
-      - uses: google-github-actions/setup-gcloud@v3
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
@@ -161,18 +176,18 @@ jobs:
       - name: Deploy API
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-          CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+          CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
           GCP_RUNTIME_SERVICE_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
           SUPABASE_JWKS_URL: ${{ vars.SUPABASE_JWKS_URL }}
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
-          SCHEDULER_OIDC_AUDIENCE: ${{ vars.SCHEDULER_OIDC_AUDIENCE }}
+          SCHEDULER_OIDC_AUDIENCE: ${{ secrets.SCHEDULER_OIDC_AUDIENCE }}
           SCHEDULER_SERVICE_ACCOUNT_EMAIL: ${{ vars.SCHEDULER_SERVICE_ACCOUNT_EMAIL }}
           RELAY_SECRET_PREVIOUS_VERSION: ${{ vars.RELAY_SECRET_PREVIOUS_VERSION }}
         run: deploy/cloud-run-deploy.sh production "${{ steps.image.outputs.image }}"
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.0
 
