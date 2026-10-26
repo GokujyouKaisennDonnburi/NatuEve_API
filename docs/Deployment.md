@@ -50,7 +50,7 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 | リージョン | `asia-northeast1`（東京） |
 | 課金方式 | リクエスト課金（CPU はリクエスト処理中のみ割り当て） |
 | 最小インスタンス数 | 0 |
-| 最大インスタンス数 | 1（サービス単位。`gcloud run services update <サービス> --max 1`。ADR-0037） |
+| 最大インスタンス数 | 1（サービス単位。CI がデプロイのたびに指定する。`deploy/cloud-run-deploy.sh`。ADR-0037） |
 | 同時実行数 | 既定値（80）のまま |
 | CPU / メモリ | 1 vCPU / 512MiB（初期値） |
 | 待ち受けポート | 環境変数 `PORT`（Cloud Run が注入する値をそのまま使う） |
@@ -348,8 +348,8 @@ GitHub Environments（`staging`・`production`）の変数:
    gcloud iam workload-identity-pools create github --location=global --project "$PROJECT_ID"
    gcloud iam workload-identity-pools providers create-oidc github --location=global --workload-identity-pool=github \
      --project "$PROJECT_ID" --issuer-uri="https://token.actions.githubusercontent.com" \
-     --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository" \
-     --attribute-condition="assertion.repository == 'GokujyouKaisennDonnburi/NatuEve_API'"
+     --attribute-mapping="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.repository_id=assertion.repository_id" \
+     --attribute-condition="assertion.repository == 'GokujyouKaisennDonnburi/NatuEve_API' && assertion.repository_id == '1270840941'"
    gcloud iam service-accounts add-iam-policy-binding "$DEPLOYER" --project "$PROJECT_ID" --role=roles/iam.workloadIdentityUser \
      --member="principal://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/subject/repo:GokujyouKaisennDonnburi/NatuEve_API:environment:${ENVIRONMENT}"
    ```
