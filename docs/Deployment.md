@@ -58,7 +58,7 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 | Supabase DB | 本番用のプロジェクト | 検証用のプロジェクト（ADR-0041） |
 | R2 のバケット・公開ドメイン | `natuportal-prod`（`assets.natuportal.org`） | `natuportal`（ローカル開発と共用。`assets-dev.natuportal.org`。ADR-0039） |
 | メールの送信元 | `mail.natuportal.org` | `dev-mail.natuportal.org`（ADR-0041） |
-| フロントのオリジン（`CORS_ALLOW_ORIGINS`） | `https://natueve-web.natuportal.org` | 未定（未設定のため `localhost` だけ許可） |
+| フロントのオリジン（`CORS_ALLOW_ORIGINS`） | `https://natueve-web.natuportal.org` | `https://natueve-web-stg.natuportal.org` |
 
 ## 各サービスの設定
 
@@ -182,7 +182,7 @@ read -rs -p "RELAY_SECRET: " v; echo; printf '%s' "$v" | sha256sum; unset v     
 | バケット | 本番用のバケット | ローカル開発用のバケット |
 | 公開ドメイン（`R2_PUBLIC_BASE_URL`） | `https://assets.natuportal.org` | `https://assets-dev.natuportal.org` |
 | トークンの対象 | 本番用のバケットだけ | ローカル開発用のバケットだけ（検証環境用は別に発行） |
-| CORS | `https://natueve-web.natuportal.org` からの `GET`・`PUT`・`HEAD` | `http://localhost:3000`・`http://localhost:8787` からの `GET`・`PUT`・`HEAD`（検証環境のフロントのオリジンも加える） |
+| CORS | `https://natueve-web.natuportal.org` からの `GET`・`PUT`・`HEAD` | `http://localhost:3000`・`http://localhost:8787`・`https://natueve-web-stg.natuportal.org` からの `GET`・`PUT`・`HEAD` |
 | ライフサイクルルール | `natueve/tmp/` を 1 日後に削除 | 同じ |
 
 | キー・URL | 値 |
@@ -490,7 +490,7 @@ GitHub Environments（`staging`・`production`）の変数:
     サブドメインは `natueve-api.natuportal.org`。中継用 Worker（`workers/api-relay/`）と API 側の確認・利用者 IP の読み取り
     （`internal/middleware/relay.go`）は実装済み。
     [独自ドメイン経由の検証](#独自ドメイン経由の検証226)は、検証環境（`natueve-api-stg.natuportal.org`）で済み（#254）。
-    CORS とフロントの SSR は、検証環境のフロントのオリジンが決まっていないため未確認。本番のドメインでは本番への初回のデプロイ（#209）の後に確かめ、結果をここに反映する。
+    CORS とフロントの SSR は、検証環境のフロント（`natueve-web-stg.natuportal.org`。NatuEve_Web_Frontend#330）に Custom Domain が割り当てられていないため未確認。本番のドメインでは本番への初回のデプロイ（#209）の後に確かめ、結果をここに反映する。
     検証で成り立たなければロードバランサーに切り替える（ADR-0034 の決定事項 7）。
 11. **予算アラート**: Cloud Billing の予算アラートを設定する。金額は未決。
     run.app の URL への直接の大量アクセスによる費用の急増を、[下記](#runapp-の-url-へ直接の大量アクセスを受けたとき)の手順の起点として検知する。
