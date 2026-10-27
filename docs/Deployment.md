@@ -1,11 +1,12 @@
 # デプロイ構成（バックエンド）
 
-NatuEve_API の本番デプロイ構成をまとめる。
+NatuEve_API の本番と検証環境のデプロイ構成をまとめる。
 構成を選んだ理由と退けた代替案は [ADR-0032](./adr/0032-production-deployment-cloud-run-supabase.md) を参照。
 API の独自ドメインと中継の方式は [ADR-0034](./adr/0034-api-custom-domain-workers-relay.md) を参照。
 最大インスタンス数と DB の接続数の上限は [ADR-0037](./adr/0037-cloud-run-max-instances.md) を参照。
 R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-split.md) を参照。
 デプロイの自動化と GCP のプロジェクトの分け方は [ADR-0040](./adr/0040-github-actions-deploy-separate-gcp-projects.md) を参照。
+検証環境の Supabase とメールの送信元は [ADR-0041](./adr/0041-staging-shares-auth-mail-with-dev.md) を参照。
 料金・仕様は 2026-10 時点で各公式ページを確認した値（出典は末尾）。
 
 ## 使用するサービス
@@ -16,7 +17,7 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 | **Google Cloud Scheduler** | outbox 処理エンドポイントの定期呼び出し（1 分間隔） | 確定 |
 | **Supabase**（`ap-northeast-1`） | PostgreSQL 17（DB） | 確定 |
 | **Supabase Auth** | 認証（JWT 発行・JWKS による検証） | 確定（既存） |
-| **Cloudflare Workers** | API の独自ドメインの中継（[ADR-0034](./adr/0034-api-custom-domain-workers-relay.md)） | 確定（`workers/api-relay/`。独自ドメイン経由の検証は #226） |
+| **Cloudflare Workers** | API の独自ドメインの中継（[ADR-0034](./adr/0034-api-custom-domain-workers-relay.md)） | 確定（`workers/api-relay/`。独自ドメイン経由の検証は検証環境が #254、本番が #209） |
 | Cloudflare R2 | 画像・PDF の保存と配信 | 既存 |
 | Resend | トランザクションメールの送信（[ADR-0001](./adr/0001-resend-transactional-email.md)） | 既存 |
 | **GitHub Actions** | 検証環境・本番へのデプロイ（承認は GitHub Environments。[デプロイ（CI/CD）](#デプロイcicd)） | 確定（ADR-0040） |
@@ -25,21 +26,39 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 
 ## 構成図
 
+本番の構成。検証環境も同じ構成で、接続先は[環境ごとの対応](#環境ごとの対応)のとおり。デプロイの流れは[デプロイ（CI/CD）](#デプロイcicd)。
+
 ```
 [Web フロント（SSR を含む） / モバイルアプリ]
    │
-   ├─ ログイン ─────────────→ Supabase Auth（JWT 発行）
+   ├─ ログイン ──────────────────→ Supabase Auth（JWT 発行。DB とは別のプロジェクト）
    │
-   └─ API 呼び出し（JWT 付き）─→ Cloudflare Workers: 中継（natueve-api.natuportal.org）
-                                   │ 秘密ヘッダーと利用者 IP を付けて run.app の URL へ転送
-                                   ▼
-                                 Cloud Run: NatuEve_API ←── Cloud Scheduler（1 分ごと、outbox 処理）
-                                   │
-                                   ├─→ Supabase PostgreSQL（DB）
-                                   ├─→ Supabase Auth の JWKS（JWT 検証）
-                                   ├─→ Cloudflare R2（presign・配信 URL の生成）
-                                   └─→ Resend（メール送信）
+   ├─ ファイルのアップロード ─────→ Cloudflare R2（API が発行した presign の URL へ直接 PUT）
+   ├─ 画像・PDF の取得 ───────────→ R2 の公開ドメイン（assets.natuportal.org）
+   │
+   └─ API 呼び出し（JWT 付き）───→ Cloudflare Workers: 中継（natueve-api.natuportal.org）
+                                     │ 秘密ヘッダーと利用者 IP を付けて run.app の URL へ転送
+                                     ▼
+                                   Cloud Run: NatuEve_API ←── Cloud Scheduler（1 分ごと、outbox 処理）
+                                     │（秘密値は Secret Manager から注入）
+                                     ├─→ Supabase PostgreSQL（DB）
+                                     ├─→ Supabase Auth の JWKS（JWT 検証）
+                                     ├─→ Cloudflare R2（presign・配信 URL の生成）
+                                     └─→ Resend（メール送信）
 ```
+
+### 環境ごとの対応
+
+| 対象 | 本番 | 検証環境 |
+|---|---|---|
+| API のドメイン | `natueve-api.natuportal.org` | `natueve-api-stg.natuportal.org` |
+| Worker | `natueve-api-relay` | `natueve-api-relay-stg` |
+| GCP のプロジェクト | `natueve` | `natueve-dev` |
+| Supabase Auth | NatuPortal の共有 Auth | ローカル開発の Auth 用プロジェクト（ADR-0041） |
+| Supabase DB | 本番用のプロジェクト | 検証用のプロジェクト（ADR-0041） |
+| R2 のバケット・公開ドメイン | `natuportal-prod`（`assets.natuportal.org`） | `natuportal`（ローカル開発と共用。`assets-dev.natuportal.org`。ADR-0039） |
+| メールの送信元 | `mail.natuportal.org` | `dev-mail.natuportal.org`（ADR-0041） |
+| フロントのオリジン（`CORS_ALLOW_ORIGINS`） | `https://natueve-web.natuportal.org` | 未定（未設定のため `localhost` だけ許可） |
 
 ## 各サービスの設定
 
@@ -87,9 +106,9 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 - ジョブを作る人には、ジョブのサービスアカウントに対する `roles/iam.serviceAccountUser` が必要。
   Cloud Scheduler のサービスエージェントに `roles/cloudscheduler.serviceAgent` が付いていること（2019-03-19 より前に API を有効化した場合は手動で付与する）。
 - Scheduler の実行中は、そのジョブの次の実行はスキップされる。まれに同じジョブが重複して実行されることがあるが、行ごとの排他で、同じ行を同時に送ることはない。
-- **デプロイ後に確認する（未検証）**: Scheduler が付けるトークンに `email` と `email_verified` が入っているか、`iss` の値は何かを、
-  公式ドキュメントでは確認できていない。`gcloud scheduler jobs run <ジョブ名>` で手動実行し、ログで 200 になることを確かめる。
-  401 なら audience、403 ならサービスアカウントのメールアドレスか `email` クレームの有無を疑う。
+- Scheduler が付けるトークンで、API の `iss`・`email`・`email_verified` の確認が通る（検証環境の手動実行で 200。#254）。
+  ジョブを作ったら手動実行し、ログで 200 になることを確かめる（[初期設定](#初期設定1-回だけ)の手順 10）。
+  401 なら audience、403 ならサービスアカウントのメールアドレスを疑う。
 
 ### Cloudflare Workers（API の中継）
 
@@ -125,8 +144,13 @@ bunx wrangler secret put ORIGIN_URL --env=""          # 本番
 bunx wrangler secret put RELAY_SECRET --env=""
 ```
 
-- 初回（Worker がまだ無い状態）で `wrangler secret put` から始める手順が通るかは未確認。通らない場合は、`wrangler deploy --secrets-file <ファイル>` で
-  secret とデプロイを同時に渡す（ファイルはコミットしない）。
+- Worker が無い状態で `wrangler secret put` を実行すると、Worker を作るか聞かれ、`Y` で Worker が作られて secret が入る。
+- `RELAY_SECRET` が API と一致しないと、独自ドメイン経由の `/health` 以外が 403 になる。値を画面に出さずに、両方の `sha256sum` の結果を比べて確かめる（`openssl rand -hex 32` で作った値なので、ハッシュから元の値は分からない）。
+
+```bash
+gcloud secrets versions access latest --secret=RELAY_SECRET --project <プロジェクト ID> | sha256sum   # API 側（Secret Manager）
+read -rs -p "RELAY_SECRET: " v; echo; printf '%s' "$v" | sha256sum; unset v                      # Worker に入れる値
+```
 
 ### Supabase
 
@@ -149,7 +173,7 @@ bunx wrangler secret put RELAY_SECRET --env=""
   Pool Size を変えたときと、検証環境のプロジェクトでも確かめる。満たさなければ `DB_MAX_OPEN_CONNS` を下げる。
 - 既定では `public` スキーマに作ったテーブルに、API 用ロールの SELECT／INSERT／UPDATE／DELETE 権限が付く。
   RLS のないテーブルは、権限を持つロールなら誰でも読み書きできる。Data API が有効だと、公開されている anon キーで REST から読み書きできる。
-  検証環境のプロジェクトでも Data API を無効にする。
+  検証用 DB のプロジェクトでも Data API を無効にする。
 
 ### Cloudflare R2
 
@@ -282,10 +306,10 @@ GitHub Environments（`staging`・`production`）の変数:
 | `GCP_DEPLOYER_SERVICE_ACCOUNT` | `deployer@<プロジェクト ID>.iam.gserviceaccount.com` |
 | `GCP_RUNTIME_SERVICE_ACCOUNT` | `api-runtime@<プロジェクト ID>.iam.gserviceaccount.com` |
 | `ARTIFACT_REGISTRY_REPOSITORY` | `natueve` |
-| `SUPABASE_JWKS_URL` | その環境の Supabase の JWKS の URL |
+| `SUPABASE_JWKS_URL` | その環境の Auth 用の Supabase プロジェクトの JWKS の URL |
 | `R2_ACCOUNT_ID`・`CLOUDFLARE_ACCOUNT_ID` | Cloudflare のアカウント ID |
 | `R2_BUCKET` | 本番: 本番用のバケット名。検証環境: ローカル開発用のバケット名（ADR-0039） |
-| `MAIL_FROM` | 送信元アドレス |
+| `MAIL_FROM` | 送信元アドレス。本番は `mail.natuportal.org`、検証環境は `dev-mail.natuportal.org` のアドレス（ADR-0041） |
 | `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | `scheduler@<プロジェクト ID>.iam.gserviceaccount.com` |
 | `RELAY_SECRET_PREVIOUS_VERSION` | 中継元の秘密値の差し替え中だけ、`RELAY_SECRET` の古いバージョン番号 |
 
@@ -328,7 +352,7 @@ GitHub Environments（`staging`・`production`）の変数:
    ```
 
 3. **Secret Manager**: 秘密値を登録し、`api-runtime` に読み取りを、`deployer` に `DATABASE_URL` の読み取りを付ける。
-   値は環境ごとに別にする。`RELAY_SECRET` は `openssl rand -hex 32` で作り、Worker にも同じ値を入れる（手順 7）。
+   値は環境ごとに別にする。`RELAY_SECRET` は `openssl rand -hex 32` で作り、Worker にも同じ値を入れる（手順 8）。
 
    ```bash
    for name in DATABASE_URL RELAY_SECRET R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY RESEND_API_KEY; do
@@ -354,29 +378,40 @@ GitHub Environments（`staging`・`production`）の変数:
      --member="principal://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/subject/repo:GokujyouKaisennDonnburi/NatuEve_API:environment:${ENVIRONMENT}"
    ```
 
-5. **Supabase**（検証環境だけ）: 個人アカウントに検証用の組織とプロジェクトを作る（ADR-0036 の決定事項 5）。
-   Data API を無効にし、Session pooler の接続文字列（末尾に `?sslmode=require`）を `DATABASE_URL` に入れる。Pool Size を確かめる（[Supabase](#supabase)）。
-6. **R2・Resend**（検証環境だけ）: ローカル開発用のバケットだけを対象にした R2 のトークンと、検証用の Resend の送信専用キーを発行し、手順 3 で登録する。
+5. **Supabase**（検証環境だけ）: 個人アカウントに検証用 DB のプロジェクトを作る。Auth はローカル開発の Auth 用プロジェクトを使う（ADR-0041）。
+   DB のプロジェクトは Data API を無効にし、Session pooler の接続文字列（末尾に `?sslmode=require`）を `DATABASE_URL` に入れる。Pool Size を確かめる（[Supabase](#supabase)）。
+6. **R2・Resend**: 手順 3 で登録する値を用意する。
+   - R2: 環境ごとにトークンを発行する。本番は本番用のバケットだけ、検証環境はローカル開発用のバケットだけを対象にする（ADR-0039）。検証環境のトークンはローカル開発のトークンと別にする。
+   - Resend: 本番は送信元 `mail.natuportal.org` のキー、検証環境はローカル開発と共用のキー（送信元 `dev-mail.natuportal.org`）を使う（ADR-0041）。
 7. **GitHub Environments**（Settings → Environments）: `staging` と `production` を作り、[変数とシークレット](#設定値の置き場所)を入れる。
    - 両方: Deployment branches を `main` だけにする。
    - `production`: Required reviewers に承認者を入れ、Prevent self-review を有効にする。管理者が保護ルールを迂回できる設定は無効にする。
    - `CLOUD_RUN_SERVICE` は推測されにくい名前にする（例: `natueve-api-` にランダムな文字列を足す。[run.app の URL へ直接の大量アクセスを受けたとき](#runapp-の-url-へ直接の大量アクセスを受けたとき)）。
      `SCHEDULER_OIDC_AUDIENCE` は `https://<CLOUD_RUN_SERVICE>-<プロジェクト番号>.asia-northeast1.run.app`。
-8. **Cloudflare**: API トークン（「Edit Cloudflare Workers」）を作り、`CLOUDFLARE_API_TOKEN` に入れる。
-   Worker の secret を環境ごとに入れる（[Cloudflare Workers](#cloudflare-workersapi-の中継)）。`ORIGIN_URL` は `SCHEDULER_OIDC_AUDIENCE` と同じ値。
-   - **確かめる（未確認）**: Custom Domain 付きのデプロイに、Zone の DNS の編集権限が要るか。初回のデプロイが権限のエラーで失敗したら足す。
-   - **確かめる（未確認）**: トークンを Worker ごとに絞れるか。絞れない場合、検証環境のトークンでも本番の Worker を変更できる。
+8. **Cloudflare**: Worker の secret を環境ごとに入れる（[Cloudflare Workers](#cloudflare-workersapi-の中継)）。Worker が無ければこのとき作られる。
+   `ORIGIN_URL` は `SCHEDULER_OIDC_AUDIENCE` と同じ値。
+   続けて API トークンを環境ごとに作り、`CLOUDFLARE_API_TOKEN` に入れる。ポリシーは次の 2 つだけにする。
+   - 「指定された Workers」: その環境の Worker に Editor。Worker は作った後でないと選べない。
+   - ゾーン（`natuportal.org`）: Workers Routes の編集。
+
+   テンプレート「Edit Cloudflare Workers」にあるアカウント全体のポリシーは付けない（付けると、アカウント内のすべての Worker を変更できる）。
+   Custom Domain 付きのデプロイに、Zone の DNS の編集権限は要らない。
+   この 2 つのポリシーで検証環境のデプロイが通ること、そのトークンで本番の Worker のデプロイ履歴（`wrangler deployments list`）が拒否されることを確かめた（#254）。
 9. **初回のデプロイ**: main へのマージ、または手動の実行で Deploy ワークフローを動かす。
 10. **Cloud Scheduler**: 初回のデプロイの後に、ジョブを作って手動で実行し、ログで 200 になることを確かめる（[Cloud Scheduler](#cloud-scheduler)）。
     失敗した呼び出しは、1 分後の呼び出しで処理される。
 
     ```bash
-    RUN_URL=<SCHEDULER_OIDC_AUDIENCE と同じ値>
+    read -rs -p "SCHEDULER_OIDC_AUDIENCE: " RUN_URL; echo
     gcloud scheduler jobs create http natueve-outbox --location=asia-northeast1 --project "$PROJECT_ID" \
       --schedule="* * * * *" --uri="${RUN_URL}/internal/outbox/process" --http-method=POST \
       --oidc-service-account-email="scheduler@${PROJECT_ID}.iam.gserviceaccount.com" --oidc-token-audience="${RUN_URL}" \
-      --max-retry-attempts=0
+      --max-retry-attempts=0 --format='value(name,state)'
+    unset RUN_URL
     gcloud scheduler jobs run natueve-outbox --location=asia-northeast1 --project "$PROJECT_ID"
+    # 1〜2 分後に応答のステータスを見る
+    gcloud logging read 'resource.type="cloud_run_revision" AND httpRequest.requestUrl:"/internal/outbox/process"' \
+      --project "$PROJECT_ID" --limit 5 --freshness=10m --format='table(timestamp,httpRequest.status)'
     ```
 
 11. **確認**: [独自ドメイン経由の検証](#独自ドメイン経由の検証226)の表を確かめる。検証環境のドメインは `natueve-api-stg.natuportal.org`。
@@ -440,7 +475,7 @@ GitHub Environments（`staging`・`production`）の変数:
    未設定のままだと開発用の `http://localhost:3000`・`http://localhost:8787` だけが許可され、本番のフロントから API を呼べない。
    プレビュー環境の URL を許可するか（NatuEve_Web_Frontend#330）は未決。ワイルドカードは使えないため、許可する場合は完全一致の値を追加する。
 6. **CI/CD**（#219、ADR-0040 で決定）: GitHub Actions で、main へのマージで検証環境へ、承認後に同じイメージを本番へ出す（[デプロイ（CI/CD）](#デプロイcicd)）。
-   **[初期設定](#初期設定1-回だけ)は未実施**。
+   [初期設定](#初期設定1-回だけ)の手順 1〜8 は検証環境・本番とも、手順 9〜11 は検証環境だけ済み（#254）。本番の手順 9〜11 は #209。
 7. **利用者 IP の取得方式の検証**（#215）: ADR-0034 で、Worker が渡すヘッダーを Gin の `TrustedPlatform` で読む方式に決めた。
    本番では `TRUSTED_PROXIES` を使わない。独自ドメイン経由で利用者 IP が正しく取れ、偽装できないことを検証する。
    参加申込の IP レート制限（`internal/middleware/ratelimit.go`）は `c.ClientIP()` ごとに数えるため、これが正しいことが前提。
@@ -454,7 +489,8 @@ GitHub Environments（`staging`・`production`）の変数:
 10. **API の中継の検証**（#226）: 方式は ADR-0034 で決めた（Workers の中継、秘密ヘッダーで中継元を確認）。
     サブドメインは `natueve-api.natuportal.org`。中継用 Worker（`workers/api-relay/`）と API 側の確認・利用者 IP の読み取り
     （`internal/middleware/relay.go`）は実装済み。
-    **独自ドメイン経由の検証は未実施**。デプロイ後に[下記の手順](#独自ドメイン経由の検証226)で検証し、結果をここに反映する。
+    [独自ドメイン経由の検証](#独自ドメイン経由の検証226)は、検証環境（`natueve-api-stg.natuportal.org`）で済み（#254）。
+    CORS とフロントの SSR は、検証環境のフロントのオリジンが決まっていないため未確認。本番のドメインでは本番への初回のデプロイ（#209）の後に確かめ、結果をここに反映する。
     検証で成り立たなければロードバランサーに切り替える（ADR-0034 の決定事項 7）。
 11. **予算アラート**: Cloud Billing の予算アラートを設定する。金額は未決。
     run.app の URL への直接の大量アクセスによる費用の急増を、[下記](#runapp-の-url-へ直接の大量アクセスを受けたとき)の手順の起点として検知する。
@@ -480,7 +516,7 @@ ADR-0034 の構成では、秘密ヘッダーのないリクエストも Cloud R
 
 ## 独自ドメイン経由の検証（#226）
 
-API と Worker をデプロイした後に行う。結果は #226 に返信し、[未決事項](#未決事項今後の作業) 10 に反映する。
+API と Worker をデプロイした後に行う。結果は検証環境が #254、本番が #209 に返信し、[未決事項](#未決事項今後の作業) 10 に反映する。
 `<run.app>` は Cloud Run の URL、`<フロント>` は `CORS_ALLOW_ORIGINS` に入れたオリジン。
 
 | 確認すること | 手順 | 期待する結果 |
@@ -489,7 +525,7 @@ API と Worker をデプロイした後に行う。結果は #226 に返信し�
 | 認証付きの API | `curl -sS -H "Authorization: Bearer <JWT>" https://natueve-api.natuportal.org/api/v1/me` | 200 |
 | CORS のプリフライト | `curl -sS -i -X OPTIONS -H "Origin: <フロント>" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: authorization,content-type" https://natueve-api.natuportal.org/api/v1/events` | 204、`Access-Control-Allow-Origin: <フロント>` |
 | run.app への直接アクセス | `curl -sS -i https://<run.app>/api/v1/events` | 403（`/health` は 200） |
-| `workers.dev`・Preview URL | ダッシュボードの Worker の「Domains & Routes」で無効になっていること。`https://natueve-api-relay.<アカウントのサブドメイン>.workers.dev/health` | 届かない |
+| `workers.dev`・Preview URL | ダッシュボードの Worker の「Domains & Routes」で無効になっていること。`https://<Worker 名>.<アカウントのサブドメイン>.workers.dev/health`（Worker 名は本番が `natueve-api-relay`、検証環境が `natueve-api-relay-stg`） | 届かない |
 | Pseudo IPv4 | ダッシュボードのゾーンの「Network」の Pseudo IPv4 | Off |
 | キャッシュルール | ゾーンの「Caching」の Cache Rules と Page Rules に、`natueve-api.natuportal.org` に当たるルールがないこと | ない |
 | フロントの SSR から呼べる | フロントの `NEXT_PUBLIC_API_BASE_URL` を `https://natueve-api.natuportal.org` にして SSR のページを開く | データが表示される。API のログの `ip` の値を #215 のために記録する |
