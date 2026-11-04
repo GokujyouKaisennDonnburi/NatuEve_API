@@ -1151,6 +1151,15 @@ definitions:
         example: 12
         type: integer
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SitemapEvent:
+    properties:
+      id:
+        description: ID はイベントの一意識別子(UUID)。
+        type: string
+      updatedAt:
+        description: UpdatedAt は最終更新日時(RFC3339)。
+        type: string
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.TagListResponse:
     properties:
       tags:
@@ -2108,6 +2117,27 @@ paths:
       summary: レポート投稿
       tags:
       - report
+  /api/v1/sitemap/events:
+    get:
+      description: |-
+        sitemap用に、イベントIDと最終更新日時を返す。認証不要。
+        キャンセル済みイベントも含め、最大50,000件のイベントを返す。
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SitemapEvent'
+            type: array
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      summary: sitemap用イベント一覧取得
+      tags:
+      - event
   /api/v1/tags:
     get:
       description: タグ一覧を取得する。
