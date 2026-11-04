@@ -202,6 +202,9 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	v1Public.GET("/events", eventHandler.List)
 	v1Public.GET("/tags", tagHandler.List)
 
+	// sitemap用のイベント一覧(認証不要)
+	v1Public.GET("/sitemap/events", eventHandler.ListSitemapEvents)
+
 	// events/{id} は公開エンドポイント。DB があれば JWKS の有無に関わらず登録する。
 	v1Public.GET("/events/:id", eventHandler.GetByID)
 

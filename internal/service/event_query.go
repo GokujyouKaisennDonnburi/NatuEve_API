@@ -436,3 +436,8 @@ func (s *EventQueryService) ListPublicByProfile(ctx context.Context, profileID u
 		Offset:     resp.Offset,
 	}, nil
 }
+
+// ListSitemapEvents は sitemap 生成用のイベント情報を取得する。
+func (s *EventQueryService) ListSitemapEvents(ctx context.Context) ([]model.SitemapEvent, error) {
+	return s.repo.ListSitemapEvents(ctx)
+}

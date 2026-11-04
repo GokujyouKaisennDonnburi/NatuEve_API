@@ -107,6 +107,8 @@ type EventRepository interface {
 	// （profile_id NULL または profiles 行なし）・メールアドレスが空の場合は
 	// ErrOrganizerEmailNotFound を %w でラップして返す。
 	GetOrganizerEmail(ctx context.Context, eventID uuid.UUID) (string, error)
+	// ListSitemapEvents は sitemap 生成用のイベント情報を最大50,000件取得する
+	ListSitemapEvents(ctx context.Context) ([]model.SitemapEvent, error)
 }
 
 // eventPostgres は EventRepository の PostgreSQL 実装。
@@ -1003,4 +1005,37 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 	}
 
 	return &e, nil
+}
+
+// ListSitemapEvents は sitemap 生成に必要な IDと更新日時だけを取得する
+// 現時点では全イベントを対象とし、取り止め済みイベントも除外しない
+// 将来的に公開状態や検索エンジンへの掲載可否による絞り込みを追加する
+func (r *eventPostgres) ListSitemapEvents(ctx context.Context) ([]model.SitemapEvent, error) {
+	const query = `
+		SELECT id, updated_at
+		FROM events
+		ORDER BY id
+		LIMIT 50000
+	`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list sitemap events: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	events := make([]model.SitemapEvent, 0)
+
+	for rows.Next() {
+		var event model.SitemapEvent
+		if err := rows.Scan(&event.ID, &event.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan sitemap event: %w", err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sitemap events: %w", err)
+	}
+
+	return events, nil
 }
