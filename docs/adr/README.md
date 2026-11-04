@@ -58,3 +58,4 @@
 | [0039](./0039-r2-production-bucket-split.md) | R2 の本番用バケットを新しく作り、今のバケットをローカル開発と検証環境で使う | Accepted |
 | [0040](./0040-github-actions-deploy-separate-gcp-projects.md) | デプロイを GitHub Actions で自動化し、検証環境と本番を別の GCP プロジェクトに置く | Accepted（検証環境の Resend を ADR-0041 で変更） |
 | [0041](./0041-staging-shares-auth-mail-with-dev.md) | 検証環境は Supabase の Auth とメールの送信元を開発と共有し、Supabase は本番と同じく Auth と DB を分ける | Accepted |
+| [0042](./0042-no-search-engine-exclusion-setting.md) | 検索エンジンに載せない設定は作らず、全イベントを sitemap に載せる | Accepted |
