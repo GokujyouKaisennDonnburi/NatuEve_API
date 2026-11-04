@@ -93,6 +93,10 @@ func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order strin
 	return s.results, s.err
 }
 
+func (s *stubEventRepository) ListSitemapEvents(_ context.Context) ([]model.SitemapEvent, error) {
+	return []model.SitemapEvent{}, nil
+}
+
 func (s *stubEventRepository) CountSummaries(_ context.Context) (int, error) {
 	s.countCalled = true
 	return s.totalCount, s.countErr
