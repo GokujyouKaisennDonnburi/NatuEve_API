@@ -91,6 +91,16 @@ func (r *reportPostgres) Create(ctx context.Context, report *model.NewReport) (m
 		}
 	}
 
+	// レポート投稿に伴い、イベントの最終更新日時を更新する
+	const updateEvent = `
+		UPDATE events
+		SET updated_at = now()
+		WHERE id = $1
+	`
+	if _, err := tx.ExecContext(ctx, updateEvent, report.EventID); err != nil {
+		return model.CreateReportResponse{}, fmt.Errorf("update event updated_at: %w", err)
+	}
+
 	// トランザクションをコミット
 	if err := tx.Commit(); err != nil {
 		return model.CreateReportResponse{}, fmt.Errorf("commit transaction: %w", err)
