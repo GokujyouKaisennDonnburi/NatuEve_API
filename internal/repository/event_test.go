@@ -1683,3 +1683,78 @@ func TestEventPostgres_Create_ApplicationDeadline(t *testing.T) {
 		})
 	}
 }
+
+func TestEventPostgres_ListSitemapEvents(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+	profileID := insertTestProfile(t, db)
+
+	tests := []struct {
+		name          string
+		createEvent   bool
+		cancelled     bool
+		wantCount     int
+		wantCancelled bool
+	}{
+		{
+			name:          "キャンセル済みイベントも取得できる",
+			createEvent:   true,
+			cancelled:     true,
+			wantCount:     1,
+			wantCancelled: true,
+		},
+		{
+			name:        "イベントが０件なら空スライスを返す",
+			createEvent: false,
+			wantCount:   0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// このテストケース専用のイベントIDを使用
+			var eventID uuid.UUID
+
+			if tt.createEvent {
+				eventID = insertTestEvent(t, db, profileID)
+
+				if tt.cancelled {
+					_, err := db.ExecContext(
+						context.Background(),
+						`UPDATE events SET cancelled_at = now() WHERE id = $1`,
+						eventID,
+					)
+					if err != nil {
+						t.Fatalf("cancel event: %v", err)
+					}
+				}
+			}
+
+			// Repositoryの取得結果とDB上のデータを照合する
+			got, err := repo.ListSitemapEvents(context.Background())
+			if err != nil {
+				t.Fatalf("ListSitemapEvents() returned error: %v", err)
+			}
+
+			if tt.wantCount == 0 {
+				return
+			}
+
+			found := false
+			for _, event := range got {
+				if event.ID == eventID.String() {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				t.Errorf("キャンセル済みイベント %s が取得結果に含まれていません", eventID)
+			}
+
+			if tt.wantCancelled && !found {
+				t.Errorf("キャンセル済みイベントが取得されることを期待しました")
+			}
+		})
+	}
+}
