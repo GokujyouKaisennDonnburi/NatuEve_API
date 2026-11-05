@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"strconv"
 	"strings"
@@ -82,6 +84,9 @@ type stubEventRepository struct {
 	organizerEmail           string
 	organizerEmailErr        error
 	gotOrganizerEmailEventID uuid.UUID
+
+	sitemapEvents []model.SitemapEvent
+	sitemapErr    error
 }
 
 func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
@@ -94,7 +99,7 @@ func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order strin
 }
 
 func (s *stubEventRepository) ListSitemapEvents(_ context.Context) ([]model.SitemapEvent, error) {
-	return []model.SitemapEvent{}, nil
+	return s.sitemapEvents, s.sitemapErr
 }
 
 func (s *stubEventRepository) CountSummaries(_ context.Context) (int, error) {
@@ -1699,4 +1704,96 @@ func TestEventQueryServiceListPublicByProfile_RepositoryErrors(t *testing.T) {
 			t.Error("CountMyEventKinds のエラー検証前に ListMySummaries が呼ばれているべき")
 		}
 	})
+}
+
+func TestEventQueryServiseListSitemapEvents(t *testing.T) {
+	const limit = 50000
+
+	tests := []struct {
+		name       string
+		eventCount int
+		repoErr    error
+		wantCount  int
+		WantLog    bool
+		wantErr    bool
+	}{
+		{
+			name:       "正常: limit件数以内ならそのまま返す",
+			eventCount: 100,
+			wantCount:  100,
+		},
+		{
+			name:       "正常: limit上限ちょうどの場合はそのまま返す",
+			eventCount: 50000,
+			wantCount:  50000,
+		},
+		{
+			name:       "正常: limit上限を超える場合はlimit件数に切り詰める",
+			eventCount: limit + 1,
+			wantCount:  limit,
+			WantLog:    true,
+		},
+		{
+			name:    "異常: repository がエラーが伝播する",
+			repoErr: errors.New("db error"),
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			events := make([]model.SitemapEvent, tt.eventCount)
+
+			for i := range events {
+				events[i] = model.SitemapEvent{
+					ID:        fmt.Sprintf("event-%d", i),
+					UpdatedAt: time.Date(2026, 1, 1, 0, 0, i%60, 0, time.UTC),
+				}
+			}
+
+			repo := &stubEventRepository{
+				sitemapEvents: events,
+				sitemapErr:    tt.repoErr,
+			}
+
+			service := &EventQueryService{
+				repo: repo,
+			}
+
+			// ログ出力を捕捉する
+			var logBuffer bytes.Buffer
+			originalLogOutput := log.Writer()
+			log.SetOutput(&logBuffer)
+			defer log.SetOutput(originalLogOutput)
+
+			got, err := service.ListSitemapEvents(context.Background())
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("エラーが返されることを期待しました")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+			if len(got) != tt.wantCount {
+				t.Errorf("取得件数 = %d, want %d", len(got), tt.wantCount)
+			}
+			if tt.WantLog && logBuffer.Len() == 0 {
+				t.Errorf("上限超過時に警告ログが出力されませんでした")
+			}
+			if !tt.WantLog && logBuffer.Len() != 0 {
+				t.Errorf("警告ログが不要なケースで出力されています: %s", logBuffer.String())
+			}
+			// 上限超過時、先頭のイベントが保持されていることを確認
+			if tt.eventCount > limit {
+				if got[0].ID != "event-0" {
+					t.Errorf("先頭のイベントID = %s, want event-0", got[0].ID)
+				}
+				if got[len(got)-1].ID != fmt.Sprintf("event-%d", limit-1) {
+					t.Errorf("最後のイベントID = %s, want event-%d", got[len(got)-1].ID, limit-1)
+				}
+			}
+		})
+	}
 }

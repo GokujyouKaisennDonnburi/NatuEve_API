@@ -1014,8 +1014,8 @@ func (r *eventPostgres) ListSitemapEvents(ctx context.Context) ([]model.SitemapE
 	const query = `
 		SELECT id, updated_at
 		FROM events
-		ORDER BY id
-		LIMIT 50000
+		ORDER BY updated_at DESC, id ASC
+		LIMIT 50001
 	`
 
 	rows, err := r.db.QueryContext(ctx, query)
