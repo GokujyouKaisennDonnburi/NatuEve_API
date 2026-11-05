@@ -198,12 +198,18 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 		return nil, err
 	}
 
+	// Sitemap API は認証不要だが、負荷が高いためAPIレートリミットを掛ける
+	sitemapLimiter := middleware.NewIPRateLimiter(
+		rate.Every(time.Minute),
+		2,
+	).Middleware()
+
 	v1Public := r.Group("/api/v1")
 	v1Public.GET("/events", eventHandler.List)
 	v1Public.GET("/tags", tagHandler.List)
 
 	// sitemap用のイベント一覧(認証不要)
-	v1Public.GET("/sitemap/events", eventHandler.ListSitemapEvents)
+	v1Public.GET("/sitemap/events", sitemapLimiter, eventHandler.ListSitemapEvents)
 
 	// events/{id} は公開エンドポイント。DB があれば JWKS の有無に関わらず登録する。
 	v1Public.GET("/events/:id", eventHandler.GetByID)
@@ -218,7 +224,10 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	v1Public.GET("/events/:id/report", reportHandler.GetByEventID)
 
 	// join は匿名で叩けるため IP レートリミットを掛ける。
-	joinLimiter := middleware.NewIPRateLimiter(rate.Every(joinRateInterval), joinRateBurst).Middleware()
+	joinLimiter := middleware.NewIPRateLimiter(
+		rate.Every(joinRateInterval),
+		joinRateBurst,
+	).Middleware()
 
 	// user 系は認証が必要。DB と JWKS の両方が揃っているときのみ登録する。
 	// JWKS 未設定の場合: join ルートのみ認証なし（常に匿名参加）で登録して終了する。
