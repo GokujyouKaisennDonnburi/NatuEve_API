@@ -126,6 +126,12 @@ const (
 	joinRateBurst    = 5
 )
 
+// sitemap のレートリミット設定。同一 IP から平均 1回/分・バースト5回に絞る（ADR-0043）。
+const (
+	sitemapRateInterval = time.Minute
+	sitemapRateBurst    = 5
+)
+
 // registerRoutes は各ハンドラをルーターに登録する。
 // 戻り値の *service.NotificationOutboxWorker については NewRouter の doc を参照。
 func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.NotificationOutboxWorker, error) {
@@ -198,11 +204,8 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 		return nil, err
 	}
 
-	// Sitemap API は認証不要だが、負荷が高いためAPIレートリミットを掛ける
-	sitemapLimiter := middleware.NewIPRateLimiter(
-		rate.Every(time.Minute),
-		2,
-	).Middleware()
+	// sitemap は匿名で叩けるため IP レートリミットを掛ける（ADR-0043）。
+	sitemapLimiter := middleware.NewIPRateLimiter(rate.Every(sitemapRateInterval), sitemapRateBurst).Middleware()
 
 	v1Public := r.Group("/api/v1")
 	v1Public.GET("/events", eventHandler.List)
@@ -224,10 +227,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	v1Public.GET("/events/:id/report", reportHandler.GetByEventID)
 
 	// join は匿名で叩けるため IP レートリミットを掛ける。
-	joinLimiter := middleware.NewIPRateLimiter(
-		rate.Every(joinRateInterval),
-		joinRateBurst,
-	).Middleware()
+	joinLimiter := middleware.NewIPRateLimiter(rate.Every(joinRateInterval), joinRateBurst).Middleware()
 
 	// user 系は認証が必要。DB と JWKS の両方が揃っているときのみ登録する。
 	// JWKS 未設定の場合: join ルートのみ認証なし（常に匿名参加）で登録して終了する。
