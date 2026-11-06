@@ -1709,7 +1709,7 @@ func TestEventQueryServiceListPublicByProfile_RepositoryErrors(t *testing.T) {
 }
 
 func TestEventQueryServiceListSitemapEvents(t *testing.T) {
-	const limit = 50000
+	const limit = sitemapEventLimit
 
 	tests := []struct {
 		name       string
@@ -1726,8 +1726,8 @@ func TestEventQueryServiceListSitemapEvents(t *testing.T) {
 		},
 		{
 			name:       "正常: limit上限ちょうどの場合はそのまま返す",
-			eventCount: 50000,
-			wantCount:  50000,
+			eventCount: limit,
+			wantCount:  limit,
 		},
 		{
 			name:       "正常: limit上限を超える場合はlimit件数に切り詰める",
