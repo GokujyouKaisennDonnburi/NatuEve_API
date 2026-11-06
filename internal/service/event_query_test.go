@@ -85,8 +85,9 @@ type stubEventRepository struct {
 	organizerEmailErr        error
 	gotOrganizerEmailEventID uuid.UUID
 
-	sitemapEvents []model.SitemapEvent
-	sitemapErr    error
+	sitemapEvents   []model.SitemapEvent
+	sitemapErr      error
+	gotSitemapLimit int
 }
 
 func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
@@ -98,7 +99,8 @@ func (s *stubEventRepository) ListSummaries(_ context.Context, sort, order strin
 	return s.results, s.err
 }
 
-func (s *stubEventRepository) ListSitemapEvents(_ context.Context) ([]model.SitemapEvent, error) {
+func (s *stubEventRepository) ListSitemapEvents(_ context.Context, limit int) ([]model.SitemapEvent, error) {
+	s.gotSitemapLimit = limit
 	return s.sitemapEvents, s.sitemapErr
 }
 
@@ -1778,6 +1780,9 @@ func TestEventQueryServiseListSitemapEvents(t *testing.T) {
 			}
 			if len(got) != tt.wantCount {
 				t.Errorf("取得件数 = %d, want %d", len(got), tt.wantCount)
+			}
+			if repo.gotSitemapLimit != limit+1 {
+				t.Errorf("repository へ渡した limit = %d, want %d", repo.gotSitemapLimit, limit+1)
 			}
 			if tt.WantLog && logBuffer.Len() == 0 {
 				t.Errorf("上限超過時に警告ログが出力されませんでした")

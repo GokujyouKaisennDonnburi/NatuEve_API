@@ -440,9 +440,10 @@ func (s *EventQueryService) ListPublicByProfile(ctx context.Context, profileID u
 	}, nil
 }
 
-// ListSitemapEvents は sitemap 生成用のイベント情報を取得する。
+// ListSitemapEvents は sitemap 生成用のイベント情報を最大 sitemapEventLimit 件返す。
+// 超過の判定用に repository へは 1 件多く要求する（ADR-0043）。
 func (s *EventQueryService) ListSitemapEvents(ctx context.Context) ([]model.SitemapEvent, error) {
-	events, err := s.repo.ListSitemapEvents(ctx)
+	events, err := s.repo.ListSitemapEvents(ctx, sitemapEventLimit+1)
 	if err != nil {
 		return nil, err
 	}

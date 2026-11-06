@@ -1731,7 +1731,7 @@ func TestEventPostgres_ListSitemapEvents(t *testing.T) {
 			}
 
 			// Repositoryの取得結果とDB上のデータを照合する
-			got, err := repo.ListSitemapEvents(context.Background())
+			got, err := repo.ListSitemapEvents(context.Background(), 50001)
 			if err != nil {
 				t.Fatalf("ListSitemapEvents() returned error: %v", err)
 			}

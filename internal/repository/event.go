@@ -107,8 +107,9 @@ type EventRepository interface {
 	// （profile_id NULL または profiles 行なし）・メールアドレスが空の場合は
 	// ErrOrganizerEmailNotFound を %w でラップして返す。
 	GetOrganizerEmail(ctx context.Context, eventID uuid.UUID) (string, error)
-	// ListSitemapEvents は sitemap 生成用のイベント情報を最大50,000件取得する
-	ListSitemapEvents(ctx context.Context) ([]model.SitemapEvent, error)
+	// ListSitemapEvents は全イベントの ID と更新日時を updated_at の降順、
+	// 同時刻は id の昇順で最大 limit 件取得する（ADR-0042, ADR-0043）。
+	ListSitemapEvents(ctx context.Context, limit int) ([]model.SitemapEvent, error)
 }
 
 // eventPostgres は EventRepository の PostgreSQL 実装。
@@ -1007,18 +1008,17 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 	return &e, nil
 }
 
-// ListSitemapEvents は sitemap 生成に必要な IDと更新日時だけを取得する
-// 現時点では全イベントを対象とし、取り止め済みイベントも除外しない
-// 将来的に公開状態や検索エンジンへの掲載可否による絞り込みを追加する
-func (r *eventPostgres) ListSitemapEvents(ctx context.Context) ([]model.SitemapEvent, error) {
+// ListSitemapEvents は全イベントの ID と更新日時を updated_at の降順、
+// 同時刻は id の昇順で最大 limit 件取得する。取りやめ済みも含む（ADR-0042, ADR-0043）。
+func (r *eventPostgres) ListSitemapEvents(ctx context.Context, limit int) ([]model.SitemapEvent, error) {
 	const query = `
 		SELECT id, updated_at
 		FROM events
 		ORDER BY updated_at DESC, id ASC
-		LIMIT 50001
+		LIMIT $1
 	`
 
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.db.QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list sitemap events: %w", err)
 	}

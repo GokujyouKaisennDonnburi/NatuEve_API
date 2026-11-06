@@ -165,8 +165,8 @@ func (f *fakeWorkerEventRepo) ListSummaries(context.Context, string, string, int
 	panic("not implemented in worker test fake")
 }
 
-func (f *fakeWorkerEventRepo) ListSitemapEvents(_ context.Context) ([]model.SitemapEvent, error) {
-	return []model.SitemapEvent{}, nil
+func (f *fakeWorkerEventRepo) ListSitemapEvents(context.Context, int) ([]model.SitemapEvent, error) {
+	panic("not implemented in worker test fake")
 }
 
 func (f *fakeWorkerEventRepo) CountSummaries(context.Context) (int, error) {
