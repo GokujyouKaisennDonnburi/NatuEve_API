@@ -425,3 +425,33 @@ func (h *EventHandler) ListByProfile(c *gin.Context) {
 
 	c.JSON(http.StatusOK, resp)
 }
+
+// ListSitemapEvents godoc
+//
+//	@Summary		sitemap用イベント一覧取得
+//	@Description	sitemap用に、イベントIDと最終更新日時を返す。認証不要。
+//	@Description	キャンセル済みイベントも含む。上限は50,000件で、超過時は最終更新日時の新しいものを返す。
+//	@Description	最終更新日時はキャンセルとレポート投稿でも更新される。
+//	@Description	同一 IP から平均 1回/分・バースト5回を超えると 429 を返す。
+//	@Tags			event
+//	@Produce		json
+//	@Success		200	{array}		model.SitemapEvent
+//	@Failure		429	{object}	model.RateLimitedErrorResponse
+//	@Failure		500	{object}	model.InternalErrorResponse
+//	@Router			/api/v1/sitemap/events [get]
+func (h *EventHandler) ListSitemapEvents(c *gin.Context) {
+	events, err := h.querySvc.ListSitemapEvents(c.Request.Context())
+	if err != nil {
+		slog.Error("sitemap用イベント一覧の取得に失敗しました",
+			slog.Any("error", err),
+		)
+		c.JSON(http.StatusInternalServerError, model.NewErrorResponse(
+			"internal_error",
+			"sitemap用イベント一覧の取得に失敗しました",
+		))
+		return
+	}
+
+	c.Header("Cache-Control", "public, max-age=3600")
+	c.JSON(http.StatusOK, events)
+}

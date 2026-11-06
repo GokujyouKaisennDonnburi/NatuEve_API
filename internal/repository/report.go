@@ -10,7 +10,8 @@ import (
 
 // ReportRepository は reports テーブルへのアクセスを抽象化する。
 type ReportRepository interface {
-	// Create はレポートを関連テーブルとともにトランザクション内で一括登録する。
+	// Create はレポートを関連テーブルとともにトランザクション内で一括登録し、
+	// 対象イベントの events.updated_at を更新する（ADR-0043）。
 	Create(ctx context.Context, r *model.NewReport) (model.CreateReportResponse, error)
 	// GetByEventID は指定したイベント ID に紐づくレポート詳細を取得する。
 	// 1 イベント 1 レポート（reports.event_id は UNIQUE）を前提とする。
@@ -28,7 +29,8 @@ func NewReportRepository(db *sql.DB) ReportRepository {
 	return &reportPostgres{db: db}
 }
 
-// Create はレポート関連テーブル（画像・PDF）を含めてトランザクション内で一括登録する。
+// Create はレポート関連テーブル（画像・PDF）を含めてトランザクション内で一括登録し、
+// 対象イベントの events.updated_at を更新する（ADR-0043）。
 func (r *reportPostgres) Create(ctx context.Context, report *model.NewReport) (model.CreateReportResponse, error) {
 	// トランザクション開始
 	tx, err := r.db.BeginTx(ctx, nil)
@@ -89,6 +91,16 @@ func (r *reportPostgres) Create(ctx context.Context, report *model.NewReport) (m
 				return model.CreateReportResponse{}, fmt.Errorf("insert report external url: %w", err)
 			}
 		}
+	}
+
+	// レポート投稿に伴い、イベントの最終更新日時を更新する
+	const updateEvent = `
+		UPDATE events
+		SET updated_at = now()
+		WHERE id = $1
+	`
+	if _, err := tx.ExecContext(ctx, updateEvent, report.EventID); err != nil {
+		return model.CreateReportResponse{}, fmt.Errorf("update event updated_at: %w", err)
 	}
 
 	// トランザクションをコミット

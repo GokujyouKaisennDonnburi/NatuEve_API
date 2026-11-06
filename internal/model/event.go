@@ -372,3 +372,11 @@ type ProfileEventListResponse struct {
 	// Offset は正規化後の実際に使われた取得開始位置。
 	Offset int `json:"offset" example:"0"`
 }
+
+// SitemapEvent は sitemap 生成に必要なイベント情報
+type SitemapEvent struct {
+	// ID はイベントの一意識別子(UUID)。
+	ID string `json:"id" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	// UpdatedAt は最終更新日時(RFC3339)。
+	UpdatedAt time.Time `json:"updatedAt" example:"2026-06-23T12:00:00Z"`
+}

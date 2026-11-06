@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -38,6 +39,8 @@ const (
 	// maxLocationLength は地域絞り込みの1要素あたりの最大文字数。
 	// events.location の桁(VARCHAR(255))に合わせる（ADR-0028）。
 	maxLocationLength = 255
+	// sitemapEventLimit は sitemap 生成時に取得するイベント件数の上限。
+	sitemapEventLimit = 50000
 )
 
 // EventQueryService はイベント参照系のビジネスロジックを提供する。
@@ -435,4 +438,23 @@ func (s *EventQueryService) ListPublicByProfile(ctx context.Context, profileID u
 		Limit:      resp.Limit,
 		Offset:     resp.Offset,
 	}, nil
+}
+
+// ListSitemapEvents は sitemap 生成用のイベント情報を最大 sitemapEventLimit 件返す。
+// 超過の判定用に repository へは 1 件多く要求する（ADR-0043）。
+func (s *EventQueryService) ListSitemapEvents(ctx context.Context) ([]model.SitemapEvent, error) {
+	events, err := s.repo.ListSitemapEvents(ctx, sitemapEventLimit+1)
+	if err != nil {
+		return nil, err
+	}
+
+	// 上限を超えている場合は警告を出して切り詰める
+	if len(events) > sitemapEventLimit {
+		slog.Warn("sitemap 生成用のイベント件数が上限を超えたため切り詰めます",
+			slog.Int("limit", sitemapEventLimit),
+		)
+		events = events[:sitemapEventLimit]
+	}
+
+	return events, nil
 }

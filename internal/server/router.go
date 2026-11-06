@@ -126,6 +126,12 @@ const (
 	joinRateBurst    = 5
 )
 
+// sitemap のレートリミット設定。同一 IP から平均 1回/分・バースト5回に絞る（ADR-0043）。
+const (
+	sitemapRateInterval = time.Minute
+	sitemapRateBurst    = 5
+)
+
 // registerRoutes は各ハンドラをルーターに登録する。
 // 戻り値の *service.NotificationOutboxWorker については NewRouter の doc を参照。
 func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.NotificationOutboxWorker, error) {
@@ -198,9 +204,15 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 		return nil, err
 	}
 
+	// sitemap に IP レートリミットを掛ける（ADR-0043）。
+	sitemapLimiter := middleware.NewIPRateLimiter(rate.Every(sitemapRateInterval), sitemapRateBurst).Middleware()
+
 	v1Public := r.Group("/api/v1")
 	v1Public.GET("/events", eventHandler.List)
 	v1Public.GET("/tags", tagHandler.List)
+
+	// sitemap用のイベント一覧(認証不要)
+	v1Public.GET("/sitemap/events", sitemapLimiter, eventHandler.ListSitemapEvents)
 
 	// events/{id} は公開エンドポイント。DB があれば JWKS の有無に関わらず登録する。
 	v1Public.GET("/events/:id", eventHandler.GetByID)

@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -1681,5 +1683,114 @@ func TestEventPostgres_Create_ApplicationDeadline(t *testing.T) {
 				t.Errorf("application_deadline = %v, want %v", got.Time, tt.want.Time)
 			}
 		})
+	}
+}
+
+// sitemapAllEvents は共有 DB の全イベントを取得する ListSitemapEvents の limit。
+const sitemapAllEvents = math.MaxInt32
+
+// TestEventPostgres_ListSitemapEvents は取りやめ済みを含むイベントが updated_at の降順、
+// 同時刻は id の昇順で返ることを検証する。共有 DB のため、作成した行だけを照合する。
+func TestEventPostgres_ListSitemapEvents(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+	profileID := insertTestProfile(t, db)
+
+	older := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	newer := older.Add(time.Hour)
+
+	type testEvent struct {
+		updatedAt time.Time
+		cancelled bool
+	}
+
+	tests := []struct {
+		name   string
+		events []testEvent
+	}{
+		{
+			name:   "取りやめ済みのイベントも返す",
+			events: []testEvent{{updatedAt: older, cancelled: true}},
+		},
+		{
+			name:   "updated_at の降順で返す",
+			events: []testEvent{{updatedAt: older}, {updatedAt: newer, cancelled: true}},
+		},
+		{
+			name:   "同時刻は id の昇順で返す",
+			events: []testEvent{{updatedAt: older}, {updatedAt: older}, {updatedAt: older}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			created := make(map[string]bool, len(tt.events))
+			want := make([]model.SitemapEvent, 0, len(tt.events))
+
+			for _, event := range tt.events {
+				eventID := insertTestEvent(t, db, profileID)
+				if _, err := db.ExecContext(
+					context.Background(),
+					`UPDATE events
+					 SET updated_at = $2, cancelled_at = CASE WHEN $3::boolean THEN now() END
+					 WHERE id = $1`,
+					eventID,
+					event.updatedAt,
+					event.cancelled,
+				); err != nil {
+					t.Fatalf("update test event: %v", err)
+				}
+				created[eventID.String()] = true
+				want = append(want, model.SitemapEvent{ID: eventID.String(), UpdatedAt: event.updatedAt})
+			}
+			sort.Slice(want, func(i, j int) bool {
+				if !want[i].UpdatedAt.Equal(want[j].UpdatedAt) {
+					return want[i].UpdatedAt.After(want[j].UpdatedAt)
+				}
+				return want[i].ID < want[j].ID
+			})
+
+			all, err := repo.ListSitemapEvents(context.Background(), sitemapAllEvents)
+			if err != nil {
+				t.Fatalf("ListSitemapEvents() returned error: %v", err)
+			}
+
+			got := make([]model.SitemapEvent, 0, len(want))
+			for _, event := range all {
+				if created[event.ID] {
+					got = append(got, event)
+				}
+			}
+
+			if len(got) != len(want) {
+				t.Fatalf("取得件数 = %d, want %d", len(got), len(want))
+			}
+			for i := range want {
+				if got[i].ID != want[i].ID {
+					t.Errorf("got[%d].ID = %s, want %s", i, got[i].ID, want[i].ID)
+				}
+				if !got[i].UpdatedAt.Equal(want[i].UpdatedAt) {
+					t.Errorf("got[%d].UpdatedAt = %v, want %v", i, got[i].UpdatedAt, want[i].UpdatedAt)
+				}
+			}
+		})
+	}
+}
+
+// TestEventPostgres_ListSitemapEvents_Limit は取得件数が limit までに制限されることを検証する。
+func TestEventPostgres_ListSitemapEvents_Limit(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+	profileID := insertTestProfile(t, db)
+
+	insertTestEvent(t, db, profileID)
+	insertTestEvent(t, db, profileID)
+
+	got, err := repo.ListSitemapEvents(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("ListSitemapEvents() returned error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Errorf("取得件数 = %d, want 1", len(got))
 	}
 }

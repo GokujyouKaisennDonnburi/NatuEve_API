@@ -59,3 +59,4 @@
 | [0040](./0040-github-actions-deploy-separate-gcp-projects.md) | デプロイを GitHub Actions で自動化し、検証環境と本番を別の GCP プロジェクトに置く | Accepted（検証環境の Resend を ADR-0041 で変更） |
 | [0041](./0041-staging-shares-auth-mail-with-dev.md) | 検証環境は Supabase の Auth とメールの送信元を開発と共有し、Supabase は本番と同じく Auth と DB を分ける | Accepted |
 | [0042](./0042-no-search-engine-exclusion-setting.md) | 検索エンジンに載せない設定は作らず、全イベントを sitemap に載せる | Accepted |
+| [0043](./0043-sitemap-events-limit-and-lastmod.md) | sitemap 用イベント一覧は上限超過時に古い更新から切り捨て、匿名アクセスを IP で制限する | Accepted |
