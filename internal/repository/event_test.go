@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"strings"
@@ -1685,8 +1686,8 @@ func TestEventPostgres_Create_ApplicationDeadline(t *testing.T) {
 	}
 }
 
-// sitemapAllEvents は共有 DB の全イベントを取得できる ListSitemapEvents の limit。
-const sitemapAllEvents = 50001
+// sitemapAllEvents は共有 DB の全イベントを取得する ListSitemapEvents の limit。
+const sitemapAllEvents = math.MaxInt32
 
 // TestEventPostgres_ListSitemapEvents は取りやめ済みを含むイベントが updated_at の降順、
 // 同時刻は id の昇順で返ることを検証する。共有 DB のため、作成した行だけを照合する。
