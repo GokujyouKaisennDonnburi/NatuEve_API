@@ -204,7 +204,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 		return nil, err
 	}
 
-	// sitemap は匿名で叩けるため IP レートリミットを掛ける（ADR-0043）。
+	// sitemap に IP レートリミットを掛ける（ADR-0043）。
 	sitemapLimiter := middleware.NewIPRateLimiter(rate.Every(sitemapRateInterval), sitemapRateBurst).Middleware()
 
 	v1Public := r.Group("/api/v1")
