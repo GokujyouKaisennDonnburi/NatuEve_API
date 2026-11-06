@@ -10,7 +10,8 @@ import (
 
 // ReportRepository は reports テーブルへのアクセスを抽象化する。
 type ReportRepository interface {
-	// Create はレポートを関連テーブルとともにトランザクション内で一括登録する。
+	// Create はレポートを関連テーブルとともにトランザクション内で一括登録し、
+	// 対象イベントの events.updated_at を更新する（ADR-0043）。
 	Create(ctx context.Context, r *model.NewReport) (model.CreateReportResponse, error)
 	// GetByEventID は指定したイベント ID に紐づくレポート詳細を取得する。
 	// 1 イベント 1 レポート（reports.event_id は UNIQUE）を前提とする。
