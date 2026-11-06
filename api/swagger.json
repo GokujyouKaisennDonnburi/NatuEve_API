@@ -1218,7 +1218,7 @@
         },
         "/api/v1/sitemap/events": {
             "get": {
-                "description": "sitemap用に、イベントIDと最終更新日時を返す。認証不要。\nキャンセル済みイベントも含め、最大50,000件のイベントを返す。",
+                "description": "sitemap用に、イベントIDと最終更新日時を返す。認証不要。\nキャンセル済みイベントも含む。上限は50,000件で、超過時は最終更新日時の新しいものを返す。\n最終更新日時はキャンセルとレポート投稿でも更新される。\n同一 IP から平均 1回/分・バースト5回を超えると 429 を返す。",
                 "produces": [
                     "application/json"
                 ],
@@ -1234,6 +1234,12 @@
                             "items": {
                                 "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.SitemapEvent"
                             }
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse"
                         }
                     },
                     "500": {
@@ -2916,11 +2922,13 @@
             "properties": {
                 "id": {
                     "description": "ID はイベントの一意識別子(UUID)。",
-                    "type": "string"
+                    "type": "string",
+                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                 },
                 "updatedAt": {
                     "description": "UpdatedAt は最終更新日時(RFC3339)。",
-                    "type": "string"
+                    "type": "string",
+                    "example": "2026-06-23T12:00:00Z"
                 }
             }
         },
