@@ -28,7 +28,8 @@ func NewReportRepository(db *sql.DB) ReportRepository {
 	return &reportPostgres{db: db}
 }
 
-// Create はレポート関連テーブル（画像・PDF）を含めてトランザクション内で一括登録する。
+// Create はレポート関連テーブル（画像・PDF）を含めてトランザクション内で一括登録し、
+// 対象イベントの events.updated_at を更新する（ADR-0043）。
 func (r *reportPostgres) Create(ctx context.Context, report *model.NewReport) (model.CreateReportResponse, error) {
 	// トランザクション開始
 	tx, err := r.db.BeginTx(ctx, nil)
