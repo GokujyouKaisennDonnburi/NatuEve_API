@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
@@ -450,9 +450,8 @@ func (s *EventQueryService) ListSitemapEvents(ctx context.Context) ([]model.Site
 
 	// 上限を超えている場合は警告を出して切り詰める
 	if len(events) > sitemapEventLimit {
-		log.Printf(
-			"WARNING: sitemap 生成用のイベント件数が上限を超えています。%d件に切り詰めます。",
-			sitemapEventLimit,
+		slog.Warn("sitemap 生成用のイベント件数が上限を超えたため切り詰めます",
+			slog.Int("limit", sitemapEventLimit),
 		)
 		events = events[:sitemapEventLimit]
 	}

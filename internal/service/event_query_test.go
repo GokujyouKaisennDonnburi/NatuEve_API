@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1708,7 +1708,7 @@ func TestEventQueryServiceListPublicByProfile_RepositoryErrors(t *testing.T) {
 	})
 }
 
-func TestEventQueryServiseListSitemapEvents(t *testing.T) {
+func TestEventQueryServiceListSitemapEvents(t *testing.T) {
 	const limit = 50000
 
 	tests := []struct {
@@ -1716,7 +1716,7 @@ func TestEventQueryServiseListSitemapEvents(t *testing.T) {
 		eventCount int
 		repoErr    error
 		wantCount  int
-		WantLog    bool
+		wantLog    bool
 		wantErr    bool
 	}{
 		{
@@ -1733,10 +1733,10 @@ func TestEventQueryServiseListSitemapEvents(t *testing.T) {
 			name:       "正常: limit上限を超える場合はlimit件数に切り詰める",
 			eventCount: limit + 1,
 			wantCount:  limit,
-			WantLog:    true,
+			wantLog:    true,
 		},
 		{
-			name:    "異常: repository がエラーが伝播する",
+			name:    "異常: repository のエラーが伝播する",
 			repoErr: errors.New("db error"),
 			wantErr: true,
 		},
@@ -1763,9 +1763,9 @@ func TestEventQueryServiseListSitemapEvents(t *testing.T) {
 
 			// ログ出力を捕捉する
 			var logBuffer bytes.Buffer
-			originalLogOutput := log.Writer()
-			log.SetOutput(&logBuffer)
-			defer log.SetOutput(originalLogOutput)
+			originalLogger := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logBuffer, nil)))
+			t.Cleanup(func() { slog.SetDefault(originalLogger) })
 
 			got, err := service.ListSitemapEvents(context.Background())
 
@@ -1784,10 +1784,10 @@ func TestEventQueryServiseListSitemapEvents(t *testing.T) {
 			if repo.gotSitemapLimit != limit+1 {
 				t.Errorf("repository へ渡した limit = %d, want %d", repo.gotSitemapLimit, limit+1)
 			}
-			if tt.WantLog && logBuffer.Len() == 0 {
-				t.Errorf("上限超過時に警告ログが出力されませんでした")
+			if tt.wantLog && !strings.Contains(logBuffer.String(), "level=WARN") {
+				t.Errorf("上限超過時に WARN のログが出力されませんでした: %s", logBuffer.String())
 			}
-			if !tt.WantLog && logBuffer.Len() != 0 {
+			if !tt.wantLog && logBuffer.Len() != 0 {
 				t.Errorf("警告ログが不要なケースで出力されています: %s", logBuffer.String())
 			}
 			// 上限超過時、先頭のイベントが保持されていることを確認
