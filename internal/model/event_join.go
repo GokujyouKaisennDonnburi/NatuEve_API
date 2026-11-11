@@ -13,6 +13,7 @@ type ParticipantInput struct {
 	// 大文字小文字は区別しない。
 	Category string `json:"category" example:"大人" validate:"required,max=255"`
 	// HeadCount はそのカテゴリの人数（必須・1以上）。0人のカテゴリは送らない。
+	// participants 全体の合計は10人以下であること。
 	HeadCount int `json:"headCount" example:"2" validate:"required,min=1"`
 }
 
@@ -28,6 +29,7 @@ type ParticipantResponse struct {
 //
 //	@Description	イベント参加申込に必要な情報。認証は任意。
 //	@Description	参加人数はカテゴリ別の内訳（participants）で送る。合計はサーバーが算出する。
+//	@Description	合計が10人を超える場合は400（party_size_exceeded）を返す。
 type JoinEventRequest struct {
 	// Username は参加するユーザーの表示名（必須・255文字以内）。
 	Username string `json:"username" example:"山田太郎" validate:"required,max=255"`
@@ -35,6 +37,7 @@ type JoinEventRequest struct {
 	MailAddress string `json:"mailAddress" example:"yamada@example.com" validate:"required,email,max=255"`
 	// Participants はカテゴリ別の参加人数（必須・1件以上）。
 	// 同一カテゴリを複数の要素に分けて送ることはできない。
+	// 合計が10人を超えると 400（party_size_exceeded）を返す。
 	Participants []ParticipantInput `json:"participants" validate:"required,min=1,dive"`
 }
 

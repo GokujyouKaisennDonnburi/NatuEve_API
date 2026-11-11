@@ -33,7 +33,8 @@ func conflictCode(ce *service.ConflictError) string {
 //	@Description	（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。
 //	@Description	合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。
 //	@Description	0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。
-//	@Description	イベント定員を超える場合は409 Conflict（capacity_full）を返す。
+//	@Description	participants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。
+//	@Description	イベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。
 //	@Description	申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。
 //	@Description	申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。
 //	@Tags			event
@@ -43,7 +44,7 @@ func conflictCode(ce *service.ConflictError) string {
 //	@Param			id		path		string					true	"イベントID"
 //	@Param			body	body		model.JoinEventRequest	true	"参加申込"
 //	@Success		201		{object}	model.JoinEventResponse
-//	@Failure		400		{object}	model.ValidationErrorResponse
+//	@Failure		400		{object}	model.ValidationErrorResponse	"invalid_request: 入力値が不正です / party_size_exceeded: participants の合計が10人を超えています"
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		404		{object}	model.NotFoundErrorResponse
 //	@Failure		409		{object}	model.JoinConflictErrorResponse	"already_joined: 既に参加しています / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後"
