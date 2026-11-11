@@ -828,6 +828,44 @@ func TestEventCommandServiceCreate_CompensationDelete(t *testing.T) {
 	}
 }
 
+func TestEventCommandServiceCreate_MidPromotionFailure(t *testing.T) {
+	jpegData := loadTestdata(t, "sample.jpg")
+	tmpKey1 := "natueve/tmp/" + testProfileID + "/uuid1.jpg"
+	tmpKey2 := "natueve/tmp/" + testProfileID + "/uuid2.jpg"
+
+	store := &fakeObjectStore{
+		headSize:        int64(len(jpegData)),
+		headContentType: "image/jpeg",
+		getData:         jpegData,
+		putFailOnCall:   2, // 2 件目の昇格（Put）を失敗させる
+	}
+	repoStub := &stubEventRepository{}
+	svc := NewEventCommandService(repoStub, store)
+
+	req := validRequest()
+	req.ImageObjectKeys = []string{tmpKey1, tmpKey2}
+
+	_, err := svc.Create(context.Background(), testProfileID, req)
+	if err == nil {
+		t.Fatal("エラーを期待したが nil だった")
+	}
+
+	// 1 件目の昇格済み最終キーのみ補償削除されること
+	if len(store.deleteKeys) != 1 {
+		t.Fatalf("Delete 呼び出し回数: got %d, want 1 (deleteKeys=%v)", len(store.deleteKeys), store.deleteKeys)
+	}
+	if !strings.HasPrefix(store.deleteKeys[0], "natueve/events/images/") {
+		t.Errorf("補償削除されたキーが予期しない prefix: %q", store.deleteKeys[0])
+	}
+
+	// 昇格の途中失敗時は tmp キーを削除しないこと（ADR-0045）
+	for _, k := range []string{tmpKey1, tmpKey2} {
+		if slices.Contains(store.deleteKeys, k) {
+			t.Errorf("昇格失敗時に tmp キーが削除されました: %q", k)
+		}
+	}
+}
+
 func TestEventCommandServiceCreate_TmpDeleteFailureDoesNotFailCreate(t *testing.T) {
 	dummyResp := model.CreateEventResponse{ID: "event-001", CreatedAt: time.Now().UTC()}
 	jpegData := loadTestdata(t, "sample.jpg")
@@ -886,7 +924,7 @@ func TestEventCommandServiceCreate_TmpDeleteFailureDoesNotFailCreate(t *testing.
 }
 
 // TestEventCommandServiceCreate_DuplicateTmpKeyDeletedOnce は、同じ tmp キーが
-// 重複指定された場合でも deleteTmpObjects の重複排除により Delete が 1 回だけ
+// 重複指定された場合でも deleteObjectsBestEffort の重複排除により Delete が 1 回だけ
 // 呼ばれることを確認する（ADR-0045）。
 func TestEventCommandServiceCreate_DuplicateTmpKeyDeletedOnce(t *testing.T) {
 	dummyResp := model.CreateEventResponse{ID: "event-001", CreatedAt: time.Now().UTC()}
