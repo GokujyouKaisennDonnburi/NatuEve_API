@@ -453,12 +453,15 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 		t.Fatalf("Join() (anonymous) returned error: %v", err)
 	}
 
+	// 未確定（pending）の申込は参加者一覧に含めない（ADR-0044）。
+	insertTestPendingEventMember(t, db, eventID, uuid.NewString()+"@example.com", 4)
+
 	members, err := repo.ListMembers(context.Background(), eventID)
 	if err != nil {
 		t.Fatalf("ListMembers() returned error: %v", err)
 	}
 	if len(members) != 2 {
-		t.Fatalf("len(members) = %d, want 2", len(members))
+		t.Fatalf("len(members) = %d, want 2（未確定の申込が混入している）", len(members))
 	}
 
 	// created_at 昇順で返ること。
@@ -543,6 +546,66 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 				t.Errorf("Profile.AvatarURL: got %q, want %q", member.Profile.AvatarURL, "https://example.com/avatar.png")
 			}
 		})
+	}
+}
+
+// TestEventJoinPostgres_ListRecipients_ExcludesPending は通知宛先に
+// 未確定（pending）の申込を含めないことを検証する（ADR-0044）。
+func TestEventJoinPostgres_ListRecipients_ExcludesPending(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	eventID := insertTestEvent(t, db, ownerID)
+
+	confirmedMail := uuid.NewString() + "@example.com"
+	pendingMail := uuid.NewString() + "@example.com"
+	insertTestEventMember(t, db, eventID, confirmedMail, 1)
+	insertTestPendingEventMember(t, db, eventID, pendingMail, 1)
+
+	recipients, err := repo.ListRecipients(context.Background(), eventID)
+	if err != nil {
+		t.Fatalf("ListRecipients() returned error: %v", err)
+	}
+	if len(recipients) != 1 || recipients[0].MailAddress != confirmedMail {
+		t.Errorf("recipients = %#v, want [%q]", recipients, confirmedMail)
+	}
+}
+
+// TestEventJoinPostgres_Join_ExcludesPendingFromCapacity は定員判定に
+// 未確定（pending）の申込を含めないことを検証する（ADR-0044）。
+func TestEventJoinPostgres_Join_ExcludesPendingFromCapacity(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	eventID := insertTestEvent(t, db, ownerID)
+	insertTestCost(t, db, eventID, "大人", 500)
+	const updateCapacity = `UPDATE events SET capacity = $2 WHERE id = $1`
+	if _, err := db.ExecContext(context.Background(), updateCapacity, eventID, 1); err != nil {
+		t.Fatalf("update capacity: %v", err)
+	}
+
+	// pending の1名は定員を埋めない。
+	insertTestPendingEventMember(t, db, eventID, uuid.NewString()+"@example.com", 1)
+
+	newMember := func() *model.EventMember {
+		return &model.EventMember{
+			EventID:     eventID,
+			Username:    "参加者",
+			MailAddress: uuid.NewString() + "@example.com",
+			PartySize:   1,
+			Categories: []model.MemberCategory{
+				{Category: "大人", HeadCount: 1},
+			},
+		}
+	}
+
+	if err := repo.Join(context.Background(), newMember()); err != nil {
+		t.Fatalf("1件目の Join() returned error: %v（pending は定員に含めない）", err)
+	}
+	if err := repo.Join(context.Background(), newMember()); !errors.Is(err, ErrEventCapacityFull) {
+		t.Fatalf("2件目の Join() error = %v, want ErrEventCapacityFull", err)
 	}
 }
 

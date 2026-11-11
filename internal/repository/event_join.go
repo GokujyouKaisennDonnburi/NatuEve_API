@@ -107,15 +107,18 @@ type EventJoinRepository interface {
 	Absence(ctx context.Context, eventID, profileID uuid.UUID, reason, detail, subject, body string) (time.Time, error)
 
 	// ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
+	// 未確定（pending）の申込は含めない（ADR-0044）。
 	ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error)
 
 	// ListMembers は指定 eventID の参加者一覧を作成日時の昇順で返す。
+	// 未確定（pending）の申込は含めない（ADR-0044）。
 	// profiles を LEFT JOIN してプロフィールサマリーを同時取得する。
 	// 匿名参加（profile_id NULL）は EventMember.Profile が nil になる。
 	// 0件の場合は nil ではなく空スライスを返す（呼び出し元の totalCount 計算で安全側に倒すため）。
 	ListMembers(ctx context.Context, eventID uuid.UUID) ([]model.EventMember, error)
 
 	// GetMemberByProfile は指定 eventID・profileID のログイン参加者の申込1件を返す。
+	// 未確定（pending）の申込は対象外（ADR-0044）。
 	// Categories はカテゴリ名の昇順で返す。0件でも nil ではなく空スライスを返す。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
@@ -256,11 +259,13 @@ func (r *eventJoinPostgres) Join(
 
 	// 定員確認。capacity が NULL または 0 は「定員なし」。
 	// 人数は party_size の合計で数える（団体登録導入後もこの式のまま）。
+	// 未確定（pending）の申込は定員に含めない（ADR-0044）。
 	if capacity.Valid && capacity.Int32 > 0 {
 		const sumPartySize = `
 		SELECT COALESCE(SUM(party_size), 0)
 		FROM event_members
 		WHERE event_id = $1
+		AND status = 'confirmed'
 		`
 
 		var taken int
@@ -432,10 +437,12 @@ func (r *eventJoinPostgres) Leave(
 	// 参加行を削除する。ログイン参加者は1イベントにつき高々1行のため、
 	// (event_id, profile_id) で一意に対象を特定できる。
 	// イベント存在は手前で確認済みのため、削除対象なしは未参加のみ。
+	// 未確定（pending）の行は profile_id を持たないが、防御的に確定済みだけを対象にする。
 	const deleteMember = `
 	DELETE FROM event_members
 	WHERE event_id = $1
 	AND profile_id = $2
+	AND status = 'confirmed'
 	`
 
 	res, err := tx.ExecContext(ctx, deleteMember, eventID, profileID)
@@ -534,10 +541,12 @@ func (r *eventJoinPostgres) Absence(
 	// 参加行を削除する。ログイン参加者は1イベントにつき高々1行のため、
 	// (event_id, profile_id) で一意に対象を特定できる。
 	// イベント存在は手前で確認済みのため、削除対象なしは未参加のみ。
+	// 未確定（pending）の行は profile_id を持たないが、防御的に確定済みだけを対象にする。
 	const deleteMember = `
 	DELETE FROM event_members
 	WHERE event_id = $1
 	AND profile_id = $2
+	AND status = 'confirmed'
 	`
 
 	res, err := tx.ExecContext(ctx, deleteMember, eventID, profileID)
@@ -619,12 +628,14 @@ func (r *eventJoinPostgres) Absence(
 }
 
 // ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
+// 未確定（pending）の申込は通知対象に含めない（ADR-0044）。
 func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error) {
 	// 参加登録順で返す（送信順を決定的にし、ログ・監査での追跡を容易にする）。
 	const query = `
 	SELECT mail_address
 	FROM event_members
 	WHERE event_id = $1
+	AND status = 'confirmed'
 	ORDER BY created_at
 	`
 
@@ -652,6 +663,7 @@ func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID uuid.UUI
 // ListMembers は指定 eventID の参加者一覧を作成日時の昇順で返す。
 // profile_id は nullable なので uuid.NullUUID で受ける。
 // profiles を LEFT JOIN してプロフィールサマリー（display_name・avatar_url）を同時取得する。
+// 未確定（pending）の申込は参加者一覧に含めない（ADR-0044）。
 //
 // 匿名参加（profile_id NULL）は Profile を nil にする。event.go の ListSummaries が
 // NULL を空文字で埋めた model.ProfileSummary として返すのとは意図的に異なる扱いで、
@@ -669,6 +681,7 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 	FROM event_members m
 	LEFT JOIN profiles p ON p.id = m.profile_id
 	WHERE m.event_id = $1
+	AND m.status = 'confirmed'
 	ORDER BY m.created_at
 	`
 
@@ -728,6 +741,7 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 
 // GetMemberByProfile は指定 eventID・profileID のログイン参加者の申込1件を返す。
 // 申込行と内訳は LEFT JOIN の1クエリで取得する（ADR-0026）。
+// 未確定（pending）の申込は対象外（ADR-0044）。
 func (r *eventJoinPostgres) GetMemberByProfile(
 	ctx context.Context,
 	eventID, profileID uuid.UUID,
@@ -740,6 +754,7 @@ func (r *eventJoinPostgres) GetMemberByProfile(
 	LEFT JOIN event_costs c ON c.id = mc.cost_id
 	WHERE m.event_id = $1
 	AND m.profile_id = $2
+	AND m.status = 'confirmed'
 	ORDER BY c.category
 	`
 
@@ -831,8 +846,10 @@ func (r *eventJoinPostgres) listMemberCategories(
 	const query = `
 	SELECT mc.member_id, mc.cost_id, c.category, mc.head_count
 	FROM event_member_categories mc
+	JOIN event_members m ON m.id = mc.member_id
 	JOIN event_costs c ON c.id = mc.cost_id
 	WHERE mc.event_id = $1
+	AND m.status = 'confirmed'
 	ORDER BY c.category
 	`
 

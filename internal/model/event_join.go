@@ -6,6 +6,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// event_members.status の値（ADR-0044）。
+//
+// pending: 確認メール待ちの申込（参加者一覧・人数・定員判定に含めない）/
+// confirmed: 確定済みの申込。
+const (
+	EventMemberStatusPending   = "pending"
+	EventMemberStatusConfirmed = "confirmed"
+)
+
 // ParticipantInput は参加申込のカテゴリ別人数1件分の入力 DTO。
 type ParticipantInput struct {
 	// Category は参加者カテゴリ（必須・255文字以内）。
@@ -177,6 +186,13 @@ type EventMember struct {
 	MailAddress string
 	// PartySize は代表者を含む参加人数（1以上）。Categories の HeadCount 合計と一致する。
 	PartySize int
+	// Status は EventMemberStatusPending / EventMemberStatusConfirmed のいずれか。
+	// Join（INSERT）時に呼び出し元が指定する。SELECT では使わない。
+	Status string
+	// ConfirmationTokenHash は確認トークンの SHA-256 の hex。pending のときだけ値が入る。
+	ConfirmationTokenHash string
+	// ConfirmationTokenExpiresAt は確認トークンの有効期限。pending のときだけ値が入る。
+	ConfirmationTokenExpiresAt time.Time
 	// Categories はカテゴリ別人数の内訳。Join（INSERT）時は Category と HeadCount を
 	// 呼び出し元が埋め、CostID は repository がカテゴリ名から解決して埋める。
 	Categories []MemberCategory
