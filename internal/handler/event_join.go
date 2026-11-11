@@ -92,9 +92,13 @@ func (h *EventHandler) Join(c *gin.Context) {
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
+			code := ve.Code
+			if code == "" {
+				code = "invalid_request"
+			}
 			c.JSON(
 				http.StatusBadRequest,
-				model.NewErrorResponse("invalid_request", ve.Message),
+				model.NewErrorResponse(code, ve.Message),
 			)
 			return
 		}

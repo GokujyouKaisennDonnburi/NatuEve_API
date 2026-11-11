@@ -18,7 +18,9 @@ import (
 // ValidationError はリクエストパラメータの検証失敗を表す型付きエラー。
 //
 // handler 層が errors.As で判定し、HTTP 400 を返すために使う。
+// Code は機械可読なエラーコード。空なら handler 層が既定値 "invalid_request" を使う。
 type ValidationError struct {
+	Code    string
 	Message string
 }
 
