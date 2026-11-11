@@ -167,6 +167,10 @@ func (s *EventCommandService) Create(ctx context.Context, profileID string, req 
 		}
 		return model.CreateEventResponse{}, fmt.Errorf("create event: %w", err)
 	}
+
+	// 6. DB 保存成功後: 昇格元の一時オブジェクトを best-effort 削除（ADR-0045）
+	deleteTmpObjects(ctx, s.store, pm.tmpKeys)
+
 	return resp, nil
 }
 
