@@ -147,15 +147,17 @@ func TestEventJoinServiceJoin(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
-		stub             *stubEventJoinRepository
-		profileID        uuid.NullUUID
-		req              model.JoinEventRequest
-		wantValErr       bool
-		wantNotFound     bool
-		wantConflict     bool
-		wantConflictCode string // wantConflict=true のとき検証する ConflictError.Code
-		wantErr          bool
+		name              string
+		stub              *stubEventJoinRepository
+		profileID         uuid.NullUUID
+		req               model.JoinEventRequest
+		wantValErr        bool
+		wantValErrCode    string // wantValErr=true のとき、空でなければ ValidationError.Code を検証する
+		wantRepoNotCalled bool   // wantValErr=true のとき、repository.Join が呼ばれていないことを検証する
+		wantNotFound      bool
+		wantConflict      bool
+		wantConflictCode  string // wantConflict=true のとき検証する ConflictError.Code
+		wantErr           bool
 		// 正常系: レスポンスの全フィールドを検証する。
 		checkResp func(t *testing.T, resp model.JoinEventResponse)
 		// 正常系: repo に渡った EventMember の内容を検証する。
@@ -390,6 +392,36 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				}
 			},
 		},
+		// --- 正常系: 人数上限ちょうど ---
+		{
+			name: "正常: participants の合計が10人 - 上限ちょうどは登録される",
+			stub: &stubEventJoinRepository{
+				joinCreatedAt: createdAt,
+			},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				Participants: []model.ParticipantInput{
+					{Category: "大人", HeadCount: 4},
+					{Category: "学生", HeadCount: 6},
+				},
+			},
+			checkMember: func(t *testing.T, stub *stubEventJoinRepository) {
+				t.Helper()
+
+				if stub.gotMember == nil {
+					t.Fatal("gotMember が nil")
+				}
+
+				if stub.gotMember.PartySize != 10 {
+					t.Errorf("PartySize: got %d, want 10", stub.gotMember.PartySize)
+				}
+				if len(stub.gotMember.Categories) != 2 {
+					t.Fatalf("Categories: got %d件, want 2件", len(stub.gotMember.Categories))
+				}
+			},
+		},
 		// --- バリデーションエラー ---
 		{
 			name:       "異常: username が空",
@@ -529,6 +561,37 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			wantValErr: true,
 		},
 		{
+			name:      "異常: participants の合計が11人 - party_size_exceeded",
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				Participants: []model.ParticipantInput{
+					{Category: "大人", HeadCount: 5},
+					{Category: "学生", HeadCount: 6},
+				},
+			},
+			wantValErr:        true,
+			wantValErrCode:    "party_size_exceeded",
+			wantRepoNotCalled: true,
+		},
+		{
+			name:      "異常: 定員100でも100人申込は定員チェックより先に party_size_exceeded",
+			stub:      &stubEventJoinRepository{joinErr: repository.ErrEventCapacityFull},
+			profileID: loggedInProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "yamada@example.com",
+				Participants: []model.ParticipantInput{
+					{Category: "大人", HeadCount: 100},
+				},
+			},
+			wantValErr:        true,
+			wantValErrCode:    "party_size_exceeded",
+			wantRepoNotCalled: true,
+		},
+		{
 			name:      "異常: カテゴリが空白のみ",
 			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
 			profileID: loggedInProfileID,
@@ -587,7 +650,13 @@ func TestEventJoinServiceJoin(t *testing.T) {
 
 			switch {
 			case tt.wantValErr:
-				_ = assertValidationError(t, err)
+				ve := assertValidationError(t, err)
+				if tt.wantValErrCode != "" && ve.Code != tt.wantValErrCode {
+					t.Errorf("ValidationError.Code: got %q, want %q", ve.Code, tt.wantValErrCode)
+				}
+				if tt.wantRepoNotCalled && tt.stub.gotMember != nil {
+					t.Error("バリデーションエラー時に repository.Join が呼ばれている")
+				}
 				return
 			case tt.wantNotFound:
 				_ = assertNotFoundError(t, err)
