@@ -40,11 +40,7 @@ func promoteMedia(
 	buildKey := func(ct string) string { return buildFinalKey(destination, ct) }
 
 	cleanup := func() {
-		for _, k := range pm.allKeys {
-			if delErr := store.Delete(ctx, k); delErr != nil {
-				slog.Warn("昇格失敗時の補償削除に失敗しました", slog.String("key", k), slog.Any("error", delErr))
-			}
-		}
+		deleteObjectsBestEffort(ctx, store, pm.allKeys, "昇格失敗時の補償削除に失敗しました")
 	}
 
 	for i, key := range imageKeys {
@@ -76,11 +72,11 @@ func promoteMedia(
 	return pm, nil
 }
 
-// deleteTmpObjects は昇格元の一時領域のオブジェクトを best-effort で削除する（ADR-0045）。
+// deleteObjectsBestEffort は keys のオブジェクトを best-effort で削除する。
 //
 // store が nil、または keys が空の場合は何もしない。重複したキーは 1 回だけ削除する。
-// 削除に失敗した場合は警告ログを出力し、残りのキーの削除を続ける。
-func deleteTmpObjects(ctx context.Context, store ObjectStore, keys []string) {
+// 削除に失敗した場合は failMsg をメッセージとする警告ログを出力し、残りのキーの削除を続ける。
+func deleteObjectsBestEffort(ctx context.Context, store ObjectStore, keys []string, failMsg string) {
 	if store == nil || len(keys) == 0 {
 		return
 	}
@@ -92,7 +88,7 @@ func deleteTmpObjects(ctx context.Context, store ObjectStore, keys []string) {
 		}
 		seen[k] = struct{}{}
 		if delErr := store.Delete(ctx, k); delErr != nil {
-			slog.Warn("一時オブジェクトの削除に失敗しました", slog.String("key", k), slog.Any("error", delErr))
+			slog.Warn(failMsg, slog.String("key", k), slog.Any("error", delErr))
 		}
 	}
 }
