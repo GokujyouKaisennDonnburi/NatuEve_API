@@ -16,14 +16,14 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
 )
 
-// stubEventJoinRepoForHandler は Join の呼び出しだけを記録するスタブ。
+// stubEventJoinRepo は Join の呼び出しだけを記録するスタブ。
 // 他のメソッドは埋め込んだ nil インターフェースを経由するため、呼ばれると panic する。
-type stubEventJoinRepoForHandler struct {
+type stubEventJoinRepo struct {
 	repository.EventJoinRepository
 	joinCalls int
 }
 
-func (s *stubEventJoinRepoForHandler) Join(context.Context, *model.EventMember) error {
+func (s *stubEventJoinRepo) Join(context.Context, *model.EventMember) error {
 	s.joinCalls++
 	return nil
 }
@@ -57,7 +57,7 @@ func TestEventHandler_Join_ValidationErrorCode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := &stubEventJoinRepoForHandler{}
+			repo := &stubEventJoinRepo{}
 			svc := service.NewEventJoinService(repo, nil)
 			h := NewEventHandler(nil, nil, nil, svc)
 			r := gin.New()
