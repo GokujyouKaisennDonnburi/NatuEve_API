@@ -137,6 +137,32 @@ func TestEventNotificationOutboxPostgres_Claim(t *testing.T) {
 		}
 	})
 
+	t.Run("recipient_kind=email は recipient_email を返す", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, profileID)
+		const insertEmailOutbox = `
+		INSERT INTO event_notification_outbox(event_id, recipient_kind, recipient_email, subject, body)
+		VALUES($1, $2, $3, $4, $5)
+		RETURNING id`
+		var id uuid.UUID
+		if err := db.QueryRowContext(
+			context.Background(),
+			insertEmailOutbox,
+			eventID,
+			model.NotificationOutboxRecipientKindEmail,
+			"guest@example.com",
+			"確認メールの件名",
+			"確認メールの本文",
+		).Scan(&id); err != nil {
+			t.Fatalf("insert email outbox: %v", err)
+		}
+
+		claim := claimByID(t, id)
+		defer func() { _ = claim.Release() }()
+		if claim.Item().RecipientEmail != "guest@example.com" {
+			t.Errorf("RecipientEmail = %q, want %q", claim.Item().RecipientEmail, "guest@example.com")
+		}
+	})
+
 	t.Run("Release は行を変更せず、再度確保できる", func(t *testing.T) {
 		id := newDueOutbox(t, "release-subject")
 

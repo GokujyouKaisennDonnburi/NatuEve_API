@@ -175,6 +175,10 @@ func (w *NotificationOutboxWorker) processOne(ctx context.Context, claim reposit
 		w.processOrganizer(workCtx, markCtx, claim)
 		return
 	}
+	if item.RecipientKind == model.NotificationOutboxRecipientKindEmail {
+		w.processEmail(workCtx, markCtx, claim)
+		return
+	}
 
 	recipients, err := w.joinRepo.ListRecipients(workCtx, item.EventID)
 	if err != nil {
@@ -233,6 +237,39 @@ func (w *NotificationOutboxWorker) processOrganizer(ctx context.Context, markCtx
 	}
 
 	emails := []Email{{To: to, Subject: item.Subject, Text: item.Body}}
+	if err := w.mailer.SendBatch(ctx, emails); err != nil {
+		w.handleSendFailure(markCtx, claim, err)
+		return
+	}
+
+	if err := claim.MarkSent(markCtx); err != nil {
+		slog.Error("outbox の sent 更新に失敗しました",
+			slog.String("outbox_id", item.ID.String()),
+			slog.Any("error", err),
+		)
+	}
+}
+
+// processEmail は recipient_kind='email' の outbox 1行分を、recipient_email の1人へ送信する
+// （ADR-0044）。宛先が空の行は再試行しても解決できないため、その場で failed にする。
+func (w *NotificationOutboxWorker) processEmail(ctx context.Context, markCtx context.Context, claim repository.OutboxClaim) {
+	item := claim.Item()
+
+	if item.RecipientEmail == "" {
+		const message = "recipient_email is empty"
+		if err := claim.MarkFailed(markCtx, message); err != nil {
+			slog.Error("outbox の failed 更新に失敗しました",
+				slog.String("outbox_id", item.ID.String()),
+				slog.Any("error", err),
+			)
+		}
+		slog.Error("outbox の宛先メールアドレスが空です",
+			slog.String("outbox_id", item.ID.String()),
+		)
+		return
+	}
+
+	emails := []Email{{To: item.RecipientEmail, Subject: item.Subject, Text: item.Body}}
 	if err := w.mailer.SendBatch(ctx, emails); err != nil {
 		w.handleSendFailure(markCtx, claim, err)
 		return

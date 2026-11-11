@@ -19,26 +19,31 @@ const (
 // イベント通知 outbox（event_notification_outbox）の recipient_kind 値（ADR-0031）。
 //
 // members: 従来の参加者全員宛（event_members から宛先を解決）/
-// organizer: 主催者1人宛（events JOIN profiles の email から宛先を解決）。
+// organizer: 主催者1人宛（events JOIN profiles の email から宛先を解決）/
+// email: recipient_email の1人宛（参加申込の確認メール・案内メール。ADR-0044）。
 const (
 	NotificationOutboxRecipientKindMembers   = "members"
 	NotificationOutboxRecipientKindOrganizer = "organizer"
+	NotificationOutboxRecipientKindEmail     = "email"
 )
 
 // EventNotificationOutbox は event_notification_outbox テーブルと対応するドメインモデル。
 //
-// Transactional Outbox パターンにより、イベントキャンセル確定と同一トランザクションで
-// この行を INSERT する（internal/repository の CancelWithNotification 参照）。
-// 宛先はスナップショットせず、NotificationOutboxWorker が送信直前に
-// event_members から解決する。
+// Transactional Outbox パターンにより、イベントキャンセル確定や参加申込と同一トランザクションで
+// この行を INSERT する（internal/repository の CancelWithNotification・Join 参照）。
+// members / organizer の宛先はスナップショットせず、NotificationOutboxWorker が送信直前に
+// event_members または events から解決する。email は RecipientEmail を使う（ADR-0044）。
 type EventNotificationOutbox struct {
 	ID      uuid.UUID
 	EventID uuid.UUID
 	// RecipientKind は宛先種別。NotificationOutboxRecipientKindMembers /
-	// NotificationOutboxRecipientKindOrganizer のいずれか。
+	// NotificationOutboxRecipientKindOrganizer / NotificationOutboxRecipientKindEmail のいずれか。
 	RecipientKind string
-	Subject       string
-	Body          string
+	// RecipientEmail は recipient_kind='email' のときの宛先メールアドレス。
+	// それ以外の種別では空文字。
+	RecipientEmail string
+	Subject        string
+	Body           string
 	// Status は NotificationOutboxStatusPending / Sent / Failed のいずれか。
 	Status string
 	// Attempts は送信を試みた回数。
