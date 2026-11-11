@@ -22,6 +22,15 @@ func conflictCode(ce *service.ConflictError) string {
 	return "conflict"
 }
 
+// validationCode は ValidationError の Code を返す。
+// Code が空の場合は既定値 "invalid_request" を返す。
+func validationCode(ve *service.ValidationError) string {
+	if ve.Code != "" {
+		return ve.Code
+	}
+	return "invalid_request"
+}
+
 // Join はイベント参加申込 API。
 //
 //	@Summary		イベント参加
@@ -93,13 +102,9 @@ func (h *EventHandler) Join(c *gin.Context) {
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
-			code := ve.Code
-			if code == "" {
-				code = "invalid_request"
-			}
 			c.JSON(
 				http.StatusBadRequest,
-				model.NewErrorResponse(code, ve.Message),
+				model.NewErrorResponse(validationCode(ve), ve.Message),
 			)
 			return
 		}
@@ -282,7 +287,7 @@ func (h *EventHandler) Absence(c *gin.Context) {
 		if errors.As(err, &ve) {
 			c.JSON(
 				http.StatusBadRequest,
-				model.NewErrorResponse("invalid_request", ve.Message),
+				model.NewErrorResponse(validationCode(ve), ve.Message),
 			)
 			return
 		}
@@ -422,7 +427,7 @@ func (h *EventHandler) ListMembers(c *gin.Context) {
 		if errors.As(err, &ve) {
 			c.JSON(
 				http.StatusBadRequest,
-				model.NewErrorResponse("invalid_request", ve.Message),
+				model.NewErrorResponse(validationCode(ve), ve.Message),
 			)
 			return
 		}

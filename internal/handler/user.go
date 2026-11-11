@@ -120,7 +120,7 @@ func (h *UserHandler) UpdateMe(c *gin.Context) {
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
-			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))
 			return
 		}
 		if errors.Is(err, service.ErrProfileNotFound) {
