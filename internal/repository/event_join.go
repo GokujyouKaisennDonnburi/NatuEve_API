@@ -197,6 +197,10 @@ func (r *eventJoinPostgres) Join(
 		(member.ConfirmationTokenHash == "" || member.ConfirmationTokenExpiresAt.IsZero()) {
 		return "", errors.New("pending join requires a confirmation token")
 	}
+	if member.Status == model.EventMemberStatusPending &&
+		(notification.ConfirmationSubject == "" || notification.ConfirmationBody == "") {
+		return "", errors.New("pending join requires a confirmation notification")
+	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {

@@ -776,6 +776,40 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 	}
 }
 
+// TestEventJoinPostgres_Join_PendingRequiresNotification は、pending の申込に
+// 確認メールの件名・本文が無い場合に登録を拒否することを検証する（ADR-0044）。
+func TestEventJoinPostgres_Join_PendingRequiresNotification(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	eventID := insertTestEvent(t, db, ownerID)
+	insertTestCost(t, db, eventID, "大人", 500)
+
+	member := &model.EventMember{
+		EventID:                    eventID,
+		Username:                   "ゲスト",
+		MailAddress:                uuid.NewString() + "@example.com",
+		PartySize:                  1,
+		Categories:                 []model.MemberCategory{{Category: "大人", HeadCount: 1}},
+		Status:                     model.EventMemberStatusPending,
+		ConfirmationTokenHash:      uuid.NewString(),
+		ConfirmationTokenExpiresAt: time.Now().Add(time.Hour),
+	}
+	if _, err := repo.Join(context.Background(), member, model.JoinNotification{}); err == nil {
+		t.Fatal("Join() error = nil, want error（確認メール文面が無い pending）")
+	}
+
+	const countMembers = `SELECT COUNT(*) FROM event_members WHERE event_id = $1`
+	var count int
+	if err := db.QueryRowContext(context.Background(), countMembers, eventID).Scan(&count); err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("member count = %d, want 0", count)
+	}
+}
+
 // TestEventJoinPostgres_Join_DuplicateEmail は同一メールアドレスの再申込が
 // 新規行を作らず、案内メールを outbox に予約することを検証する（ADR-0044）。
 func TestEventJoinPostgres_Join_DuplicateEmail(t *testing.T) {
