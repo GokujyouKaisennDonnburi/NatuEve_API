@@ -173,9 +173,15 @@ func promoteOneObject(
 			return "", fmt.Errorf("画像の配置に失敗しました: %w", err)
 		}
 	} else {
-		// PDF は Copy して昇格する。Content-Disposition を付け直すため ct も渡す。
-		// PDF 内に埋め込まれた GPS 等のメタデータは今回スコープ外。
-		if err := store.Copy(ctx, key, finalKey, ct, disposition); err != nil {
+		// PDF はメタデータ（文書情報・XMP）を除去してから保存する（ADR-0046）。
+		// Content-Disposition を付け直すため ct も渡す。
+		clean, err := stripPDFMetadata(data)
+		if err != nil {
+			return "", &ValidationError{
+				Message: fmt.Sprintf("PDF %q のメタデータ除去に失敗しました: %v", key, err),
+			}
+		}
+		if err := store.Put(ctx, finalKey, clean, ct, disposition); err != nil {
 			return "", fmt.Errorf("PDFの配置に失敗しました: %w", err)
 		}
 	}
