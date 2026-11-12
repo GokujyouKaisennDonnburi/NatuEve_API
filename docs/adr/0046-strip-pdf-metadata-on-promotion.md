@@ -24,9 +24,13 @@ Catalog の `/Metadata`（XMP）を除去して `store.Put` で保存する」�
   2026-10 時点で活発に保守され、Go 1.26 に対応している。
 - 高レベル API（`api.RemoveProperties`）は標準キー（Author/Creator/Producer 等）を
   消せず、書き出し時に pdfcpu 自身の Producer と日付を再付与する。そのため低レベル
-  API（`ReadValidateAndOptimize` → Info 辞書のキー削除 → Catalog `/Metadata` 削除 →
-  `Write`）と `PreserveInfoDict=true` を使う。Info 辞書が無い PDF では、書き出し時の
-  新規付与を避けるため空の Info 辞書を先に用意する。
+  API（`ReadValidateAndOptimize` → Info 辞書の全消去 → Catalog `/Metadata` 削除 →
+  `Write`）と `PreserveInfoDict=true` を使う。Info 辞書の除去はキー列挙でなく `clear`
+  による全消去にする（AAPL:Keywords 等の規格外エントリの残存を防ぐため）。
+  Info 辞書が無い PDF では、書き出し時の新規付与を避けるため空の Info 辞書を先に用意する。
+- 設定は `NewStatelessConfiguration` を使う。`NewDefaultConfiguration` は初回呼び出し時に
+  `$HOME` 配下へ config.yml 等の書き込みを試み、distroless 等の書き込み不可環境で
+  panic するため。
 - 検討した他候補: unipdf は AGPL/商用、qpdf・exiftool は外部バイナリで distroless に
   載らない、自前パーサーは破損リスクが高い。それぞれ理由は下記の通り。
 

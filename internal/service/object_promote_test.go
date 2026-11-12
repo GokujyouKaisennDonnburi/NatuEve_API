@@ -161,4 +161,7 @@ func TestPromoteOneObject_PDFCorruptReturnsValidationError(t *testing.T) {
 	if store.putCalls != 0 {
 		t.Errorf("破損 PDF で Put が呼ばれました: calls=%d", store.putCalls)
 	}
+	if len(store.deleteKeys) != 0 {
+		t.Errorf("破損 PDF で Delete が呼ばれました: keys=%v", store.deleteKeys)
+	}
 }
