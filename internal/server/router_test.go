@@ -125,7 +125,7 @@ func TestNewRouterValidatesWebBaseURL(t *testing.T) {
 		{name: "scheme なし", value: "natueve-web.example.com", wantErr: true},
 		{name: "ftp", value: "ftp://natueve-web.example.com", wantErr: true},
 		{name: "host なし", value: "https://", wantErr: true},
-		{name: "user info 付き", value: "https://user:pass@example.com", wantErr: true},
+		{name: "user info 付き", value: "https://user@example.com", wantErr: true},
 		{name: "query 付き", value: "https://example.com?x=1", wantErr: true},
 		{name: "fragment 付き", value: "https://example.com/#top", wantErr: true},
 	}

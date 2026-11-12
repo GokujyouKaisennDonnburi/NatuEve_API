@@ -382,7 +382,8 @@ func (r *eventJoinPostgres) Join(
 		// ログイン参加で同一メールの pending 行がある場合は、その未確定行を破棄して
 		// ログイン申込で置き換える（第三者が作った pending 行で本人をブロックしない）。
 		// 入力メールと JWT email の一致はサービス層で確認済み。
-		if member.ProfileID.Valid && duplicateStatus == model.EventMemberStatusPending && !duplicateProfileID.Valid {
+		switch {
+		case member.ProfileID.Valid && duplicateStatus == model.EventMemberStatusPending && !duplicateProfileID.Valid:
 			// 置き換えで無効になる確認メールの予約を先に消す（ADR-0044）。
 			if err := deletePendingJoinEmails(ctx, tx, member.EventID, member.MailAddress); err != nil {
 				return "", err
@@ -391,10 +392,10 @@ func (r *eventJoinPostgres) Join(
 			if _, err := tx.ExecContext(ctx, deletePending, duplicateID); err != nil {
 				return "", fmt.Errorf("delete pending member: %w", err)
 			}
-		} else if member.ProfileID.Valid {
+		case member.ProfileID.Valid:
 			// ログイン中の本人による重複。案内メールは送らず、409 用の outcome を返す。
 			return JoinOutcomeAlreadyJoinedSelf, nil
-		} else {
+		default:
 			if err := insertJoinOutboxEmail(ctx, tx, member, notification.NoticeSubject, notification.NoticeBody); err != nil {
 				return "", err
 			}
