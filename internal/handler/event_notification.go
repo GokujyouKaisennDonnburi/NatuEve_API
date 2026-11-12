@@ -66,7 +66,7 @@ func (h *EventNotificationHandler) Send(c *gin.Context) {
 		}
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
-			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))
 			return
 		}
 		// メール送信基盤のレート制限。クライアントには 429 を返し、時間をおいた

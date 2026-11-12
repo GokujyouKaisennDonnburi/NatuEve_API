@@ -56,7 +56,7 @@ func (h *UploadHandler) PresignPut(c *gin.Context) {
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
-			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))
 			return
 		}
 		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "署名付き URL の発行に失敗しました"))

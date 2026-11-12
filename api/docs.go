@@ -374,7 +374,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → 匿名参加（profileId = null）。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → profileId を記録してログイン参加。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。\n申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。",
+                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → 匿名参加（profileId = null）。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → profileId を記録してログイン参加。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nparticipants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。\n申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。",
                 "consumes": [
                     "application/json"
                 ],
@@ -411,7 +411,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Bad Request",
+                        "description": "invalid_request: 入力値が不正です / party_size_exceeded: participants の合計が10人を超えています",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
                         }
@@ -2272,7 +2272,7 @@ const docTemplate = `{
             }
         },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinEventRequest": {
-            "description": "イベント参加申込に必要な情報。認証は任意。 参加人数はカテゴリ別の内訳（participants）で送る。合計はサーバーが算出する。",
+            "description": "イベント参加申込に必要な情報。認証は任意。 参加人数はカテゴリ別の内訳（participants）で送る。合計はサーバーが算出する。 合計が10人を超える場合は400（party_size_exceeded）を返す。",
             "type": "object",
             "required": [
                 "mailAddress",
@@ -2287,7 +2287,7 @@ const docTemplate = `{
                     "example": "yamada@example.com"
                 },
                 "participants": {
-                    "description": "Participants はカテゴリ別の参加人数（必須・1件以上）。\n同一カテゴリを複数の要素に分けて送ることはできない。",
+                    "description": "Participants はカテゴリ別の参加人数（必須・1件以上）。\n同一カテゴリを複数の要素に分けて送ることはできない。\n合計が10人を超えると 400（party_size_exceeded）を返す。",
                     "type": "array",
                     "minItems": 1,
                     "items": {
@@ -2526,7 +2526,7 @@ const docTemplate = `{
                     "example": "大人"
                 },
                 "headCount": {
-                    "description": "HeadCount はそのカテゴリの人数（必須・1以上）。0人のカテゴリは送らない。",
+                    "description": "HeadCount はそのカテゴリの人数（必須・1以上）。0人のカテゴリは送らない。\nparticipants 全体の合計は10人以下であること。",
                     "type": "integer",
                     "minimum": 1,
                     "example": 2
