@@ -379,6 +379,10 @@ func (r *eventJoinPostgres) Join(
 		// ログイン申込で置き換える（第三者が作った pending 行で本人をブロックしない）。
 		// 入力メールと JWT email の一致はサービス層で確認済み。
 		if member.ProfileID.Valid && duplicateStatus == model.EventMemberStatusPending && !duplicateProfileID.Valid {
+			// 置き換えで無効になる確認メールの予約を先に消す（ADR-0044）。
+			if err := deletePendingJoinEmails(ctx, tx, member.EventID, member.MailAddress); err != nil {
+				return "", err
+			}
 			const deletePending = `DELETE FROM event_members WHERE id = $1`
 			if _, err := tx.ExecContext(ctx, deletePending, duplicateID); err != nil {
 				return "", fmt.Errorf("delete pending member: %w", err)
@@ -585,6 +589,29 @@ func insertJoinOutboxEmail(
 		body,
 	); err != nil {
 		return fmt.Errorf("insert join notification outbox: %w", err)
+	}
+	return nil
+}
+
+// deletePendingJoinEmails は、指定イベント・メールアドレス宛の未送信 email outbox を削除する。
+// ログイン参加による pending 行の置き換えで、無効になった確認リンクを送らないために使う（ADR-0044）。
+func deletePendingJoinEmails(ctx context.Context, tx *sql.Tx, eventID uuid.UUID, mailAddress string) error {
+	const query = `
+	DELETE FROM event_notification_outbox
+	WHERE event_id = $1
+	AND recipient_kind = $2
+	AND lower(recipient_email) = lower($3)
+	AND status = 'pending'
+	`
+
+	if _, err := tx.ExecContext(
+		ctx,
+		query,
+		eventID,
+		model.NotificationOutboxRecipientKindEmail,
+		mailAddress,
+	); err != nil {
+		return fmt.Errorf("delete pending join emails: %w", err)
 	}
 	return nil
 }

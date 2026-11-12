@@ -980,6 +980,22 @@ func TestEventJoinPostgres_Join_LoggedInTakeover(t *testing.T) {
 	if count != 1 {
 		t.Errorf("member count = %d, want 1（pending 行を置き換える）", count)
 	}
+
+	// 置き換えで無効になる確認メールの予約は残さない。
+	const countEmailOutbox = `
+	SELECT COUNT(*)
+	FROM event_notification_outbox
+	WHERE event_id = $1
+	AND recipient_kind = 'email'
+	AND lower(recipient_email) = lower($2)
+	AND status = 'pending'
+	`
+	if err := db.QueryRowContext(context.Background(), countEmailOutbox, eventID, mailAddress).Scan(&count); err != nil {
+		t.Fatalf("count email outbox: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("pending email outbox count = %d, want 0", count)
+	}
 }
 
 // TestEventJoinPostgres_ConfirmJoin_Errors は確定時の期限切れ・定員・イベント状態の
