@@ -20,7 +20,7 @@ type EventHandler struct {
 	querySvc   *service.EventQueryService
 	cmdSvc     *service.EventCommandService
 	profileSvc *service.ProfileService
-	joinSvc    *service.EventJoinService
+	joinSvc    eventJoinService
 }
 
 // NewEventHandler は EventHandler を生成する。
@@ -28,7 +28,7 @@ func NewEventHandler(
 	querySvc *service.EventQueryService,
 	cmdSvc *service.EventCommandService,
 	profileSvc *service.ProfileService,
-	joinSvc *service.EventJoinService,
+	joinSvc eventJoinService,
 ) *EventHandler {
 	return &EventHandler{
 		querySvc:   querySvc,

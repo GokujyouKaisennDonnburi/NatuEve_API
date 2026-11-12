@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,17 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
 )
+
+// eventJoinService は参加申込系ハンドラが使う service のインターフェース。
+// handler のテストでスタブに差し替えられるようにする。
+type eventJoinService interface {
+	Join(ctx context.Context, eventID uuid.UUID, profileID uuid.NullUUID, profileEmail string, req model.JoinEventRequest) (model.JoinEventResponse, error)
+	ConfirmJoin(ctx context.Context, eventID uuid.UUID, token string) (model.ConfirmJoinResponse, error)
+	Leave(ctx context.Context, eventID, profileID uuid.UUID) (model.LeaveEventResponse, error)
+	Absence(ctx context.Context, eventID, profileID uuid.UUID, req model.AbsenceEventRequest) (model.AbsenceEventResponse, error)
+	GetMyApplication(ctx context.Context, eventID, profileID uuid.UUID) (model.MyEventApplicationResponse, error)
+	ListMembers(ctx context.Context, profileID, eventID string) (model.EventMemberListResponse, error)
+}
 
 // conflictCode は ConflictError の Code を返す。
 // Code が空の場合は既定値 "conflict" を返す。
