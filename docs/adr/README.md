@@ -61,4 +61,5 @@
 | [0042](./0042-no-search-engine-exclusion-setting.md) | 検索エンジンに載せない設定は作らず、全イベントを sitemap に載せる | Accepted |
 | [0043](./0043-sitemap-events-limit-and-lastmod.md) | sitemap 用イベント一覧は上限超過時に古い更新から切り捨て、匿名アクセスを IP で制限する | Accepted |
 | [0045](./0045-delete-tmp-objects-after-promotion.md) | メディア昇格後に一時領域の元オブジェクトを削除する | Accepted |
+| [0046](./0046-strip-pdf-metadata-on-promotion.md) | PDF 昇格時に文書情報と XMP メタデータを除去して保存する | Accepted |
 | [0044](./0044-party-size-limit.md) | 1回の参加申込の人数上限を10人とし、超過は400で拒否する | Accepted |
