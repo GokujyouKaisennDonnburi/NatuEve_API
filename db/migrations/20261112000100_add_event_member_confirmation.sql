@@ -8,6 +8,11 @@ ALTER TABLE event_members
     ADD COLUMN confirmation_token_hash TEXT,
     ADD COLUMN confirmation_token_expires_at TIMESTAMPTZ;
 
+-- 既存行の backfill が済んだら既定値を外す。status を指定し忘れた INSERT が
+-- 確定扱いになる事故を防ぐ（ADR-0044）。
+ALTER TABLE event_members
+    ALTER COLUMN status DROP DEFAULT;
+
 ALTER TABLE event_members
     ADD CONSTRAINT event_members_confirmation_token_check
     CHECK (
@@ -31,6 +36,19 @@ CREATE INDEX idx_event_members_pending_expires
     WHERE status = 'pending';
 
 -- +goose Down
+-- 未確定の申込を確定扱いで残さないため、status を落とす前に削除する。
+-- 確認メールの予約も残すと、削除済みの申込へのリンクが送られるため合わせて消す。
+DELETE FROM event_notification_outbox
+WHERE recipient_kind = 'email'
+  AND (event_id, lower(recipient_email)) IN (
+      SELECT event_id, lower(mail_address)
+      FROM event_members
+      WHERE status = 'pending'
+  );
+
+DELETE FROM event_members
+WHERE status = 'pending';
+
 ALTER TABLE event_members
     DROP CONSTRAINT IF EXISTS event_members_confirmation_token_check;
 

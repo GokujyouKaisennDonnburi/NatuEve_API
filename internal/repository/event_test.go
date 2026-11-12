@@ -465,8 +465,8 @@ func insertTestEventMember(t *testing.T, db *sql.DB, eventID uuid.UUID, mailAddr
 
 	id := uuid.New()
 	const insertMember = `
-	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size)
-	VALUES($1, $2, NULL, $3, $4, $5)
+	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size, status)
+	VALUES($1, $2, NULL, $3, $4, $5, 'confirmed')
 	`
 	if _, err := db.ExecContext(context.Background(), insertMember, id, eventID, "テスト参加者", mailAddress, partySize); err != nil {
 		t.Fatalf("insert test event member: %v", err)
@@ -941,8 +941,8 @@ func insertTestMember(t *testing.T, db *sql.DB, eventID uuid.UUID, profileID uui
 
 	id := uuid.New()
 	const insertMember = `
-	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size)
-	VALUES($1, $2, $3, $4, $5, $6)
+	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size, status)
+	VALUES($1, $2, $3, $4, $5, $6, 'confirmed')
 	`
 	if _, err := db.ExecContext(
 		context.Background(),

@@ -1211,8 +1211,8 @@ func insertTestEventMemberWithProfile(
 
 	id := uuid.New()
 	const insertMember = `
-	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size)
-	VALUES($1, $2, $3, $4, $5, $6)
+	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size, status)
+	VALUES($1, $2, $3, $4, $5, $6, 'confirmed')
 	`
 	if _, err := db.ExecContext(
 		context.Background(),
