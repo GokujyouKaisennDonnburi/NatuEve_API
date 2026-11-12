@@ -2,11 +2,17 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/mail"
+	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -40,22 +46,48 @@ func (e *ConflictError) Error() string {
 	return e.Message
 }
 
+// 確認トークンと確認メールの設定（ADR-0044）。
+const (
+	// joinConfirmationTokenBytes は確認トークンの乱数バイト数。
+	joinConfirmationTokenBytes = 32
+	// joinConfirmationTokenTTL は確認トークンの有効期限。
+	joinConfirmationTokenTTL = 24 * time.Hour
+	// joinConfirmationTokenMaxLen は受け付けるトークン文字列の最大長。
+	joinConfirmationTokenMaxLen = 255
+
+	joinConfirmationSubjectPrefix = "【参加申込の確認】「"
+	joinConfirmationSubjectSuffix = "」"
+	alreadyJoinedSubjectPrefix    = "【参加申込】「"
+	alreadyJoinedSubjectSuffix    = "」はすでに申し込まれています"
+)
+
 // EventJoinService はイベント参加申込のビジネスロジックを担当する。
 type EventJoinService struct {
 	joinRepo  repository.EventJoinRepository
 	eventRepo repository.EventRepository
+	// webBaseURL は確認メールのリンク先となる Web のベースURL（ADR-0044）。
+	webBaseURL string
 }
 
 // NewEventJoinService は Service を生成する。
-func NewEventJoinService(joinRepo repository.EventJoinRepository, eventRepo repository.EventRepository) *EventJoinService {
-	return &EventJoinService{joinRepo: joinRepo, eventRepo: eventRepo}
+func NewEventJoinService(
+	joinRepo repository.EventJoinRepository,
+	eventRepo repository.EventRepository,
+	webBaseURL string,
+) *EventJoinService {
+	return &EventJoinService{
+		joinRepo:   joinRepo,
+		eventRepo:  eventRepo,
+		webBaseURL: strings.TrimRight(webBaseURL, "/"),
+	}
 }
 
-// Join はイベント参加処理を行う。
+// Join はイベント参加処理を行う（ADR-0044）。
 //
-// profileID が Invalid（匿名参加）の場合は profile_id を NULL として登録する。
+// profileID が Invalid（未ログイン）の場合は pending として登録し、確認メールを outbox に
+// 予約する。ログイン時は confirmed として即時登録する。
 // 存在確認・重複確認・定員確認・登録は repository が1トランザクションで
-// 原子的に行い、結果は sentinel エラーで返るためここで HTTP 向けエラーに変換する。
+// 原子的に行い、結果は JoinOutcome / sentinel エラーで返るためここで HTTP 向けに変換する。
 func (s *EventJoinService) Join(
 	ctx context.Context,
 	eventID uuid.UUID,
@@ -80,6 +112,21 @@ func (s *EventJoinService) Join(
 		partySize += p.HeadCount
 	}
 
+	// メール文面に載せるイベントタイトルを取得する。イベント不存在はここで 404 にする。
+	title, err := s.eventRepo.GetTitle(ctx, eventID.String())
+	if err != nil {
+		if errors.Is(err, repository.ErrEventNotFound) {
+			return model.JoinEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
+		}
+		return model.JoinEventResponse{}, fmt.Errorf("get event title: %w", err)
+	}
+
+	// 未ログインは確認待ち、ログイン済みは即時確定。
+	status := model.EventMemberStatusConfirmed
+	if !profileID.Valid {
+		status = model.EventMemberStatusPending
+	}
+
 	// 参加登録（バリデーション済みの値を使う）
 	member := &model.EventMember{
 		EventID:     eventID,
@@ -88,9 +135,26 @@ func (s *EventJoinService) Join(
 		MailAddress: strings.TrimSpace(req.MailAddress),
 		PartySize:   partySize,
 		Categories:  categories,
+		Status:      status,
 	}
 
-	if err := s.joinRepo.Join(ctx, member); err != nil {
+	notification := model.JoinNotification{}
+	notification.NoticeSubject, notification.NoticeBody = buildAlreadyJoinedEmail(title)
+	if status == model.EventMemberStatusPending {
+		token, err := newJoinConfirmationToken()
+		if err != nil {
+			return model.JoinEventResponse{}, err
+		}
+		member.ConfirmationTokenHash = hashJoinConfirmationToken(token)
+		member.ConfirmationTokenExpiresAt = time.Now().Add(joinConfirmationTokenTTL)
+		notification.ConfirmationSubject, notification.ConfirmationBody = buildJoinConfirmationEmail(
+			title,
+			buildJoinConfirmationURL(s.webBaseURL, eventID, token),
+		)
+	}
+
+	outcome, err := s.joinRepo.Join(ctx, member, notification)
+	if err != nil {
 		switch {
 		case errors.Is(err, repository.ErrEventNotFound):
 			return model.JoinEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
@@ -112,6 +176,16 @@ func (s *EventJoinService) Join(
 		return model.JoinEventResponse{}, fmt.Errorf("join event: %w", err)
 	}
 
+	switch outcome {
+	case repository.JoinOutcomeAlreadyJoinedSelf:
+		return model.JoinEventResponse{}, &ConflictError{Code: "already_joined", Message: "既に参加しています"}
+	case repository.JoinOutcomeCapacityFull:
+		return model.JoinEventResponse{}, &ConflictError{Code: "capacity_full", Message: "定員に達しています"}
+	case repository.JoinOutcomeAlreadyJoined:
+		// 既存申込の内容は返さず、新規申込と同じ形のレスポンスを組み立てる（ADR-0044）。
+		member.CreatedAt = time.Now()
+	}
+
 	// レスポンスの ProfileID: ログイン時のみ値を返す。匿名は nil（JSON: null）。
 	var respProfileID *uuid.UUID
 	if profileID.Valid {
@@ -128,6 +202,112 @@ func (s *EventJoinService) Join(
 		Participants: toParticipantResponses(member.Categories),
 		CreatedAt:    member.CreatedAt,
 	}, nil
+}
+
+// ConfirmJoin は確認トークンで未確定の申込を確定する（ADR-0044）。
+//
+// repository が返す sentinel エラーをここで HTTP 向けエラーに変換する。
+func (s *EventJoinService) ConfirmJoin(
+	ctx context.Context,
+	eventID uuid.UUID,
+	token string,
+) (model.ConfirmJoinResponse, error) {
+
+	token = strings.TrimSpace(token)
+	if token == "" || len(token) > joinConfirmationTokenMaxLen {
+		return model.ConfirmJoinResponse{}, &ValidationError{
+			Message: "確認リンクが無効か、有効期限が切れています",
+		}
+	}
+
+	confirmedAt, err := s.joinRepo.ConfirmJoin(ctx, eventID, hashJoinConfirmationToken(token))
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrEventNotFound):
+			return model.ConfirmJoinResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
+		case errors.Is(err, repository.ErrConfirmationTokenInvalid):
+			return model.ConfirmJoinResponse{}, &ValidationError{
+				Message: "確認リンクが無効か、有効期限が切れています",
+			}
+		case errors.Is(err, repository.ErrEventCapacityFull):
+			return model.ConfirmJoinResponse{}, &ConflictError{Code: "capacity_full", Message: "定員に達しています"}
+		case errors.Is(err, repository.ErrEventCancelled):
+			return model.ConfirmJoinResponse{}, &ConflictError{Code: "event_cancelled", Message: "このイベントはキャンセルされているため参加できません"}
+		case errors.Is(err, repository.ErrEventEnded):
+			return model.ConfirmJoinResponse{}, &ConflictError{Code: "event_ended", Message: "イベントは終了しているため申し込めません"}
+		}
+		return model.ConfirmJoinResponse{}, fmt.Errorf("confirm join: %w", err)
+	}
+
+	return model.ConfirmJoinResponse{
+		EventID:     eventID,
+		ConfirmedAt: confirmedAt,
+	}, nil
+}
+
+// newJoinConfirmationToken は確認トークンを生成する（ADR-0044）。
+func newJoinConfirmationToken() (string, error) {
+	buf := make([]byte, joinConfirmationTokenBytes)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate confirmation token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// hashJoinConfirmationToken は確認トークンの SHA-256 を hex で返す（ADR-0044）。
+func hashJoinConfirmationToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// buildJoinConfirmationURL は確認メールに載せる Web の確認画面 URL を組み立てる（ADR-0044）。
+func buildJoinConfirmationURL(baseURL string, eventID uuid.UUID, token string) string {
+	return strings.TrimRight(baseURL, "/") +
+		"/events/" + eventID.String() +
+		"/join/confirm?token=" + url.QueryEscape(token)
+}
+
+// buildJoinConfirmationEmail は確認メールの件名・本文を組み立てる（ADR-0044）。
+func buildJoinConfirmationEmail(title, confirmURL string) (subject, body string) {
+	subject = joinConfirmationSubjectPrefix +
+		truncateSubjectTitle(title, joinConfirmationSubjectPrefix, joinConfirmationSubjectSuffix) +
+		joinConfirmationSubjectSuffix
+
+	var b strings.Builder
+	b.WriteString("「")
+	b.WriteString(title)
+	b.WriteString("」への参加申込を受け付けました。\n")
+	b.WriteString("下のリンクを開いて申込を確定してください。\n\n")
+	b.WriteString(confirmURL)
+	b.WriteString("\n\nこのリンクは24時間有効です。心当たりがない場合は、このメールを破棄してください。")
+	body = b.String()
+	return subject, body
+}
+
+// buildAlreadyJoinedEmail は申込済みアドレスへの案内メールの件名・本文を組み立てる（ADR-0044）。
+func buildAlreadyJoinedEmail(title string) (subject, body string) {
+	subject = alreadyJoinedSubjectPrefix +
+		truncateSubjectTitle(title, alreadyJoinedSubjectPrefix, alreadyJoinedSubjectSuffix) +
+		alreadyJoinedSubjectSuffix
+
+	var b strings.Builder
+	b.WriteString("「")
+	b.WriteString(title)
+	b.WriteString("」は、このメールアドレスですでに参加申込を受け付けています。\n")
+	b.WriteString("追加の操作は必要ありません。心当たりがない場合は、このメールを破棄してください。")
+	body = b.String()
+	return subject, body
+}
+
+// truncateSubjectTitle は件名全体を notificationSubjectMaxLen 文字以内に収めるため、
+// プレフィックス・サフィックスを除いたタイトルを末尾から切り詰める。
+func truncateSubjectTitle(title, prefix, suffix string) string {
+	maxTitleLen := notificationSubjectMaxLen - len([]rune(prefix)) - len([]rune(suffix))
+	runes := []rune(title)
+	if len(runes) > maxTitleLen {
+		return string(runes[:maxTitleLen])
+	}
+	return title
 }
 
 // toParticipantResponses は内訳をレスポンス DTO へ変換する。

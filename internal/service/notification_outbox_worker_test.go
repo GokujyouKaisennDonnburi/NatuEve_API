@@ -119,7 +119,11 @@ type fakeWorkerJoinRepo struct {
 	recipientsErr     error
 }
 
-func (f *fakeWorkerJoinRepo) Join(context.Context, *model.EventMember) error {
+func (f *fakeWorkerJoinRepo) Join(context.Context, *model.EventMember, model.JoinNotification) (repository.JoinOutcome, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerJoinRepo) ConfirmJoin(context.Context, uuid.UUID, string) (time.Time, error) {
 	panic("not implemented in worker test fake")
 }
 

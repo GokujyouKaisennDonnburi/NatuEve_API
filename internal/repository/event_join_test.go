@@ -12,6 +12,19 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
 
+// joinConfirmedTestMember はテスト用の申込を confirmed で登録する。
+func joinConfirmedTestMember(t *testing.T, repo EventJoinRepository, member *model.EventMember) JoinOutcome {
+	t.Helper()
+	if member.Status == "" {
+		member.Status = model.EventMemberStatusConfirmed
+	}
+	outcome, err := repo.Join(context.Background(), member, model.JoinNotification{})
+	if err != nil {
+		t.Fatalf("Join() returned error: %v", err)
+	}
+	return outcome
+}
+
 // TestEventJoinPostgres_Join_WritesParticipationLog は Join が参加登録と同時に
 // event_participation_logs へ join を追記すること、匿名参加ではログを残さないことを検証する。
 func TestEventJoinPostgres_Join_WritesParticipationLog(t *testing.T) {
@@ -51,9 +64,7 @@ func TestEventJoinPostgres_Join_WritesParticipationLog(t *testing.T) {
 				},
 			}
 
-			if err := repo.Join(context.Background(), member); err != nil {
-				t.Fatalf("Join() returned error: %v", err)
-			}
+			joinConfirmedTestMember(t, repo, member)
 
 			// ログの内訳はログ本体と同じ条件で残る（匿名参加はログごと残らない）。
 			const countLogCategories = `
@@ -130,9 +141,7 @@ func TestEventJoinPostgres_Leave_DeletesMemberAndWritesLog(t *testing.T) {
 				{Category: "大人", HeadCount: 1},
 			},
 		}
-		if err := repo.Join(context.Background(), member); err != nil {
-			t.Fatalf("Join() returned error: %v", err)
-		}
+		joinConfirmedTestMember(t, repo, member)
 
 		createdAt, err := repo.Leave(context.Background(), eventID, profileID)
 		if err != nil {
@@ -245,9 +254,7 @@ func TestEventJoinPostgres_GetMemberByProfile(t *testing.T) {
 				{Category: "大人", HeadCount: 2},
 			},
 		}
-		if err := repo.Join(context.Background(), member); err != nil {
-			t.Fatalf("Join() returned error: %v", err)
-		}
+		joinConfirmedTestMember(t, repo, member)
 
 		got, err := repo.GetMemberByProfile(context.Background(), eventID, profileID)
 		if err != nil {
@@ -299,9 +306,7 @@ func TestEventJoinPostgres_GetMemberByProfile(t *testing.T) {
 				PartySize:   category.HeadCount,
 				Categories:  []model.MemberCategory{category},
 			}
-			if err := repo.Join(context.Background(), member); err != nil {
-				t.Fatalf("Join() returned error: %v", err)
-			}
+			joinConfirmedTestMember(t, repo, member)
 			return member
 		}
 
@@ -434,9 +439,7 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 			{Category: "学生", HeadCount: 1},
 		},
 	}
-	if err := repo.Join(context.Background(), loggedInMember); err != nil {
-		t.Fatalf("Join() (logged-in) returned error: %v", err)
-	}
+	joinConfirmedTestMember(t, repo, loggedInMember)
 
 	// 匿名参加者を登録する（profile_id は NULL）。
 	anonymousMember := &model.EventMember{
@@ -449,9 +452,7 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 			{Category: "大人", HeadCount: 1},
 		},
 	}
-	if err := repo.Join(context.Background(), anonymousMember); err != nil {
-		t.Fatalf("Join() (anonymous) returned error: %v", err)
-	}
+	joinConfirmedTestMember(t, repo, anonymousMember)
 
 	// 未確定（pending）の申込は参加者一覧に含めない（ADR-0044）。
 	insertTestPendingEventMember(t, db, eventID, uuid.NewString()+"@example.com", 4)
@@ -601,12 +602,420 @@ func TestEventJoinPostgres_Join_ExcludesPendingFromCapacity(t *testing.T) {
 		}
 	}
 
-	if err := repo.Join(context.Background(), newMember()); err != nil {
-		t.Fatalf("1件目の Join() returned error: %v（pending は定員に含めない）", err)
+	first := newMember()
+	joinConfirmedTestMember(t, repo, first)
+
+	second := newMember()
+	second.Status = model.EventMemberStatusConfirmed
+	outcome, err := repo.Join(context.Background(), second, model.JoinNotification{})
+	if err != nil {
+		t.Fatalf("2件目の Join() returned error: %v", err)
 	}
-	if err := repo.Join(context.Background(), newMember()); !errors.Is(err, ErrEventCapacityFull) {
-		t.Fatalf("2件目の Join() error = %v, want ErrEventCapacityFull", err)
+	if outcome != JoinOutcomeCapacityFull {
+		t.Fatalf("2件目の Join() outcome = %q, want %q", outcome, JoinOutcomeCapacityFull)
 	}
+}
+
+// TestEventJoinPostgres_Join_PendingAndConfirm は未確定で登録した申込が
+// 一覧・人数に含まれず、確認トークンで確定すると含まれるようになることを検証する（ADR-0044）。
+func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+	eventRepo := NewEventRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	eventID := insertTestEvent(t, db, ownerID)
+	insertTestCost(t, db, eventID, "大人", 500)
+
+	mailAddress := uuid.NewString() + "@example.com"
+	tokenHash := uuid.NewString()
+	member := &model.EventMember{
+		EventID:     eventID,
+		Username:    "ゲスト花子",
+		MailAddress: mailAddress,
+		PartySize:   2,
+		Categories: []model.MemberCategory{
+			{Category: "大人", HeadCount: 2},
+		},
+		Status:                     model.EventMemberStatusPending,
+		ConfirmationTokenHash:      tokenHash,
+		ConfirmationTokenExpiresAt: time.Now().Add(time.Hour),
+	}
+	notification := model.JoinNotification{
+		ConfirmationSubject: "確認メールの件名",
+		ConfirmationBody:    "確認メールの本文",
+	}
+
+	outcome, err := repo.Join(context.Background(), member, notification)
+	if err != nil {
+		t.Fatalf("Join() returned error: %v", err)
+	}
+	if outcome != JoinOutcomePending {
+		t.Fatalf("Join() outcome = %q, want %q", outcome, JoinOutcomePending)
+	}
+
+	var (
+		status    string
+		tokenCol  sql.NullString
+		expiresAt sql.NullTime
+	)
+	const selectMember = `
+	SELECT status, confirmation_token_hash, confirmation_token_expires_at
+	FROM event_members
+	WHERE id = $1
+	`
+	if err := db.QueryRowContext(context.Background(), selectMember, member.ID).
+		Scan(&status, &tokenCol, &expiresAt); err != nil {
+		t.Fatalf("select pending member: %v", err)
+	}
+	if status != model.EventMemberStatusPending {
+		t.Errorf("status = %q, want %q", status, model.EventMemberStatusPending)
+	}
+	if !tokenCol.Valid || tokenCol.String != tokenHash {
+		t.Errorf("confirmation_token_hash = %#v, want %q", tokenCol, tokenHash)
+	}
+	if !expiresAt.Valid {
+		t.Error("confirmation_token_expires_at が NULL")
+	}
+
+	// 未確定は参加者一覧・参加人数に含めない。
+	members, err := repo.ListMembers(context.Background(), eventID)
+	if err != nil {
+		t.Fatalf("ListMembers() returned error: %v", err)
+	}
+	if len(members) != 0 {
+		t.Errorf("ListMembers() = %d件, want 0（pending は含めない）", len(members))
+	}
+	gotEvent, err := eventRepo.GetByID(context.Background(), eventID.String())
+	if err != nil {
+		t.Fatalf("GetByID() returned error: %v", err)
+	}
+	if gotEvent.ParticipantCount != 0 {
+		t.Errorf("ParticipantCount = %d, want 0（pending は含めない）", gotEvent.ParticipantCount)
+	}
+
+	// 確認メールが outbox に予約されている。
+	var (
+		recipientKind  string
+		recipientEmail string
+		subject        string
+	)
+	const selectOutbox = `
+	SELECT recipient_kind, recipient_email, subject
+	FROM event_notification_outbox
+	WHERE event_id = $1
+	ORDER BY created_at
+	LIMIT 1
+	`
+	if err := db.QueryRowContext(context.Background(), selectOutbox, eventID).
+		Scan(&recipientKind, &recipientEmail, &subject); err != nil {
+		t.Fatalf("select join outbox: %v", err)
+	}
+	if recipientKind != model.NotificationOutboxRecipientKindEmail {
+		t.Errorf("recipient_kind = %q, want %q", recipientKind, model.NotificationOutboxRecipientKindEmail)
+	}
+	if recipientEmail != mailAddress {
+		t.Errorf("recipient_email = %q, want %q", recipientEmail, mailAddress)
+	}
+	if subject != notification.ConfirmationSubject {
+		t.Errorf("subject = %q, want %q", subject, notification.ConfirmationSubject)
+	}
+
+	// 不正なトークンでは確定できない。
+	if _, err := repo.ConfirmJoin(context.Background(), eventID, "wrong-token"); !errors.Is(err, ErrConfirmationTokenInvalid) {
+		t.Fatalf("ConfirmJoin(wrong) error = %v, want ErrConfirmationTokenInvalid", err)
+	}
+
+	confirmedAt, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash)
+	if err != nil {
+		t.Fatalf("ConfirmJoin() returned error: %v", err)
+	}
+	if confirmedAt.IsZero() {
+		t.Error("confirmedAt がゼロ値")
+	}
+
+	const selectConfirmed = `
+	SELECT status, confirmation_token_hash IS NULL, confirmation_token_expires_at IS NULL
+	FROM event_members
+	WHERE id = $1
+	`
+	var (
+		tokenIsNull   bool
+		expiresIsNull bool
+	)
+	if err := db.QueryRowContext(context.Background(), selectConfirmed, member.ID).
+		Scan(&status, &tokenIsNull, &expiresIsNull); err != nil {
+		t.Fatalf("select confirmed member: %v", err)
+	}
+	if status != model.EventMemberStatusConfirmed {
+		t.Errorf("status = %q, want %q", status, model.EventMemberStatusConfirmed)
+	}
+	if !tokenIsNull || !expiresIsNull {
+		t.Error("確定後もトークン列が残っている")
+	}
+
+	// 確定後は参加者一覧・参加人数に含まれる。
+	members, err = repo.ListMembers(context.Background(), eventID)
+	if err != nil {
+		t.Fatalf("ListMembers() returned error: %v", err)
+	}
+	if len(members) != 1 || members[0].Username != "ゲスト花子" {
+		t.Errorf("ListMembers() = %#v, want ゲスト花子1件", members)
+	}
+	gotEvent, err = eventRepo.GetByID(context.Background(), eventID.String())
+	if err != nil {
+		t.Fatalf("GetByID() returned error: %v", err)
+	}
+	if gotEvent.ParticipantCount != 2 {
+		t.Errorf("ParticipantCount = %d, want 2", gotEvent.ParticipantCount)
+	}
+
+	// 使用済みトークンでは再度確定できない。
+	if _, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash); !errors.Is(err, ErrConfirmationTokenInvalid) {
+		t.Fatalf("2回目の ConfirmJoin() error = %v, want ErrConfirmationTokenInvalid", err)
+	}
+}
+
+// TestEventJoinPostgres_Join_DuplicateEmail は同一メールアドレスの再申込が
+// 新規行を作らず、案内メールを outbox に予約することを検証する（ADR-0044）。
+func TestEventJoinPostgres_Join_DuplicateEmail(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	eventID := insertTestEvent(t, db, ownerID)
+	insertTestCost(t, db, eventID, "大人", 500)
+
+	mailAddress := uuid.NewString() + "@example.com"
+	confirmed := &model.EventMember{
+		EventID:     eventID,
+		Username:    "先着",
+		MailAddress: mailAddress,
+		PartySize:   1,
+		Categories:  []model.MemberCategory{{Category: "大人", HeadCount: 1}},
+		Status:      model.EventMemberStatusConfirmed,
+	}
+	joinConfirmedTestMember(t, repo, confirmed)
+
+	duplicate := &model.EventMember{
+		EventID:                    eventID,
+		Username:                   "後着",
+		MailAddress:                mailAddress,
+		PartySize:                  1,
+		Categories:                 []model.MemberCategory{{Category: "大人", HeadCount: 1}},
+		Status:                     model.EventMemberStatusPending,
+		ConfirmationTokenHash:      uuid.NewString(),
+		ConfirmationTokenExpiresAt: time.Now().Add(time.Hour),
+	}
+	notification := model.JoinNotification{
+		ConfirmationSubject: "確認",
+		ConfirmationBody:    "確認本文",
+		NoticeSubject:       "すでに申し込まれています",
+		NoticeBody:          "案内本文",
+	}
+	outcome, err := repo.Join(context.Background(), duplicate, notification)
+	if err != nil {
+		t.Fatalf("Join() returned error: %v", err)
+	}
+	if outcome != JoinOutcomeAlreadyJoined {
+		t.Fatalf("Join() outcome = %q, want %q", outcome, JoinOutcomeAlreadyJoined)
+	}
+
+	const countMembers = `SELECT COUNT(*) FROM event_members WHERE event_id = $1`
+	var count int
+	if err := db.QueryRowContext(context.Background(), countMembers, eventID).Scan(&count); err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("member count = %d, want 1（重複行を作らない）", count)
+	}
+
+	var subject string
+	const selectOutbox = `
+	SELECT subject
+	FROM event_notification_outbox
+	WHERE event_id = $1
+	AND recipient_kind = 'email'
+	AND lower(recipient_email) = lower($2)
+	`
+	if err := db.QueryRowContext(context.Background(), selectOutbox, eventID, mailAddress).Scan(&subject); err != nil {
+		t.Fatalf("select notice outbox: %v", err)
+	}
+	if subject != notification.NoticeSubject {
+		t.Errorf("subject = %q, want %q", subject, notification.NoticeSubject)
+	}
+}
+
+// TestEventJoinPostgres_Join_LoggedInTakeover はログイン参加が同一メールの
+// pending 行を置き換えて即時確定することを検証する（ADR-0044）。
+func TestEventJoinPostgres_Join_LoggedInTakeover(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	eventID := insertTestEvent(t, db, ownerID)
+	insertTestCost(t, db, eventID, "大人", 500)
+
+	mailAddress := uuid.NewString() + "@example.com"
+	pending := &model.EventMember{
+		EventID:                    eventID,
+		Username:                   "ゲスト",
+		MailAddress:                mailAddress,
+		PartySize:                  1,
+		Categories:                 []model.MemberCategory{{Category: "大人", HeadCount: 1}},
+		Status:                     model.EventMemberStatusPending,
+		ConfirmationTokenHash:      uuid.NewString(),
+		ConfirmationTokenExpiresAt: time.Now().Add(time.Hour),
+	}
+	if outcome, err := repo.Join(context.Background(), pending, model.JoinNotification{
+		ConfirmationSubject: "確認",
+		ConfirmationBody:    "確認本文",
+	}); err != nil || outcome != JoinOutcomePending {
+		t.Fatalf("pending Join() = (%q, %v), want (%q, nil)", outcome, err, JoinOutcomePending)
+	}
+
+	profileID := insertTestProfile(t, db)
+	loggedIn := &model.EventMember{
+		EventID:     eventID,
+		ProfileID:   uuid.NullUUID{UUID: profileID, Valid: true},
+		Username:    "ログイン参加者",
+		MailAddress: mailAddress,
+		PartySize:   1,
+		Categories:  []model.MemberCategory{{Category: "大人", HeadCount: 1}},
+		Status:      model.EventMemberStatusConfirmed,
+	}
+	outcome, err := repo.Join(context.Background(), loggedIn, model.JoinNotification{})
+	if err != nil {
+		t.Fatalf("logged-in Join() returned error: %v", err)
+	}
+	if outcome != JoinOutcomeConfirmed {
+		t.Fatalf("logged-in Join() outcome = %q, want %q", outcome, JoinOutcomeConfirmed)
+	}
+
+	const query = `
+	SELECT status, profile_id
+	FROM event_members
+	WHERE event_id = $1
+	AND lower(mail_address) = lower($2)
+	`
+	var (
+		status     string
+		gotProfile uuid.NullUUID
+	)
+	if err := db.QueryRowContext(context.Background(), query, eventID, mailAddress).
+		Scan(&status, &gotProfile); err != nil {
+		t.Fatalf("select member: %v", err)
+	}
+	if status != model.EventMemberStatusConfirmed {
+		t.Errorf("status = %q, want %q", status, model.EventMemberStatusConfirmed)
+	}
+	if !gotProfile.Valid || gotProfile.UUID != profileID {
+		t.Errorf("profile_id = %#v, want %v", gotProfile, profileID)
+	}
+
+	var count int
+	const countMembers = `SELECT COUNT(*) FROM event_members WHERE event_id = $1`
+	if err := db.QueryRowContext(context.Background(), countMembers, eventID).Scan(&count); err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("member count = %d, want 1（pending 行を置き換える）", count)
+	}
+}
+
+// TestEventJoinPostgres_ConfirmJoin_Errors は確定時の期限切れ・定員・イベント状態の
+// エラーを検証する（ADR-0044）。
+func TestEventJoinPostgres_ConfirmJoin_Errors(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+	ownerID := insertTestProfile(t, db)
+
+	newPending := func(t *testing.T, eventID uuid.UUID, tokenHash string, expiresAt time.Time) *model.EventMember {
+		t.Helper()
+		member := &model.EventMember{
+			EventID:                    eventID,
+			Username:                   "ゲスト",
+			MailAddress:                uuid.NewString() + "@example.com",
+			PartySize:                  1,
+			Categories:                 []model.MemberCategory{{Category: "大人", HeadCount: 1}},
+			Status:                     model.EventMemberStatusPending,
+			ConfirmationTokenHash:      tokenHash,
+			ConfirmationTokenExpiresAt: expiresAt,
+		}
+		if outcome, err := repo.Join(context.Background(), member, model.JoinNotification{
+			ConfirmationSubject: "確認",
+			ConfirmationBody:    "確認本文",
+		}); err != nil || outcome != JoinOutcomePending {
+			t.Fatalf("pending Join() = (%q, %v), want (%q, nil)", outcome, err, JoinOutcomePending)
+		}
+		return member
+	}
+
+	t.Run("期限切れのトークンは ErrConfirmationTokenInvalid", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "大人", 500)
+		tokenHash := uuid.NewString()
+		newPending(t, eventID, tokenHash, time.Now().Add(-time.Minute))
+
+		if _, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash); !errors.Is(err, ErrConfirmationTokenInvalid) {
+			t.Fatalf("ConfirmJoin() error = %v, want ErrConfirmationTokenInvalid", err)
+		}
+	})
+
+	t.Run("定員超過は ErrEventCapacityFull", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "大人", 500)
+		const updateCapacity = `UPDATE events SET capacity = $2 WHERE id = $1`
+		if _, err := db.ExecContext(context.Background(), updateCapacity, eventID, 1); err != nil {
+			t.Fatalf("update capacity: %v", err)
+		}
+		tokenHash := uuid.NewString()
+		newPending(t, eventID, tokenHash, time.Now().Add(time.Hour))
+
+		// pending は定員に含めないため、confirmed の1名はまだ登録できる。
+		joinConfirmedTestMember(t, repo, &model.EventMember{
+			EventID:     eventID,
+			Username:    "先着",
+			MailAddress: uuid.NewString() + "@example.com",
+			PartySize:   1,
+			Categories:  []model.MemberCategory{{Category: "大人", HeadCount: 1}},
+			Status:      model.EventMemberStatusConfirmed,
+		})
+
+		if _, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash); !errors.Is(err, ErrEventCapacityFull) {
+			t.Fatalf("ConfirmJoin() error = %v, want ErrEventCapacityFull", err)
+		}
+	})
+
+	t.Run("取消済みイベントは ErrEventCancelled", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "大人", 500)
+		tokenHash := uuid.NewString()
+		newPending(t, eventID, tokenHash, time.Now().Add(time.Hour))
+
+		const cancel = `UPDATE events SET cancelled_at = now() WHERE id = $1`
+		if _, err := db.ExecContext(context.Background(), cancel, eventID); err != nil {
+			t.Fatalf("cancel event: %v", err)
+		}
+		if _, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash); !errors.Is(err, ErrEventCancelled) {
+			t.Fatalf("ConfirmJoin() error = %v, want ErrEventCancelled", err)
+		}
+	})
+
+	t.Run("終了済みイベントは ErrEventEnded", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "大人", 500)
+		tokenHash := uuid.NewString()
+		newPending(t, eventID, tokenHash, time.Now().Add(time.Hour))
+
+		const end = `UPDATE events SET event_date = now() - interval '2 hours', end_date = now() - interval '1 hour' WHERE id = $1`
+		if _, err := db.ExecContext(context.Background(), end, eventID); err != nil {
+			t.Fatalf("end event: %v", err)
+		}
+		if _, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash); !errors.Is(err, ErrEventEnded) {
+			t.Fatalf("ConfirmJoin() error = %v, want ErrEventEnded", err)
+		}
+	})
 }
 
 // TestEventJoinPostgres_Join_ResolvesCategories は Join がカテゴリ名を event_costs へ解決して
@@ -648,9 +1057,7 @@ func TestEventJoinPostgres_Join_ResolvesCategories(t *testing.T) {
 		adultID := insertTestCost(t, db, eventID, "Adult", 500)
 
 		member := newMember(eventID, model.MemberCategory{Category: "adult", HeadCount: 2})
-		if err := repo.Join(context.Background(), member); err != nil {
-			t.Fatalf("Join() returned error: %v", err)
-		}
+		joinConfirmedTestMember(t, repo, member)
 
 		if member.Categories[0].CostID != adultID {
 			t.Errorf("CostID: got %v, want %v", member.Categories[0].CostID, adultID)
@@ -684,7 +1091,8 @@ func TestEventJoinPostgres_Join_ResolvesCategories(t *testing.T) {
 		insertTestCost(t, db, eventID, "大人", 500)
 
 		member := newMember(eventID, model.MemberCategory{Category: "学生", HeadCount: 1})
-		err := repo.Join(context.Background(), member)
+		member.Status = model.EventMemberStatusConfirmed
+		_, err := repo.Join(context.Background(), member, model.JoinNotification{})
 		if !errors.Is(err, ErrCategoryNotFound) {
 			t.Fatalf("Join() error = %v, want ErrCategoryNotFound", err)
 		}
@@ -701,7 +1109,8 @@ func TestEventJoinPostgres_Join_ResolvesCategories(t *testing.T) {
 		insertTestCost(t, db, eventID, "学生", 300)
 
 		member := newMember(eventID, model.MemberCategory{Category: "大人", HeadCount: 1})
-		if err := repo.Join(context.Background(), member); !errors.Is(err, ErrCategoryNotFound) {
+		member.Status = model.EventMemberStatusConfirmed
+		if _, err := repo.Join(context.Background(), member, model.JoinNotification{}); !errors.Is(err, ErrCategoryNotFound) {
 			t.Fatalf("Join() error = %v, want ErrCategoryNotFound", err)
 		}
 		if n := countMembers(t, eventID); n != 0 {
@@ -718,7 +1127,8 @@ func TestEventJoinPostgres_Join_ResolvesCategories(t *testing.T) {
 			model.MemberCategory{Category: "Adult", HeadCount: 1},
 			model.MemberCategory{Category: "adult", HeadCount: 2},
 		)
-		if err := repo.Join(context.Background(), member); !errors.Is(err, ErrDuplicateCategory) {
+		member.Status = model.EventMemberStatusConfirmed
+		if _, err := repo.Join(context.Background(), member, model.JoinNotification{}); !errors.Is(err, ErrDuplicateCategory) {
 			t.Fatalf("Join() error = %v, want ErrDuplicateCategory", err)
 		}
 		if n := countMembers(t, eventID); n != 0 {
@@ -831,9 +1241,10 @@ func TestEventJoinPostgres_Join_ApplicationDeadline(t *testing.T) {
 				MailAddress: uuid.NewString() + "@example.com",
 				PartySize:   1,
 				Categories:  []model.MemberCategory{{Category: "大人", HeadCount: 1}},
+				Status:      model.EventMemberStatusConfirmed,
 			}
 
-			err := repo.Join(context.Background(), member)
+			_, err := repo.Join(context.Background(), member, model.JoinNotification{})
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {

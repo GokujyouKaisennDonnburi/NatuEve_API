@@ -68,6 +68,23 @@ type JoinEventResponse struct {
 	CreatedAt time.Time `json:"createdAt" example:"2023-01-01T12:00:00Z"`
 }
 
+// JoinNotification は参加申込時に event_notification_outbox へ予約するメール文面（ADR-0044）。
+// Confirmation* は未確定の申込、Notice* は申込済みアドレスへの案内に使う。
+type JoinNotification struct {
+	ConfirmationSubject string
+	ConfirmationBody    string
+	NoticeSubject       string
+	NoticeBody          string
+}
+
+// ConfirmJoinResponse は参加申込確定時に返すレスポンス。
+type ConfirmJoinResponse struct {
+	// EventID は確定した申込のイベントUUID。
+	EventID uuid.UUID `json:"eventId" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	// ConfirmedAt は申込を確定した日時。
+	ConfirmedAt time.Time `json:"confirmedAt" example:"2026-11-12T12:00:00Z"`
+}
+
 // MyEventApplicationResponse はログイン中ユーザー自身の申込内容取得エンドポイントのレスポンス DTO。
 // 金額は含まない（ADR-0026）。参加費はイベント詳細（costs）を参照する。
 type MyEventApplicationResponse struct {

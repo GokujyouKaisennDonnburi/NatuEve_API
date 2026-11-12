@@ -47,6 +47,26 @@ var ErrCategoryNotFound = errors.New("participant category not found")
 // 大文字小文字違いなど、表記が異なっていても同じ費用カテゴリに解決された場合を含む。
 var ErrDuplicateCategory = errors.New("duplicate participant category")
 
+// ErrConfirmationTokenInvalid は確認トークンが不正・期限切れ・使用済みの場合に返されるエラー（ADR-0044）。
+var ErrConfirmationTokenInvalid = errors.New("confirmation token invalid")
+
+// JoinOutcome は Join の結果を表す（ADR-0044）。
+type JoinOutcome string
+
+const (
+	// JoinOutcomePending は未確定（pending）で登録したことを表す。
+	JoinOutcomePending JoinOutcome = "pending"
+	// JoinOutcomeConfirmed は確定（confirmed）で登録したことを表す。
+	JoinOutcomeConfirmed JoinOutcome = "confirmed"
+	// JoinOutcomeAlreadyJoined は同一メールアドレスの申込が既にあり、
+	// 新規申込と同じ応答を返すことを表す。
+	JoinOutcomeAlreadyJoined JoinOutcome = "already_joined"
+	// JoinOutcomeAlreadyJoinedSelf はログイン中の本人が既に参加していることを表す。
+	JoinOutcomeAlreadyJoinedSelf JoinOutcome = "already_joined_self"
+	// JoinOutcomeCapacityFull は定員超過を表す。
+	JoinOutcomeCapacityFull JoinOutcome = "capacity_full"
+)
+
 // pgUniqueViolationCode は PostgreSQL の unique_violation エラーコード。
 const pgUniqueViolationCode = "23505"
 
@@ -55,27 +75,51 @@ const pgUniqueViolationCode = "23505"
 // 実際のDB実装(PostgreSQLなど)には依存しない。
 type EventJoinRepository interface {
 
-	// Join はイベント参加を1トランザクションで登録する。
+	// Join はイベント参加を1トランザクションで登録する（ADR-0044）。
 	// 成功時は member.ID・member.CreatedAt と、member.Categories の CostID・Category を埋める。
 	//
 	// イベント行を FOR UPDATE でロックして存在確認・重複確認・カテゴリ解決・定員確認・INSERT を
 	// 原子的に行うため、並行リクエストでも定員超過・重複登録は発生しない。
 	// member.Categories の Category（カテゴリ名）は event_costs から lower() 比較で
 	// cost_id に解決し、event_member_categories へ内訳を追記する。
-	// ログイン参加（member.ProfileID が Valid）の場合は、同一トランザクション内で
+	//
+	// member.Status は pending / confirmed のいずれかを指定する。pending の場合は
+	// ConfirmationTokenHash・ConfirmationTokenExpiresAt を保存し、notification の
+	// Confirmation* を recipient_kind='email' の outbox に予約する。confirmed の場合は
+	// トークン列を NULL にし、ログイン参加（ProfileID が Valid）なら同一トランザクション内で
 	// event_participation_logs に action='join' を1件、その内訳を
-	// event_participation_log_categories に追記する。匿名参加（profile_id NULL）は
-	// ログ対象外（event_participation_logs.profile_id が NOT NULL のため）。
+	// event_participation_log_categories に追記する（匿名参加はログ対象外）。
+	//
+	// 同一メールアドレスの申込が既にある場合は、notification の Notice* を outbox に予約し、
+	// JoinOutcomeAlreadyJoined を返す（新規申込と同じ応答にするため、エラーにはしない）。
+	// ログイン中の本人（同一 profile_id）が既に参加している場合は JoinOutcomeAlreadyJoinedSelf、
+	// 定員超過は JoinOutcomeCapacityFull を返す。定員判定は confirmed だけを数え、
+	// 重複申込でも新規申込と同じ条件で判定する。
+	// ログイン参加で同一メールの pending 行がある場合は、その行を削除して confirmed で登録する。
+	//
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
 	//   - ErrEventCancelled: イベントが取りやめになっている
-	//   - ErrAlreadyJoined: 同一 mail_address（大文字小文字無視）またはログイン時は同一 profile_id で参加済み
 	//   - ErrEventCapacityFull: 定員超過（定員 NULL / 0 は定員なし）
 	//   - ErrDeadlinePassed: 申込期限ありイベントで期限経過後（ADR-0029）
 	//   - ErrEventEnded: end_date 経過後（ADR-0029）
 	//   - ErrCategoryNotFound: 指定カテゴリがそのイベントの費用カテゴリに存在しない
 	//   - ErrDuplicateCategory: 同一カテゴリが内訳で重複している
-	Join(ctx context.Context, member *model.EventMember) error
+	Join(ctx context.Context, member *model.EventMember, notification model.JoinNotification) (JoinOutcome, error)
+
+	// ConfirmJoin は確認トークンで未確定（pending）の申込を確定する（ADR-0044）。
+	//
+	// events を FOR UPDATE でロックして存在確認・取消状態・終了日時を確認し、tokenHash に
+	// 一致する pending 行を確定する。確定時は confirmed の party_size 合計で定員を再確認する。
+	// 申込期限は再確認しない（期限内に受け付けた申込をメール確認の遅れで失効させないため）。
+	// 成功時は status='confirmed' にしてトークン列を NULL にし、確定日時を返す。
+	// 失敗時は次の sentinel エラーを %w でラップして返す:
+	//   - ErrEventNotFound: イベントが存在しない
+	//   - ErrEventCancelled: イベントが取りやめになっている
+	//   - ErrEventEnded: end_date 経過後
+	//   - ErrEventCapacityFull: 定員超過
+	//   - ErrConfirmationTokenInvalid: トークンが不正・期限切れ・使用済み
+	ConfirmJoin(ctx context.Context, eventID uuid.UUID, tokenHash string) (time.Time, error)
 
 	// Leave はログイン参加者のイベント参加を1トランザクションで取り消す。
 	//
@@ -138,21 +182,31 @@ func NewEventJoinRepository(db *sql.DB) EventJoinRepository {
 	}
 }
 
-// Join はイベント参加を登録する。INSERT 後に RETURNING created_at で member.CreatedAt を埋める。
+// Join はイベント参加を登録する（ADR-0044）。
 // member.ProfileID が Invalid（匿名参加）の場合は NULL として保存される。
+// 成功時は member.CreatedAt を INSERT の created_at で埋める。
 func (r *eventJoinPostgres) Join(
 	ctx context.Context,
 	member *model.EventMember,
-) error {
+	notification model.JoinNotification,
+) (JoinOutcome, error) {
+
+	if member.Status != model.EventMemberStatusPending && member.Status != model.EventMemberStatusConfirmed {
+		return "", fmt.Errorf("invalid member status %q", member.Status)
+	}
+	if member.Status == model.EventMemberStatusPending &&
+		(member.ConfirmationTokenHash == "" || member.ConfirmationTokenExpiresAt.IsZero()) {
+		return "", errors.New("pending join requires a confirmation token")
+	}
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
+		return "", fmt.Errorf("begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	// イベント行をロックして存在確認・キャンセル状態・申込期限・終了日時の取得を同時に行う。
-	// 同一イベントへの並行 join はこのロックで直列化される。
+	// 同一イベントへの並行 join / confirm はこのロックで直列化される。
 	const lockEvent = `
 	SELECT capacity, cancelled_at, application_deadline, end_date
 	FROM events
@@ -168,57 +222,38 @@ func (r *eventJoinPostgres) Join(
 	)
 	err = tx.QueryRowContext(ctx, lockEvent, member.EventID).Scan(&capacity, &cancelledAt, &deadline, &endDate)
 	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("event %s: %w", member.EventID, ErrEventNotFound)
+		return "", fmt.Errorf("event %s: %w", member.EventID, ErrEventNotFound)
 	}
 	if err != nil {
-		return fmt.Errorf("lock event: %w", err)
+		return "", fmt.Errorf("lock event: %w", err)
 	}
 	if cancelledAt.Valid {
-		return fmt.Errorf("event %s: %w", member.EventID, ErrEventCancelled)
+		return "", fmt.Errorf("event %s: %w", member.EventID, ErrEventCancelled)
 	}
 
 	// 申込期限ありイベントで期限経過後の申込は拒否する。
 	// 期限なし（NULL）は申込期限の概念がない。終了日時経過まで申し込める（ADR-0029）。
 	if deadline.Valid && time.Now().After(deadline.Time) {
-		return fmt.Errorf("event %s: %w", member.EventID, ErrDeadlinePassed)
+		return "", fmt.Errorf("event %s: %w", member.EventID, ErrDeadlinePassed)
 	}
 	// end_date 経過後の申込は拒否する。end_date は NOT NULL のため NULL 判定は不要。
 	if time.Now().After(endDate) {
-		return fmt.Errorf("event %s: %w", member.EventID, ErrEventEnded)
+		return "", fmt.Errorf("event %s: %w", member.EventID, ErrEventEnded)
 	}
 
-	// 重複確認（同一 mail_address またはログイン時は同一 profile_id）。
-	// profileID が Invalid（匿名参加）の場合、SQL 上 $3 は NULL になるため
-	// `profile_id = NULL` は常に NULL（false 相当）となり mail_address のみで重複判定される。
-	// mail_address は UNIQUE インデックス（lower(mail_address)）と同じ基準で比較する。
-	const existsMember = `
-	SELECT EXISTS(
-		SELECT 1
-		FROM event_members
-		WHERE event_id = $1
-		AND (
-			lower(mail_address) = lower($2)
-			OR profile_id = $3
-		)
-	)
+	// 期限切れの未確定申込を同じイベントへの申込時に削除する（ADR-0044）。
+	const deleteExpiredPending = `
+	DELETE FROM event_members
+	WHERE event_id = $1
+	AND status = 'pending'
+	AND confirmation_token_expires_at <= now()
 	`
-
-	var joined bool
-	err = tx.QueryRowContext(
-		ctx,
-		existsMember,
-		member.EventID,
-		member.MailAddress,
-		member.ProfileID,
-	).Scan(&joined)
-	if err != nil {
-		return fmt.Errorf("exists member: %w", err)
-	}
-	if joined {
-		return fmt.Errorf("event %s: %w", member.EventID, ErrAlreadyJoined)
+	if _, err := tx.ExecContext(ctx, deleteExpiredPending, member.EventID); err != nil {
+		return "", fmt.Errorf("delete expired pending members: %w", err)
 	}
 
 	// 申込のカテゴリ名を、そのイベントの費用カテゴリ（event_costs）へ解決する。
+	// 重複判定より先に行い、カテゴリ不正の応答を新規申込と重複申込で同じにする。
 	// 照合は event_costs の一意インデックスと同じ lower(category) 基準で行うため、
 	// 「一意と判定される表記」と「解決に成功する表記」が食い違わない。
 	const findCost = `
@@ -241,14 +276,14 @@ func (r *eventJoinPostgres) Join(
 			member.Categories[i].Category,
 		).Scan(&costID, &category)
 		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("category %q: %w", member.Categories[i].Category, ErrCategoryNotFound)
+			return "", fmt.Errorf("category %q: %w", member.Categories[i].Category, ErrCategoryNotFound)
 		}
 		if err != nil {
-			return fmt.Errorf("find cost: %w", err)
+			return "", fmt.Errorf("find cost: %w", err)
 		}
 		// 表記違いで同一カテゴリを指した場合もここで弾く（DB では PK 違反になる）。
 		if _, dup := seenCost[costID]; dup {
-			return fmt.Errorf("category %q: %w", member.Categories[i].Category, ErrDuplicateCategory)
+			return "", fmt.Errorf("category %q: %w", member.Categories[i].Category, ErrDuplicateCategory)
 		}
 		seenCost[costID] = struct{}{}
 
@@ -257,9 +292,61 @@ func (r *eventJoinPostgres) Join(
 		member.Categories[i].Category = category
 	}
 
+	// ログイン中の本人が既に参加している場合は、自分の申込の重複として扱う。
+	if member.ProfileID.Valid {
+		const existsProfileMember = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM event_members
+			WHERE event_id = $1
+			AND profile_id = $2
+		)
+		`
+		var joined bool
+		if err := tx.QueryRowContext(
+			ctx,
+			existsProfileMember,
+			member.EventID,
+			member.ProfileID,
+		).Scan(&joined); err != nil {
+			return "", fmt.Errorf("exists profile member: %w", err)
+		}
+		if joined {
+			return JoinOutcomeAlreadyJoinedSelf, nil
+		}
+	}
+
+	// 同一メールアドレスの申込を確認する。mail_address は UNIQUE インデックス
+	// （lower(mail_address)）と同じ基準で比較する。
+	const findMemberByMail = `
+	SELECT id, profile_id, status
+	FROM event_members
+	WHERE event_id = $1
+	AND lower(mail_address) = lower($2)
+	`
+
+	var (
+		duplicateID        uuid.UUID
+		duplicateProfileID uuid.NullUUID
+		duplicateStatus    string
+	)
+	duplicateFound := true
+	err = tx.QueryRowContext(
+		ctx,
+		findMemberByMail,
+		member.EventID,
+		member.MailAddress,
+	).Scan(&duplicateID, &duplicateProfileID, &duplicateStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		duplicateFound = false
+	} else if err != nil {
+		return "", fmt.Errorf("find member by mail: %w", err)
+	}
+
 	// 定員確認。capacity が NULL または 0 は「定員なし」。
-	// 人数は party_size の合計で数える（団体登録導入後もこの式のまま）。
-	// 未確定（pending）の申込は定員に含めない（ADR-0044）。
+	// 人数は confirmed の party_size 合計で数える（未確定は含めない。ADR-0044）。
+	// 重複申込でも新規申込と同じ条件で判定し、応答の違いで申込の有無が分からないようにする。
+	capacityFull := false
 	if capacity.Valid && capacity.Int32 > 0 {
 		const sumPartySize = `
 		SELECT COALESCE(SUM(party_size), 0)
@@ -270,10 +357,39 @@ func (r *eventJoinPostgres) Join(
 
 		var taken int
 		if err := tx.QueryRowContext(ctx, sumPartySize, member.EventID).Scan(&taken); err != nil {
-			return fmt.Errorf("sum party size: %w", err)
+			return "", fmt.Errorf("sum party size: %w", err)
 		}
-		if taken+member.PartySize > int(capacity.Int32) {
-			return fmt.Errorf("event %s: %w", member.EventID, ErrEventCapacityFull)
+		capacityFull = taken+member.PartySize > int(capacity.Int32)
+	}
+
+	if capacityFull {
+		if duplicateFound {
+			if err := insertJoinOutboxEmail(ctx, tx, member, notification.NoticeSubject, notification.NoticeBody); err != nil {
+				return "", err
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return "", fmt.Errorf("commit transaction: %w", err)
+		}
+		return JoinOutcomeCapacityFull, nil
+	}
+
+	if duplicateFound {
+		// ログイン参加で同一メールの pending 行がある場合は、その未確定行を破棄して
+		// ログイン申込で置き換える（第三者が作った pending 行で本人をブロックしない）。
+		if member.ProfileID.Valid && duplicateStatus == model.EventMemberStatusPending && !duplicateProfileID.Valid {
+			const deletePending = `DELETE FROM event_members WHERE id = $1`
+			if _, err := tx.ExecContext(ctx, deletePending, duplicateID); err != nil {
+				return "", fmt.Errorf("delete pending member: %w", err)
+			}
+		} else {
+			if err := insertJoinOutboxEmail(ctx, tx, member, notification.NoticeSubject, notification.NoticeBody); err != nil {
+				return "", err
+			}
+			if err := tx.Commit(); err != nil {
+				return "", fmt.Errorf("commit transaction: %w", err)
+			}
+			return JoinOutcomeAlreadyJoined, nil
 		}
 	}
 
@@ -284,7 +400,10 @@ func (r *eventJoinPostgres) Join(
 		profile_id,
 		username,
 		mail_address,
-		party_size
+		party_size,
+		status,
+		confirmation_token_hash,
+		confirmation_token_expires_at
 	)
 	VALUES(
 		gen_random_uuid(),
@@ -292,10 +411,22 @@ func (r *eventJoinPostgres) Join(
 		$2,
 		$3,
 		$4,
-		$5
+		$5,
+		$6,
+		$7,
+		$8
 	)
 	RETURNING id, created_at
 	`
+
+	var (
+		tokenHash    any
+		tokenExpires any
+	)
+	if member.Status == model.EventMemberStatusPending {
+		tokenHash = member.ConfirmationTokenHash
+		tokenExpires = member.ConfirmationTokenExpiresAt
+	}
 
 	err = tx.QueryRowContext(
 		ctx,
@@ -305,14 +436,22 @@ func (r *eventJoinPostgres) Join(
 		member.Username,
 		member.MailAddress,
 		member.PartySize,
+		member.Status,
+		tokenHash,
+		tokenExpires,
 	).Scan(&member.ID, &member.CreatedAt)
 	if err != nil {
 		// UNIQUE 制約違反は重複参加として扱う（事前チェックの最後の砦）。
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolationCode {
-			return fmt.Errorf("event %s: %w", member.EventID, ErrAlreadyJoined)
+			switch pgErr.ConstraintName {
+			case "event_members_event_id_lower_mail_key":
+				return JoinOutcomeAlreadyJoined, nil
+			case "event_members_event_id_profile_id_key":
+				return JoinOutcomeAlreadyJoinedSelf, nil
+			}
 		}
-		return fmt.Errorf("join event: %w", err)
+		return "", fmt.Errorf("join event: %w", err)
 	}
 
 	// カテゴリ別人数の内訳を追記する。
@@ -335,15 +474,22 @@ func (r *eventJoinPostgres) Join(
 			member.EventID,
 			c.HeadCount,
 		); err != nil {
-			return fmt.Errorf("insert member category: %w", err)
+			return "", fmt.Errorf("insert member category: %w", err)
 		}
 	}
 
-	// ログイン参加時のみ、参加状態ログに join を追記する（同一トランザクション内で原子的に）。
-	// event_participation_logs.profile_id は NOT NULL のため、匿名参加（profile_id NULL）は
-	// ログ記録の対象外とする。参加登録とログ追記を1トランザクションにまとめることで、
-	// 片方だけ成功する不整合を防ぐ。
-	if member.ProfileID.Valid {
+	if member.Status == model.EventMemberStatusPending {
+		// 確認メールを outbox に予約する。送信はワーカーが非同期で行う（ADR-0044）。
+		if err := insertJoinOutboxEmail(
+			ctx, tx, member, notification.ConfirmationSubject, notification.ConfirmationBody,
+		); err != nil {
+			return "", err
+		}
+	} else if member.ProfileID.Valid {
+		// ログイン参加時のみ、参加状態ログに join を追記する（同一トランザクション内で原子的に）。
+		// event_participation_logs.profile_id は NOT NULL のため、匿名参加（profile_id NULL）は
+		// ログ記録の対象外とする。参加登録とログ追記を1トランザクションにまとめることで、
+		// 片方だけ成功する不整合を防ぐ。
 		const insertParticipationLog = `
 		INSERT INTO event_participation_logs(
 			event_id,
@@ -361,7 +507,7 @@ func (r *eventJoinPostgres) Join(
 			member.EventID,
 			member.ProfileID.UUID,
 		).Scan(&logID); err != nil {
-			return fmt.Errorf("insert participation log: %w", err)
+			return "", fmt.Errorf("insert participation log: %w", err)
 		}
 
 		// join ログにも同じ内訳を残す。
@@ -384,16 +530,167 @@ func (r *eventJoinPostgres) Join(
 				member.EventID,
 				c.HeadCount,
 			); err != nil {
-				return fmt.Errorf("insert participation log category: %w", err)
+				return "", fmt.Errorf("insert participation log category: %w", err)
 			}
 		}
 	}
 
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
+		return "", fmt.Errorf("commit transaction: %w", err)
 	}
 
+	if member.Status == model.EventMemberStatusPending {
+		return JoinOutcomePending, nil
+	}
+	return JoinOutcomeConfirmed, nil
+}
+
+// insertJoinOutboxEmail は参加申込のメールを outbox に予約する（ADR-0044）。
+// subject が空の場合は何もしない（リポジトリ単体テストで文面を省略できるようにするため）。
+func insertJoinOutboxEmail(
+	ctx context.Context,
+	tx *sql.Tx,
+	member *model.EventMember,
+	subject, body string,
+) error {
+	if subject == "" {
+		return nil
+	}
+
+	const query = `
+	INSERT INTO event_notification_outbox(
+		event_id,
+		recipient_kind,
+		recipient_email,
+		subject,
+		body
+	)
+	VALUES($1, $2, $3, $4, $5)
+	`
+
+	if _, err := tx.ExecContext(
+		ctx,
+		query,
+		member.EventID,
+		model.NotificationOutboxRecipientKindEmail,
+		member.MailAddress,
+		subject,
+		body,
+	); err != nil {
+		return fmt.Errorf("insert join notification outbox: %w", err)
+	}
 	return nil
+}
+
+// ConfirmJoin は確認トークンで未確定（pending）の申込を確定する（ADR-0044）。
+// events を FOR UPDATE でロックして存在確認・取消状態・終了日時を確認し、
+// tokenHash に一致する pending 行を確定する。定員は confirmed の合計で再確認する。
+// 申込期限は再確認しない（期限内に受け付けた申込をメール確認の遅れで失効させないため）。
+func (r *eventJoinPostgres) ConfirmJoin(
+	ctx context.Context,
+	eventID uuid.UUID,
+	tokenHash string,
+) (time.Time, error) {
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	const lockEvent = `
+	SELECT capacity, cancelled_at, end_date
+	FROM events
+	WHERE id = $1
+	FOR UPDATE
+	`
+
+	var (
+		capacity    sql.NullInt32
+		cancelledAt sql.NullTime
+		endDate     time.Time
+	)
+	err = tx.QueryRowContext(ctx, lockEvent, eventID).Scan(&capacity, &cancelledAt, &endDate)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("lock event: %w", err)
+	}
+	if cancelledAt.Valid {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventCancelled)
+	}
+	if time.Now().After(endDate) {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventEnded)
+	}
+
+	const deleteExpiredPending = `
+	DELETE FROM event_members
+	WHERE event_id = $1
+	AND status = 'pending'
+	AND confirmation_token_expires_at <= now()
+	`
+	if _, err := tx.ExecContext(ctx, deleteExpiredPending, eventID); err != nil {
+		return time.Time{}, fmt.Errorf("delete expired pending members: %w", err)
+	}
+
+	const findPending = `
+	SELECT id, party_size
+	FROM event_members
+	WHERE event_id = $1
+	AND confirmation_token_hash = $2
+	AND status = 'pending'
+	AND confirmation_token_expires_at > now()
+	FOR UPDATE
+	`
+
+	var (
+		memberID  uuid.UUID
+		partySize int
+	)
+	err = tx.QueryRowContext(ctx, findPending, eventID, tokenHash).Scan(&memberID, &partySize)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrConfirmationTokenInvalid)
+	}
+	if err != nil {
+		return time.Time{}, fmt.Errorf("find pending member: %w", err)
+	}
+
+	if capacity.Valid && capacity.Int32 > 0 {
+		const sumPartySize = `
+		SELECT COALESCE(SUM(party_size), 0)
+		FROM event_members
+		WHERE event_id = $1
+		AND status = 'confirmed'
+		`
+
+		var taken int
+		if err := tx.QueryRowContext(ctx, sumPartySize, eventID).Scan(&taken); err != nil {
+			return time.Time{}, fmt.Errorf("sum party size: %w", err)
+		}
+		if taken+partySize > int(capacity.Int32) {
+			return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventCapacityFull)
+		}
+	}
+
+	const confirmMember = `
+	UPDATE event_members
+	SET status = 'confirmed',
+	    confirmation_token_hash = NULL,
+	    confirmation_token_expires_at = NULL
+	WHERE id = $1
+	RETURNING now()
+	`
+
+	var confirmedAt time.Time
+	if err := tx.QueryRowContext(ctx, confirmMember, memberID).Scan(&confirmedAt); err != nil {
+		return time.Time{}, fmt.Errorf("confirm member: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return time.Time{}, fmt.Errorf("commit transaction: %w", err)
+	}
+	return confirmedAt, nil
 }
 
 // Leave はログイン参加者のイベント参加を取り消す。

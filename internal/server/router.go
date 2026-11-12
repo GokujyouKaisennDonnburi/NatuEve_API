@@ -173,7 +173,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 			"イベントキャンセル時の通知は outbox に蓄積されますが送信されません")
 	}
 
-	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo)
+	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo, cfg.WebBaseURL)
 	eventCmdSvc := service.NewEventCommandService(eventRepo, store)
 
 	eventParticipationLogRepo := repository.NewEventParticipationLogRepository(sqlDB)
