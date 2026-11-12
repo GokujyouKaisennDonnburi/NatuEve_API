@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -30,6 +31,10 @@ type fakeObjectStore struct {
 	putContentType string
 	putDisposition string
 	putErr         error
+	// putFailOnCall が 1 以上のとき、putCalls がその値に達した Put 呼び出しでエラーを返す。
+	putFailOnCall int
+	// putCalls は Put の呼び出し回数を数える。
+	putCalls int
 
 	// Copy の記録
 	copySrcKey      string
@@ -71,6 +76,10 @@ func (f *fakeObjectStore) Get(_ context.Context, _ string, maxBytes int64) ([]by
 }
 
 func (f *fakeObjectStore) Put(_ context.Context, key string, body []byte, contentType, contentDisposition string) error {
+	f.putCalls++
+	if f.putFailOnCall > 0 && f.putCalls == f.putFailOnCall {
+		return errors.New("put error")
+	}
 	f.putKey = key
 	f.putBody = body
 	f.putContentType = contentType

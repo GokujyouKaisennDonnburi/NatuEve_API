@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"strings"
 
@@ -71,15 +70,12 @@ func (s *ReportCommandService) Create(ctx context.Context, profileID string, req
 	resp, err := s.repo.Create(ctx, &report)
 	if err != nil {
 		// repo.Create 失敗時: 配置済みキーを best-effort Delete（補償）
-		if len(pm.allKeys) > 0 && s.store != nil {
-			for _, key := range pm.allKeys {
-				if delErr := s.store.Delete(ctx, key); delErr != nil {
-					slog.Warn("補償削除に失敗しました", slog.String("key", key), slog.Any("error", delErr))
-				}
-			}
-		}
+		deleteObjectsBestEffort(ctx, s.store, pm.allKeys, "補償削除に失敗しました")
 		return model.CreateReportResponse{}, fmt.Errorf("create report: %w", err)
 	}
+
+	// DB 保存成功後: 昇格元の一時オブジェクトを best-effort 削除（ADR-0045）
+	deleteObjectsBestEffort(ctx, s.store, pm.tmpKeys, "一時オブジェクトの削除に失敗しました")
 
 	return resp, nil
 }

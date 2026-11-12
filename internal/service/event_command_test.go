@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -781,6 +782,11 @@ func TestEventCommandServiceCreate_EXIFStrip(t *testing.T) {
 	if !strings.HasPrefix(store.putKey, "natueve/events/images/") {
 		t.Errorf("最終キー prefix: got %q, want natueve/events/images/", store.putKey)
 	}
+
+	// 昇格元の一時領域のキーが削除されていること（ADR-0045）
+	if !slices.Contains(store.deleteKeys, validKey) {
+		t.Errorf("昇格元の tmp キーが削除されていません: deleteKeys=%v", store.deleteKeys)
+	}
 }
 
 func TestEventCommandServiceCreate_CompensationDelete(t *testing.T) {
@@ -815,6 +821,141 @@ func TestEventCommandServiceCreate_CompensationDelete(t *testing.T) {
 		if !strings.HasPrefix(k, "natueve/events/images/") {
 			t.Errorf("補償削除されたキーが予期しない prefix: %q", k)
 		}
+	}
+	// repo.Create 失敗時は昇格元の tmp キーを削除しないこと（ADR-0045）
+	if slices.Contains(store.deleteKeys, validKey) {
+		t.Errorf("repo.Create 失敗時に tmp キーが削除されました: %q", validKey)
+	}
+}
+
+func TestEventCommandServiceCreate_MidPromotionFailure(t *testing.T) {
+	jpegData := loadTestdata(t, "sample.jpg")
+	tmpKey1 := "natueve/tmp/" + testProfileID + "/uuid1.jpg"
+	tmpKey2 := "natueve/tmp/" + testProfileID + "/uuid2.jpg"
+
+	store := &fakeObjectStore{
+		headSize:        int64(len(jpegData)),
+		headContentType: "image/jpeg",
+		getData:         jpegData,
+		putFailOnCall:   2, // 2 件目の昇格（Put）を失敗させる
+	}
+	repoStub := &stubEventRepository{}
+	svc := NewEventCommandService(repoStub, store)
+
+	req := validRequest()
+	req.ImageObjectKeys = []string{tmpKey1, tmpKey2}
+
+	_, err := svc.Create(context.Background(), testProfileID, req)
+	if err == nil {
+		t.Fatal("エラーを期待したが nil だった")
+	}
+
+	// 1 件目の昇格済み最終キーのみ補償削除されること
+	if len(store.deleteKeys) != 1 {
+		t.Fatalf("Delete 呼び出し回数: got %d, want 1 (deleteKeys=%v)", len(store.deleteKeys), store.deleteKeys)
+	}
+	if !strings.HasPrefix(store.deleteKeys[0], "natueve/events/images/") {
+		t.Errorf("補償削除されたキーが予期しない prefix: %q", store.deleteKeys[0])
+	}
+
+	// 昇格の途中失敗時は tmp キーを削除しないこと（ADR-0045）
+	for _, k := range []string{tmpKey1, tmpKey2} {
+		if slices.Contains(store.deleteKeys, k) {
+			t.Errorf("昇格失敗時に tmp キーが削除されました: %q", k)
+		}
+	}
+}
+
+func TestEventCommandServiceCreate_TmpDeleteFailureDoesNotFailCreate(t *testing.T) {
+	dummyResp := model.CreateEventResponse{ID: "event-001", CreatedAt: time.Now().UTC()}
+	jpegData := loadTestdata(t, "sample.jpg")
+	pdfData := loadTestdata(t, "sample.pdf")
+
+	tests := []struct {
+		name        string
+		key         string
+		contentType string
+		data        []byte
+		isPDF       bool
+	}{
+		{
+			name:        "画像",
+			key:         "natueve/tmp/" + testProfileID + "/uuid.jpg",
+			contentType: "image/jpeg",
+			data:        jpegData,
+		},
+		{
+			name:        "PDF",
+			key:         "natueve/tmp/" + testProfileID + "/uuid.pdf",
+			contentType: "application/pdf",
+			data:        pdfData,
+			isPDF:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeObjectStore{
+				headSize:        int64(len(tt.data)),
+				headContentType: tt.contentType,
+				getData:         tt.data,
+				deleteErr:       errors.New("delete error"),
+			}
+			repoStub := &stubEventRepository{createResult: dummyResp}
+			svc := NewEventCommandService(repoStub, store)
+
+			req := validRequest()
+			if tt.isPDF {
+				req.PdfObjectKeys = []string{tt.key}
+			} else {
+				req.ImageObjectKeys = []string{tt.key}
+			}
+
+			resp, err := svc.Create(context.Background(), testProfileID, req)
+			assertNoErr(t, err)
+			if resp.ID != dummyResp.ID {
+				t.Errorf("ID: got %q, want %q", resp.ID, dummyResp.ID)
+			}
+			if !slices.Contains(store.deleteKeys, tt.key) {
+				t.Errorf("一時オブジェクトの削除が呼ばれていません: deleteKeys=%v", store.deleteKeys)
+			}
+		})
+	}
+}
+
+// TestEventCommandServiceCreate_DuplicateTmpKeyDeletedOnce は、同じ tmp キーが
+// 重複指定された場合でも deleteObjectsBestEffort の重複排除により Delete が 1 回だけ
+// 呼ばれることを確認する（ADR-0045）。
+func TestEventCommandServiceCreate_DuplicateTmpKeyDeletedOnce(t *testing.T) {
+	dummyResp := model.CreateEventResponse{ID: "event-001", CreatedAt: time.Now().UTC()}
+	jpegData := loadTestdata(t, "sample.jpg")
+	tmpKey := "natueve/tmp/" + testProfileID + "/uuid.jpg"
+
+	store := &fakeObjectStore{
+		headSize:        int64(len(jpegData)),
+		headContentType: "image/jpeg",
+		getData:         jpegData,
+	}
+	repoStub := &stubEventRepository{createResult: dummyResp}
+	svc := NewEventCommandService(repoStub, store)
+
+	req := validRequest()
+	req.ImageObjectKeys = []string{tmpKey, tmpKey}
+
+	_, err := svc.Create(context.Background(), testProfileID, req)
+	assertNoErr(t, err)
+
+	count := 0
+	for _, k := range store.deleteKeys {
+		if k == tmpKey {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("tmp キーの Delete 呼び出し回数: got %d, want 1 (deleteKeys=%v)", count, store.deleteKeys)
+	}
+	if len(store.deleteKeys) != 1 {
+		t.Errorf("Delete 呼び出し回数: got %d, want 1 (deleteKeys=%v)", len(store.deleteKeys), store.deleteKeys)
 	}
 }
 

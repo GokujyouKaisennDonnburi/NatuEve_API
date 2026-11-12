@@ -210,3 +210,128 @@ func TestReportCommandServiceCreate_AuthorizationCheck(t *testing.T) {
 		})
 	}
 }
+
+func TestReportCommandServiceCreate_PromoteAndDeleteTmp(t *testing.T) {
+	const (
+		ownerProfileID = "b2c3d4e5-f6a7-8901-bcde-f23456789012"
+		eventID        = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+	)
+
+	dummyResp := model.CreateReportResponse{
+		ReportID:  "report-uuid-001",
+		CreatedAt: time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC),
+	}
+	jpegData := loadTestdata(t, "sample.jpg")
+	pdfData := loadTestdata(t, "sample.pdf")
+
+	tests := []struct {
+		name        string
+		key         string
+		contentType string
+		data        []byte
+		isPDF       bool
+		createErr   error
+		deleteErr   error
+		wantErr     bool
+	}{
+		{
+			name:        "正常: 画像昇格後に tmp キーを削除",
+			key:         "natueve/tmp/" + ownerProfileID + "/uuid.jpg",
+			contentType: "image/jpeg",
+			data:        jpegData,
+		},
+		{
+			name:        "正常: PDF昇格後に tmp キーを削除",
+			key:         "natueve/tmp/" + ownerProfileID + "/uuid.pdf",
+			contentType: "application/pdf",
+			data:        pdfData,
+			isPDF:       true,
+		},
+		{
+			// 一時オブジェクト削除は best-effort（ADR-0045）。Delete が失敗しても
+			// Create は成功し、削除呼び出し自体は記録される。
+			name:        "正常: 一時オブジェクト削除が失敗しても Create は成功する",
+			key:         "natueve/tmp/" + ownerProfileID + "/uuid.jpg",
+			contentType: "image/jpeg",
+			data:        jpegData,
+			deleteErr:   errors.New("delete error"),
+		},
+		{
+			name:        "異常: repo.Create 失敗時は最終キーのみ補償削除（画像）",
+			key:         "natueve/tmp/" + ownerProfileID + "/uuid.jpg",
+			contentType: "image/jpeg",
+			data:        jpegData,
+			createErr:   errors.New("db error"),
+			wantErr:     true,
+		},
+		{
+			name:        "異常: repo.Create 失敗時は最終キーのみ補償削除（PDF）",
+			key:         "natueve/tmp/" + ownerProfileID + "/uuid.pdf",
+			contentType: "application/pdf",
+			data:        pdfData,
+			isPDF:       true,
+			createErr:   errors.New("db error"),
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeObjectStore{
+				headSize:        int64(len(tt.data)),
+				headContentType: tt.contentType,
+				getData:         tt.data,
+				deleteErr:       tt.deleteErr,
+			}
+			reportRepoStub := &stubReportRepository{
+				createResult: dummyResp,
+				createErr:    tt.createErr,
+			}
+			eventRepoStub := &stubEventRepository{ownerProfileID: ownerProfileID}
+			svc := NewReportCommandService(reportRepoStub, eventRepoStub, store)
+
+			req := validReportRequest(eventID)
+			if tt.isPDF {
+				req.PdfObjectKeys = []string{tt.key}
+			} else {
+				req.ImageObjectKeys = []string{tt.key}
+			}
+
+			resp, err := svc.Create(context.Background(), ownerProfileID, req)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				if len(store.deleteKeys) == 0 {
+					t.Fatal("repo.Create 失敗時に補償削除が呼ばれていません")
+				}
+				for _, k := range store.deleteKeys {
+					if !strings.HasPrefix(k, "natueve/reports/") {
+						t.Errorf("補償削除されたキーが予期しない prefix: %q", k)
+					}
+					if k == tt.key {
+						t.Errorf("repo.Create 失敗時に tmp キーが削除されました: %q", k)
+					}
+				}
+				return
+			}
+
+			assertNoErr(t, err)
+			if resp.ReportID != dummyResp.ReportID {
+				t.Errorf("ReportID: got %q, want %q", resp.ReportID, dummyResp.ReportID)
+			}
+
+			found := false
+			for _, k := range store.deleteKeys {
+				if k == tt.key {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("昇格元の tmp キーが削除されていません: deleteKeys=%v", store.deleteKeys)
+			}
+		})
+	}
+}

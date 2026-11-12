@@ -14,6 +14,8 @@ type promotedMedia struct {
 	pdfNames   []string
 	// allKeys は補償削除用に画像・PDF の全最終キーを保持する。
 	allKeys []string
+	// tmpKeys は昇格元の一時領域のキーを保持する（ADR-0045）。
+	tmpKeys []string
 }
 
 // filenameAt は names[i] を返す。範囲外なら空文字を返す（ファイル名は任意のため）。
@@ -38,11 +40,7 @@ func promoteMedia(
 	buildKey := func(ct string) string { return buildFinalKey(destination, ct) }
 
 	cleanup := func() {
-		for _, k := range pm.allKeys {
-			if delErr := store.Delete(ctx, k); delErr != nil {
-				slog.Warn("昇格失敗時の補償削除に失敗しました", slog.String("key", k), slog.Any("error", delErr))
-			}
-		}
+		deleteObjectsBestEffort(ctx, store, pm.allKeys, "昇格失敗時の補償削除に失敗しました")
 	}
 
 	for i, key := range imageKeys {
@@ -55,6 +53,7 @@ func promoteMedia(
 		pm.imageKeys = append(pm.imageKeys, finalKey)
 		pm.imageNames = append(pm.imageNames, name)
 		pm.allKeys = append(pm.allKeys, finalKey)
+		pm.tmpKeys = append(pm.tmpKeys, key)
 	}
 
 	for i, key := range pdfKeys {
@@ -67,9 +66,31 @@ func promoteMedia(
 		pm.pdfKeys = append(pm.pdfKeys, finalKey)
 		pm.pdfNames = append(pm.pdfNames, name)
 		pm.allKeys = append(pm.allKeys, finalKey)
+		pm.tmpKeys = append(pm.tmpKeys, key)
 	}
 
 	return pm, nil
+}
+
+// deleteObjectsBestEffort は keys のオブジェクトを best-effort で削除する。
+//
+// store が nil、または keys が空の場合は何もしない。重複したキーは 1 回だけ削除する。
+// 削除に失敗した場合は failMsg をメッセージとする警告ログを出力し、残りのキーの削除を続ける。
+func deleteObjectsBestEffort(ctx context.Context, store ObjectStore, keys []string, failMsg string) {
+	if store == nil || len(keys) == 0 {
+		return
+	}
+
+	seen := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		if _, ok := seen[k]; ok {
+			continue
+		}
+		seen[k] = struct{}{}
+		if delErr := store.Delete(ctx, k); delErr != nil {
+			slog.Warn(failMsg, slog.String("key", k), slog.Any("error", delErr))
+		}
+	}
 }
 
 // promoteOneObject は tmp 領域のオブジェクトを検証・洗浄して最終キーに配置する。
