@@ -106,14 +106,29 @@ type JoinConflictErrorResponse struct {
 // JoinConflictErrorBody は JoinConflictErrorResponse のエラー本体。
 type JoinConflictErrorBody struct {
 	// Code は競合の原因を表す機械可読なエラーコード。
-	// already_joined = 既に参加済み / capacity_full = 定員到達 /
+	// already_joined = ログイン中の本人が既に参加済み / capacity_full = 定員到達 /
 	// deadline_passed = 申込期限経過後 / event_ended = イベント終了後。
+	// 申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0044）。
 	Code string `json:"code" example:"already_joined" enums:"already_joined,capacity_full,deadline_passed,event_ended"`
 	// Message は人間向けのエラーメッセージ。
 	// already_joined なら「既に参加しています」、capacity_full なら「定員に達しています」、
 	// deadline_passed なら「申込期限を過ぎているため申し込めません」、
 	// event_ended なら「イベントは終了しているため申し込めません」。
 	Message string `json:"message" example:"既に参加しています"`
+}
+
+// ConfirmJoinConflictErrorResponse は参加申込確定の競合エラー(HTTP 409)のドキュメント用レスポンス型（ADR-0044）。
+type ConfirmJoinConflictErrorResponse struct {
+	Error ConfirmJoinConflictErrorBody `json:"error"`
+}
+
+// ConfirmJoinConflictErrorBody は ConfirmJoinConflictErrorResponse のエラー本体。
+type ConfirmJoinConflictErrorBody struct {
+	// Code は競合の原因を表す機械可読なエラーコード。
+	// capacity_full = 定員到達 / event_ended = イベント終了後 / event_cancelled = イベント取消済み。
+	Code string `json:"code" example:"capacity_full" enums:"capacity_full,event_ended,event_cancelled"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"定員に達しています"`
 }
 
 // AbsenceConflictErrorResponse はイベント欠席連絡の競合エラー(HTTP 409)のドキュメント用レスポンス型。

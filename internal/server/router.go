@@ -229,6 +229,10 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	// join は匿名で叩けるため IP レートリミットを掛ける。
 	joinLimiter := middleware.NewIPRateLimiter(rate.Every(joinRateInterval), joinRateBurst).Middleware()
 
+	// join/confirm はメールのリンクから認証なしで呼ばれる（ADR-0044）。
+	// join と同じ IP レートリミットを掛ける。
+	v1Public.POST("/events/:id/join/confirm", joinLimiter, eventHandler.ConfirmJoin)
+
 	// user 系は認証が必要。DB と JWKS の両方が揃っているときのみ登録する。
 	// JWKS 未設定の場合: join ルートのみ認証なし（常に匿名参加）で登録して終了する。
 	if cfg.SupabaseJWKSURL == "" {

@@ -23,9 +23,13 @@ type stubEventJoinRepo struct {
 	joinCalls int
 }
 
-func (s *stubEventJoinRepo) Join(context.Context, *model.EventMember) error {
+func (s *stubEventJoinRepo) Join(
+	context.Context,
+	*model.EventMember,
+	model.JoinNotification,
+) (repository.JoinOutcome, error) {
 	s.joinCalls++
-	return nil
+	return repository.JoinOutcomeConfirmed, nil
 }
 
 func TestEventHandler_Join_ValidationErrorCode(t *testing.T) {
@@ -58,7 +62,7 @@ func TestEventHandler_Join_ValidationErrorCode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &stubEventJoinRepo{}
-			svc := service.NewEventJoinService(repo, nil)
+			svc := service.NewEventJoinService(repo, nil, "https://web.example.com")
 			h := NewEventHandler(nil, nil, nil, svc)
 			r := gin.New()
 			r.POST("/api/v1/events/:id/join", h.Join)

@@ -35,17 +35,24 @@ func validationCode(ve *service.ValidationError) string {
 //
 //	@Summary		イベント参加
 //	@Description	認証は任意。ログイン時のみ profileId が記録される。
-//	@Description	Authorization ヘッダなし → 匿名参加（profileId = null）。
+//	@Description	Authorization ヘッダなし → ゲスト参加。申込は未確定（pending）として保存され、
+//	@Description	申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで
+//	@Description	参加者一覧・参加人数・定員判定には含まれない。
 //	@Description	ヘッダありでトークンが無効 → 401 で中断。
-//	@Description	ヘッダありで有効 → profileId を記録してログイン参加。
+//	@Description	ヘッダありで有効 → ログイン参加として即時確定する。
 //	@Description	参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名
 //	@Description	（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。
 //	@Description	合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。
 //	@Description	0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。
 //	@Description	participants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。
 //	@Description	イベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。
+//	@Description	定員判定は確定済みの申込だけを数える。
+//	@Description	申込済みのメールアドレスでも、新規申込と同じ 201 と本文の形で応答する
+//	@Description	（既存申込の内容は返さない）。そのアドレスには「すでに申込まれています」の
+//	@Description	案内メールが送信される。ログイン中の本人が既に参加している場合だけ 409 already_joined を返す。
 //	@Description	申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。
 //	@Description	申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。
+//	@Description	確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。
 //	@Tags			event
 //	@Accept			json
 //	@Produce		json
@@ -56,7 +63,7 @@ func validationCode(ve *service.ValidationError) string {
 //	@Failure		400		{object}	model.ValidationErrorResponse	"invalid_request: 入力値が不正です / party_size_exceeded: participants の合計が10人を超えています"
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		404		{object}	model.NotFoundErrorResponse
-//	@Failure		409		{object}	model.JoinConflictErrorResponse	"already_joined: 既に参加しています / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後"
+//	@Failure		409		{object}	model.JoinConflictErrorResponse	"already_joined: ログイン中の本人が既に参加済み / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後"
 //	@Failure		413		{object}	model.RequestTooLargeErrorResponse
 //	@Failure		429		{object}	model.RateLimitedErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
@@ -136,6 +143,92 @@ func (h *EventHandler) Join(c *gin.Context) {
 
 	// 成功
 	c.JSON(http.StatusCreated, resp)
+}
+
+// ConfirmJoin はイベント参加申込確定 API（ADR-0044）。
+//
+//	@Summary		イベント参加申込の確定
+//	@Description	確認メールのリンクから呼ぶ。認証は不要。
+//	@Description	未ログインで申し込んだ未確定の申込を、確認トークンで確定する。
+//	@Description	トークンは発行から24時間有効で、確定に成功すると使用済みになる。
+//	@Description	有効期限切れ・不正・使用済みのトークンは 400 invalid_request を返す。
+//	@Description	確定時は確定済みの申込だけで定員を再確認する。申込期限は再確認しない。
+//	@Description	イベント定員を超える場合は 409 Conflict（capacity_full）を返す。
+//	@Description	取消済みイベントは 409 Conflict（event_cancelled）、終了済みは 409 Conflict（event_ended）を返す。
+//	@Tags			event
+//	@Accept			json
+//	@Produce		json
+//	@Param			id		path		string						true	"イベントID"
+//	@Param			body	body		model.ConfirmJoinRequest	true	"確認トークン"
+//	@Success		200		{object}	model.ConfirmJoinResponse
+//	@Failure		400		{object}	model.ValidationErrorResponse	"invalid_request: 確認リンクが無効か、有効期限が切れています"
+//	@Failure		404		{object}	model.NotFoundErrorResponse
+//	@Failure		409		{object}	model.ConfirmJoinConflictErrorResponse	"capacity_full: 定員に達しています / event_ended: イベント終了後 / event_cancelled: イベント取消済み"
+//	@Failure		413		{object}	model.RequestTooLargeErrorResponse
+//	@Failure		429		{object}	model.RateLimitedErrorResponse
+//	@Failure		500		{object}	model.InternalErrorResponse
+//	@Router			/api/v1/events/{id}/join/confirm [post]
+func (h *EventHandler) ConfirmJoin(c *gin.Context) {
+
+	// パスパラメータからイベントID取得
+	eventID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(
+			http.StatusBadRequest,
+			model.NewErrorResponse("invalid_request", "イベントIDが不正です"),
+		)
+		return
+	}
+
+	// JSON受け取り
+	var req model.ConfirmJoinRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
+	// Service呼び出し
+	resp, err := h.joinSvc.ConfirmJoin(c.Request.Context(), eventID, req.Token)
+	if err != nil {
+		var ve *service.ValidationError
+		if errors.As(err, &ve) {
+			c.JSON(
+				http.StatusBadRequest,
+				model.NewErrorResponse("invalid_request", ve.Message),
+			)
+			return
+		}
+
+		var nfe *service.NotFoundError
+		if errors.As(err, &nfe) {
+			c.JSON(
+				http.StatusNotFound,
+				model.NewErrorResponse("not_found", nfe.Message),
+			)
+			return
+		}
+
+		var ce *service.ConflictError
+		if errors.As(err, &ce) {
+			c.JSON(
+				http.StatusConflict,
+				model.NewErrorResponse(conflictCode(ce), ce.Message),
+			)
+			return
+		}
+
+		// 想定外エラー（DB エラー等）は真因をログに残す。
+		slog.Error("参加申込の確定に失敗しました",
+			slog.String("event_id", eventID.String()),
+			slog.Any("error", err),
+		)
+		c.JSON(
+			http.StatusInternalServerError,
+			model.NewErrorResponse("internal_error", "参加申込の確定に失敗しました"),
+		)
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // Leave はイベント参加キャンセル API。
@@ -399,6 +492,7 @@ func (h *EventHandler) GetMyApplication(c *gin.Context) {
 //
 //	@Summary		イベント参加者一覧取得
 //	@Description	イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。
+//	@Description	未確定（pending）の申込は含まれない。
 //	@Description	profile は参加者のプロフィールサマリー。匿名参加の場合は null。
 //	@Description	participants は申込のカテゴリ別人数（カテゴリ名の昇順）。内訳を持たない申込では空配列。
 //	@Description	イベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。

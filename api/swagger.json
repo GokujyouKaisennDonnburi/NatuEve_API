@@ -169,7 +169,7 @@
         },
         "/api/v1/events/{id}": {
             "get": {
-                "description": "指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。\nparticipantCount は現在申込中の参加人数の合計で、定員未設定（capacity=0）でも返す。\n定員がある場合の残り人数は capacity - participantCount で算出する。",
+                "description": "指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。\nparticipantCount は現在申込中の参加人数の合計で、定員未設定（capacity=0）でも返す。\n未確定（pending）の申込は含まない。\n定員がある場合の残り人数は capacity - participantCount で算出する。",
                 "produces": [
                     "application/json"
                 ],
@@ -367,7 +367,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → 匿名参加（profileId = null）。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → profileId を記録してログイン参加。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nparticipants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。\n申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。",
+                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → ゲスト参加。申込は未確定（pending）として保存され、\n申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで\n参加者一覧・参加人数・定員判定には含まれない。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → ログイン参加として即時確定する。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nparticipants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。\n定員判定は確定済みの申込だけを数える。\n申込済みのメールアドレスでも、新規申込と同じ 201 と本文の形で応答する\n（既存申込の内容は返さない）。そのアドレスには「すでに申込まれています」の\n案内メールが送信される。ログイン中の本人が既に参加している場合だけ 409 already_joined を返す。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。\n申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。\n確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。",
                 "consumes": [
                     "application/json"
                 ],
@@ -422,9 +422,86 @@
                         }
                     },
                     "409": {
-                        "description": "already_joined: 既に参加しています / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後",
+                        "description": "already_joined: ログイン中の本人が既に参加済み / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/events/{id}/join/confirm": {
+            "post": {
+                "description": "確認メールのリンクから呼ぶ。認証は不要。\n未ログインで申し込んだ未確定の申込を、確認トークンで確定する。\nトークンは発行から24時間有効で、確定に成功すると使用済みになる。\n有効期限切れ・不正・使用済みのトークンは 400 invalid_request を返す。\n確定時は確定済みの申込だけで定員を再確認する。申込期限は再確認しない。\nイベント定員を超える場合は 409 Conflict（capacity_full）を返す。\n取消済みイベントは 409 Conflict（event_cancelled）、終了済みは 409 Conflict（event_ended）を返す。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event"
+                ],
+                "summary": "イベント参加申込の確定",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "イベントID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "確認トークン",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid_request: 確認リンクが無効か、有効期限が切れています",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "capacity_full: 定員に達しています / event_ended: イベント終了後 / event_cancelled: イベント取消済み",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinConflictErrorResponse"
                         }
                     },
                     "413": {
@@ -519,7 +596,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。\nprofile は参加者のプロフィールサマリー。匿名参加の場合は null。\nparticipants は申込のカテゴリ別人数（カテゴリ名の昇順）。内訳を持たない申込では空配列。\nイベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。",
+                "description": "イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。\n未確定（pending）の申込は含まれない。\nprofile は参加者のプロフィールサマリー。匿名参加の場合は null。\nparticipants は申込のカテゴリ別人数（カテゴリ名の昇順）。内訳を持たない申込では空配列。\nイベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。",
                 "produces": [
                     "application/json"
                 ],
@@ -1557,6 +1634,63 @@
                 }
             }
         },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinConflictErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は競合の原因を表す機械可読なエラーコード。\ncapacity_full = 定員到達 / event_ended = イベント終了後 / event_cancelled = イベント取消済み。",
+                    "type": "string",
+                    "enum": [
+                        "capacity_full",
+                        "event_ended",
+                        "event_cancelled"
+                    ],
+                    "example": "capacity_full"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "定員に達しています"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinConflictErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinConflictErrorBody"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinRequest": {
+            "type": "object",
+            "required": [
+                "token"
+            ],
+            "properties": {
+                "token": {
+                    "description": "Token は確認メールのリンクに含まれる確認トークン。",
+                    "type": "string",
+                    "maxLength": 255,
+                    "example": "V1StGXR8_Z5jdHi6B-myT"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinResponse": {
+            "type": "object",
+            "properties": {
+                "confirmedAt": {
+                    "description": "ConfirmedAt は申込を確定した日時。",
+                    "type": "string",
+                    "example": "2026-11-12T12:00:00Z"
+                },
+                "eventId": {
+                    "description": "EventID は確定した申込のイベントUUID。",
+                    "type": "string",
+                    "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                }
+            }
+        },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody": {
             "type": "object",
             "properties": {
@@ -2239,7 +2373,7 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "description": "Code は競合の原因を表す機械可読なエラーコード。\nalready_joined = 既に参加済み / capacity_full = 定員到達 /\ndeadline_passed = 申込期限経過後 / event_ended = イベント終了後。",
+                    "description": "Code は競合の原因を表す機械可読なエラーコード。\nalready_joined = ログイン中の本人が既に参加済み / capacity_full = 定員到達 /\ndeadline_passed = 申込期限経過後 / event_ended = イベント終了後。\n申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0044）。",
                     "type": "string",
                     "enum": [
                         "already_joined",

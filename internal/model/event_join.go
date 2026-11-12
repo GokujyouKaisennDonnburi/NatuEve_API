@@ -77,6 +77,12 @@ type JoinNotification struct {
 	NoticeBody          string
 }
 
+// ConfirmJoinRequest は参加申込確定エンドポイントのリクエストボディ DTO（ADR-0044）。
+type ConfirmJoinRequest struct {
+	// Token は確認メールのリンクに含まれる確認トークン。
+	Token string `json:"token" example:"V1StGXR8_Z5jdHi6B-myT" validate:"required,max=255"`
+}
+
 // ConfirmJoinResponse は参加申込確定時に返すレスポンス。
 type ConfirmJoinResponse struct {
 	// EventID は確定した申込のイベントUUID。
