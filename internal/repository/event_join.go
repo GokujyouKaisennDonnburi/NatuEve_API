@@ -100,7 +100,6 @@ type EventJoinRepository interface {
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
 	//   - ErrEventCancelled: イベントが取りやめになっている
-	//   - ErrEventCapacityFull: 定員超過（定員 NULL / 0 は定員なし）
 	//   - ErrDeadlinePassed: 申込期限ありイベントで期限経過後（ADR-0029）
 	//   - ErrEventEnded: end_date 経過後（ADR-0029）
 	//   - ErrCategoryNotFound: 指定カテゴリがそのイベントの費用カテゴリに存在しない
