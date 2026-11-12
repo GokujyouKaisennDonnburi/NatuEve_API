@@ -163,7 +163,7 @@ func (h *EventHandler) Join(c *gin.Context) {
 	c.JSON(http.StatusCreated, resp)
 }
 
-// ConfirmJoin はイベント参加申込確定 API（ADR-0044）。
+// ConfirmJoin はイベント参加申込確定 API（ADR-0046）。
 //
 //	@Summary		イベント参加申込の確定
 //	@Description	確認メールのリンクから呼ぶ。認証は不要。

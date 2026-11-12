@@ -123,7 +123,7 @@ func newRelayGuard(cfg config.Config) (gin.HandlerFunc, error) {
 	return guard, nil
 }
 
-// validateWebBaseURL は確認メールのリンク先となる Web のベースURLを検証する（ADR-0044）。
+// validateWebBaseURL は確認メールのリンク先となる Web のベースURLを検証する（ADR-0046）。
 // 空は許容する（config.Load が既定値を入れるため、テストなど直接 Config を組む場合だけ空になる）。
 func validateWebBaseURL(raw string) error {
 	if raw == "" {
@@ -259,7 +259,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	// join は匿名で叩けるため IP レートリミットを掛ける。
 	joinLimiter := middleware.NewIPRateLimiter(rate.Every(joinRateInterval), joinRateBurst).Middleware()
 
-	// join/confirm はメールのリンクから認証なしで呼ばれる（ADR-0044）。
+	// join/confirm はメールのリンクから認証なしで呼ばれる（ADR-0046）。
 	// join と同じ IP レートリミットを掛ける。
 	v1Public.POST("/events/:id/join/confirm", joinLimiter, eventHandler.ConfirmJoin)
 

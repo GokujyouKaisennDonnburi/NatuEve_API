@@ -477,7 +477,7 @@ type myEventClause struct {
 //
 // applied / attended は event_members に自分の行がある（＝現在申込中の）イベントだけを対象とする。
 // 参加キャンセル（leave）で行が削除されたイベントはどちらにも現れない。
-// 未確定（pending）の申込は含めない（ADR-0044）。種別の定義と設計判断は ADR-0024 を参照。
+// 未確定（pending）の申込は含めない（ADR-0046）。種別の定義と設計判断は ADR-0024 を参照。
 var myEventClauses = map[model.MyEventKind]myEventClause{
 	model.MyEventKindHosted: {
 		where: "e.profile_id = $1",
@@ -783,7 +783,7 @@ func (r *eventPostgres) GetOrganizerEmail(ctx context.Context, eventID uuid.UUID
 
 func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventResponse, error) {
 	// 参加人数は event_members.party_size の合計（参加キャンセル時は行ごと削除される）。
-	// 未確定（pending）の申込は含めない（ADR-0044）。集計方針は ADR-0024 を参照。
+	// 未確定（pending）の申込は含めない（ADR-0046）。集計方針は ADR-0024 を参照。
 	const query = `
 		SELECT		e.id, e.title, e.description, e.location, e.event_date, e.end_date, e.application_deadline,
 					e.capacity, e.external_url, e.cancelled_at, e.created_at, e.updated_at,

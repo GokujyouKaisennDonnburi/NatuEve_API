@@ -1,5 +1,5 @@
 -- +goose Up
--- ゲストの参加申込を確認メールで確定するための状態とトークン（ADR-0044）。
+-- ゲストの参加申込を確認メールで確定するための状態とトークン（ADR-0046）。
 -- pending は確認待ちで、参加者一覧・人数・定員判定には含めない。
 -- トークンは平文を保存せず、SHA-256 の hex だけを保存する。
 ALTER TABLE event_members
@@ -9,7 +9,7 @@ ALTER TABLE event_members
     ADD COLUMN confirmation_token_expires_at TIMESTAMPTZ;
 
 -- 既存行の backfill が済んだら既定値を外す。status を指定し忘れた INSERT が
--- 確定扱いになる事故を防ぐ（ADR-0044）。
+-- 確定扱いになる事故を防ぐ（ADR-0046）。
 ALTER TABLE event_members
     ALTER COLUMN status DROP DEFAULT;
 

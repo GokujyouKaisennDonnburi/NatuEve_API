@@ -108,7 +108,7 @@ type JoinConflictErrorBody struct {
 	// Code は競合の原因を表す機械可読なエラーコード。
 	// already_joined = ログイン中の本人が既に参加済み / capacity_full = 定員到達 /
 	// deadline_passed = 申込期限経過後 / event_ended = イベント終了後。
-	// 申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0044）。
+	// 申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0046）。
 	Code string `json:"code" example:"already_joined" enums:"already_joined,capacity_full,deadline_passed,event_ended"`
 	// Message は人間向けのエラーメッセージ。
 	// already_joined なら「既に参加しています」、capacity_full なら「定員に達しています」、
@@ -117,7 +117,7 @@ type JoinConflictErrorBody struct {
 	Message string `json:"message" example:"既に参加しています"`
 }
 
-// ConfirmJoinConflictErrorResponse は参加申込確定の競合エラー(HTTP 409)のドキュメント用レスポンス型（ADR-0044）。
+// ConfirmJoinConflictErrorResponse は参加申込確定の競合エラー(HTTP 409)のドキュメント用レスポンス型（ADR-0046）。
 type ConfirmJoinConflictErrorResponse struct {
 	Error ConfirmJoinConflictErrorBody `json:"error"`
 }

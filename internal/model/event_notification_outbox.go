@@ -20,7 +20,7 @@ const (
 //
 // members: 従来の参加者全員宛（event_members から宛先を解決）/
 // organizer: 主催者1人宛（events JOIN profiles の email から宛先を解決）/
-// email: recipient_email の1人宛（参加申込の確認メール・案内メール。ADR-0044）。
+// email: recipient_email の1人宛（参加申込の確認メール・案内メール。ADR-0046）。
 const (
 	NotificationOutboxRecipientKindMembers   = "members"
 	NotificationOutboxRecipientKindOrganizer = "organizer"
@@ -32,7 +32,7 @@ const (
 // Transactional Outbox パターンにより、イベントキャンセル確定や参加申込と同一トランザクションで
 // この行を INSERT する（internal/repository の CancelWithNotification・Join 参照）。
 // members / organizer の宛先はスナップショットせず、NotificationOutboxWorker が送信直前に
-// event_members または events から解決する。email は RecipientEmail を使う（ADR-0044）。
+// event_members または events から解決する。email は RecipientEmail を使う（ADR-0046）。
 type EventNotificationOutbox struct {
 	ID      uuid.UUID
 	EventID uuid.UUID

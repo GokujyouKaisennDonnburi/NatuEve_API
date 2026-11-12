@@ -503,7 +503,7 @@ func insertTestPendingEventMember(t *testing.T, db *sql.DB, eventID uuid.UUID, m
 
 // TestEventPostgres_GetByID_ParticipantCount は GetByID の ParticipantCount が
 // event_members.party_size の合計になること、申込0件のイベントでは0になること、
-// 他イベントの申込が合算されないこと、未確定の申込が含まれないことを検証する（ADR-0024, ADR-0044）。
+// 他イベントの申込が合算されないこと、未確定の申込が含まれないことを検証する（ADR-0024, ADR-0046）。
 func TestEventPostgres_GetByID_ParticipantCount(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventRepository(db)

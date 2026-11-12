@@ -454,7 +454,7 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 	}
 	joinConfirmedTestMember(t, repo, anonymousMember)
 
-	// 未確定（pending）の申込は参加者一覧に含めない（ADR-0044）。
+	// 未確定（pending）の申込は参加者一覧に含めない（ADR-0046）。
 	insertTestPendingEventMember(t, db, eventID, uuid.NewString()+"@example.com", 4)
 
 	members, err := repo.ListMembers(context.Background(), eventID)
@@ -551,7 +551,7 @@ func TestEventJoinPostgres_ListMembers_ReturnsProfileSummary(t *testing.T) {
 }
 
 // TestEventJoinPostgres_ListRecipients_ExcludesPending は通知宛先に
-// 未確定（pending）の申込を含めないことを検証する（ADR-0044）。
+// 未確定（pending）の申込を含めないことを検証する（ADR-0046）。
 func TestEventJoinPostgres_ListRecipients_ExcludesPending(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventJoinRepository(db)
@@ -574,7 +574,7 @@ func TestEventJoinPostgres_ListRecipients_ExcludesPending(t *testing.T) {
 }
 
 // TestEventJoinPostgres_Join_ExcludesPendingFromCapacity は定員判定に
-// 未確定（pending）の申込を含めないことを検証する（ADR-0044）。
+// 未確定（pending）の申込を含めないことを検証する（ADR-0046）。
 func TestEventJoinPostgres_Join_ExcludesPendingFromCapacity(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventJoinRepository(db)
@@ -617,7 +617,7 @@ func TestEventJoinPostgres_Join_ExcludesPendingFromCapacity(t *testing.T) {
 }
 
 // TestEventJoinPostgres_Join_PendingAndConfirm は未確定で登録した申込が
-// 一覧・人数に含まれず、確認トークンで確定すると含まれるようになることを検証する（ADR-0044）。
+// 一覧・人数に含まれず、確認トークンで確定すると含まれるようになることを検証する（ADR-0046）。
 func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventJoinRepository(db)
@@ -777,7 +777,7 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 }
 
 // TestEventJoinPostgres_Join_PendingRequiresNotification は、pending の申込に
-// 確認メールの件名・本文が無い場合に登録を拒否することを検証する（ADR-0044）。
+// 確認メールの件名・本文が無い場合に登録を拒否することを検証する（ADR-0046）。
 func TestEventJoinPostgres_Join_PendingRequiresNotification(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventJoinRepository(db)
@@ -811,7 +811,7 @@ func TestEventJoinPostgres_Join_PendingRequiresNotification(t *testing.T) {
 }
 
 // TestEventJoinPostgres_Join_DuplicateEmail は同一メールアドレスの再申込が
-// 新規行を作らず、案内メールを outbox に予約することを検証する（ADR-0044）。
+// 新規行を作らず、案内メールを outbox に予約することを検証する（ADR-0046）。
 func TestEventJoinPostgres_Join_DuplicateEmail(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventJoinRepository(db)
@@ -882,7 +882,7 @@ func TestEventJoinPostgres_Join_DuplicateEmail(t *testing.T) {
 
 // TestEventJoinPostgres_Join_DuplicateEmail_LoggedIn は、認証済みメールのログイン参加が
 // 同一メールの確定済み申込と重複した場合、案内メールを予約せず
-// JoinOutcomeAlreadyJoinedSelf を返すことを検証する（ADR-0044）。
+// JoinOutcomeAlreadyJoinedSelf を返すことを検証する（ADR-0046）。
 func TestEventJoinPostgres_Join_DuplicateEmail_LoggedIn(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventJoinRepository(db)
@@ -940,7 +940,7 @@ func TestEventJoinPostgres_Join_DuplicateEmail_LoggedIn(t *testing.T) {
 }
 
 // TestEventJoinPostgres_Join_LoggedInTakeover はログイン参加が同一メールの
-// pending 行を置き換えて即時確定することを検証する（ADR-0044）。
+// pending 行を置き換えて即時確定することを検証する（ADR-0046）。
 func TestEventJoinPostgres_Join_LoggedInTakeover(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventJoinRepository(db)
@@ -1033,7 +1033,7 @@ func TestEventJoinPostgres_Join_LoggedInTakeover(t *testing.T) {
 }
 
 // TestEventJoinPostgres_ConfirmJoin_Errors は確定時の期限切れ・定員・イベント状態の
-// エラーを検証する（ADR-0044）。
+// エラーを検証する（ADR-0046）。
 func TestEventJoinPostgres_ConfirmJoin_Errors(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventJoinRepository(db)

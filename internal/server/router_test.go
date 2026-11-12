@@ -111,7 +111,7 @@ func TestNewRouterRejectsInvalidCORSOrigins(t *testing.T) {
 }
 
 // TestNewRouterValidatesWebBaseURL は、WEB_BASE_URL が http/https の絶対URLでない場合に
-// NewRouter がエラーを返すことを検証する（ADR-0044）。
+// NewRouter がエラーを返すことを検証する（ADR-0046）。
 func TestNewRouterValidatesWebBaseURL(t *testing.T) {
 	tests := []struct {
 		name    string

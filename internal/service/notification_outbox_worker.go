@@ -251,7 +251,7 @@ func (w *NotificationOutboxWorker) processOrganizer(ctx context.Context, markCtx
 }
 
 // processEmail は recipient_kind='email' の outbox 1行分を、recipient_email の1人へ送信する
-// （ADR-0044）。宛先が空の行は再試行しても解決できないため、その場で failed にする。
+// （ADR-0046）。宛先が空の行は再試行しても解決できないため、その場で failed にする。
 func (w *NotificationOutboxWorker) processEmail(ctx context.Context, markCtx context.Context, claim repository.OutboxClaim) {
 	item := claim.Item()
 

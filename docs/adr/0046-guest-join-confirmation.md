@@ -1,4 +1,4 @@
-# ADR-0044: ゲストの参加申込は確認メールのトークンで確定する
+# ADR-0046: ゲストの参加申込は確認メールのトークンで確定する
 
 - ステータス: Accepted
 - 日付: 2026-11-12
@@ -24,7 +24,7 @@ PBI77 のゴール 1〜3 を満たすには、メールアドレスの所有者�
 トークンで `confirmed` に遷移させる。確認・案内メールは ADR-0016 の outbox に予約し、
 API の応答はメール送信に依存させない。**
 
-1. `event_members` に次の列を追加する（ADR-0044）。
+1. `event_members` に次の列を追加する（ADR-0046）。
    - `status`（`pending` / `confirmed`、既定値 `confirmed`）
    - `confirmation_token_hash`（SHA-256 の hex。平文トークンは保存しない）
    - `confirmation_token_expires_at`

@@ -1,6 +1,6 @@
 -- +goose Up
 -- 参加申込の確認メール・案内メールは、参加者全員ではなく1つのメールアドレスへ送る。
--- outbox の宛先種別に email を追加し、宛先アドレスをスナップショットする（ADR-0044）。
+-- outbox の宛先種別に email を追加し、宛先アドレスをスナップショットする（ADR-0046）。
 ALTER TABLE event_notification_outbox
     ADD COLUMN recipient_email TEXT;
 
