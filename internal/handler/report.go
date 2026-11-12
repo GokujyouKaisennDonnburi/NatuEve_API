@@ -67,7 +67,7 @@ func (h *ReportHandler) Create(c *gin.Context) {
 		}
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
-			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))
 			return
 		}
 		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "レポートの作成に失敗しました"))

@@ -421,6 +421,9 @@ func (s *EventJoinService) ListMembers(
 	}, nil
 }
 
+// maxPartySize は1回の参加申込で受け付ける参加人数の上限（ADR-0044）。
+const maxPartySize = 10
+
 // validateJoinEventRequest はリクエストの各フィールドを検証する。
 // 問題があれば *ValidationError を返す。
 func validateJoinEventRequest(req model.JoinEventRequest) error {
@@ -453,6 +456,7 @@ func validateJoinEventRequest(req model.JoinEventRequest) error {
 	// 同一カテゴリの重複を防ぐ。表記ゆれ（大文字小文字）も同一とみなす。
 	// カテゴリがイベントに実在するかは repository がトランザクション内で確認する。
 	seen := make(map[string]struct{}, len(req.Participants))
+	partySize := 0
 	for _, p := range req.Participants {
 		category := strings.TrimSpace(p.Category)
 		if category == "" {
@@ -464,6 +468,16 @@ func validateJoinEventRequest(req model.JoinEventRequest) error {
 		if p.HeadCount < 1 {
 			return &ValidationError{Message: "各カテゴリの人数は1人以上で入力してください"}
 		}
+
+		// 合計が上限を超える申込は受け付けない（ADR-0044）。
+		// partySize は上限以下に保たれるため、引き算での比較はオーバーフローしない。
+		if p.HeadCount > maxPartySize-partySize {
+			return &ValidationError{
+				Code:    "party_size_exceeded",
+				Message: fmt.Sprintf("参加人数の合計は%d人以下で入力してください", maxPartySize),
+			}
+		}
+		partySize += p.HeadCount
 
 		key := strings.ToLower(category)
 		if _, dup := seen[key]; dup {

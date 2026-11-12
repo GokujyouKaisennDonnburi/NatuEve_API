@@ -105,7 +105,7 @@ func (h *EventHandler) List(c *gin.Context) {
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
-			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))
 			return
 		}
 		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "イベント一覧の取得に失敗しました"))
@@ -158,7 +158,7 @@ func (h *EventHandler) Create(c *gin.Context) {
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
-			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))
 			return
 		}
 		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "イベントの作成に失敗しました"))
@@ -211,7 +211,7 @@ func (h *EventHandler) Cancel(c *gin.Context) {
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
-			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))
 			return
 		}
 
@@ -338,7 +338,7 @@ func (h *EventHandler) ListMine(c *gin.Context) {
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
-			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))
 			return
 		}
 		slog.Error("マイページのイベント一覧の取得に失敗しました",
@@ -411,7 +411,7 @@ func (h *EventHandler) ListByProfile(c *gin.Context) {
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
-			c.JSON(http.StatusBadRequest, model.NewErrorResponse("invalid_request", ve.Message))
+			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))
 			return
 		}
 		slog.Error("プロフィールのイベント一覧の取得に失敗しました",

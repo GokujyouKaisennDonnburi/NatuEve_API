@@ -164,7 +164,7 @@ func (h *EventParticipationLogHandler) Create(c *gin.Context) {
 		if errors.As(err, &ve) {
 			c.JSON(
 				http.StatusBadRequest,
-				model.NewErrorResponse("invalid_request", ve.Message),
+				model.NewErrorResponse(validationCode(ve), ve.Message),
 			)
 			return
 		}
