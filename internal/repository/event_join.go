@@ -16,9 +16,6 @@ import (
 // ErrEventNotFound は参加対象のイベントが存在しない場合に返されるエラー。
 var ErrEventNotFound = errors.New("event not found")
 
-// ErrAlreadyJoined は同一イベントに重複して参加申込した場合に返されるエラー。
-var ErrAlreadyJoined = errors.New("already joined")
-
 // ErrEventCapacityFull は定員超過で参加できない場合に返されるエラー。
 var ErrEventCapacityFull = errors.New("event capacity full")
 
@@ -58,10 +55,10 @@ const (
 	JoinOutcomePending JoinOutcome = "pending"
 	// JoinOutcomeConfirmed は確定（confirmed）で登録したことを表す。
 	JoinOutcomeConfirmed JoinOutcome = "confirmed"
-	// JoinOutcomeAlreadyJoined は同一メールアドレスの申込が既にあり、
+	// JoinOutcomeAlreadyJoined は未ログインの同一メールアドレスの申込が既にあり、
 	// 新規申込と同じ応答を返すことを表す。
 	JoinOutcomeAlreadyJoined JoinOutcome = "already_joined"
-	// JoinOutcomeAlreadyJoinedSelf はログイン中の本人が既に参加していることを表す。
+	// JoinOutcomeAlreadyJoinedSelf はログイン中の本人（認証済みメール）が既に参加していることを表す。
 	JoinOutcomeAlreadyJoinedSelf JoinOutcome = "already_joined_self"
 	// JoinOutcomeCapacityFull は定員超過を表す。
 	JoinOutcomeCapacityFull JoinOutcome = "capacity_full"
@@ -90,12 +87,15 @@ type EventJoinRepository interface {
 	// event_participation_logs に action='join' を1件、その内訳を
 	// event_participation_log_categories に追記する（匿名参加はログ対象外）。
 	//
-	// 同一メールアドレスの申込が既にある場合は、notification の Notice* を outbox に予約し、
-	// JoinOutcomeAlreadyJoined を返す（新規申込と同じ応答にするため、エラーにはしない）。
-	// ログイン中の本人（同一 profile_id）が既に参加している場合は JoinOutcomeAlreadyJoinedSelf、
+	// 同一メールアドレスの申込が既にある場合、未ログイン（ProfileID が Invalid）なら
+	// notification の Notice* を outbox に予約し、JoinOutcomeAlreadyJoined を返す
+	// （新規申込と同じ応答にするため、エラーにはしない）。ログイン中（ProfileID が Valid）は
+	// サービス層で入力メールと JWT の email の一致を確認済みのため、案内メールは予約せず
+	// JoinOutcomeAlreadyJoinedSelf を返す（ログイン中の本人による重複）。
 	// 定員超過は JoinOutcomeCapacityFull を返す。定員判定は confirmed だけを数え、
 	// 重複申込でも新規申込と同じ条件で判定する。
 	// ログイン参加で同一メールの pending 行がある場合は、その行を削除して confirmed で登録する。
+	// この乗っ取りは、サービス層で入力メールと JWT email の一致を確認済みであることを前提とする。
 	//
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
@@ -362,7 +362,8 @@ func (r *eventJoinPostgres) Join(
 	}
 
 	if capacityFull {
-		if duplicateFound {
+		// 未ログインの重複だけ案内メールを送る。ログイン中の重複は本人の申込なので送らない。
+		if duplicateFound && !member.ProfileID.Valid {
 			if err := insertJoinOutboxEmail(ctx, tx, member, notification.NoticeSubject, notification.NoticeBody); err != nil {
 				return "", err
 			}
@@ -376,11 +377,15 @@ func (r *eventJoinPostgres) Join(
 	if duplicateFound {
 		// ログイン参加で同一メールの pending 行がある場合は、その未確定行を破棄して
 		// ログイン申込で置き換える（第三者が作った pending 行で本人をブロックしない）。
+		// 入力メールと JWT email の一致はサービス層で確認済み。
 		if member.ProfileID.Valid && duplicateStatus == model.EventMemberStatusPending && !duplicateProfileID.Valid {
 			const deletePending = `DELETE FROM event_members WHERE id = $1`
 			if _, err := tx.ExecContext(ctx, deletePending, duplicateID); err != nil {
 				return "", fmt.Errorf("delete pending member: %w", err)
 			}
+		} else if member.ProfileID.Valid {
+			// ログイン中の本人による重複。案内メールは送らず、409 用の outcome を返す。
+			return JoinOutcomeAlreadyJoinedSelf, nil
 		} else {
 			if err := insertJoinOutboxEmail(ctx, tx, member, notification.NoticeSubject, notification.NoticeBody); err != nil {
 				return "", err
@@ -445,6 +450,9 @@ func (r *eventJoinPostgres) Join(
 		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolationCode {
 			switch pgErr.ConstraintName {
 			case "event_members_event_id_lower_mail_key":
+				if member.ProfileID.Valid {
+					return JoinOutcomeAlreadyJoinedSelf, nil
+				}
 				return JoinOutcomeAlreadyJoined, nil
 			case "event_members_event_id_profile_id_key":
 				return JoinOutcomeAlreadyJoinedSelf, nil

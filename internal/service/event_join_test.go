@@ -182,6 +182,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 		name              string
 		stub              *stubEventJoinRepository
 		profileID         uuid.NullUUID
+		profileEmail      string // 空なら req.MailAddress を使う（ログイン時の既定）
 		req               model.JoinEventRequest
 		wantValErr        bool
 		wantValErrCode    string // wantValErr=true のとき、空でなければ ValidationError.Code を検証する
@@ -312,6 +313,25 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				}
 				if stub.gotNotification.NoticeSubject == "" || stub.gotNotification.NoticeBody == "" {
 					t.Error("案内メールの件名・本文が設定されていない")
+				}
+			},
+		},
+		// --- 正常系: TrimSpace ---
+		{
+			name:      "正常: 表示名付きメールはアドレス部分だけを保存する",
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
+			profileID: anonymousProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "山田太郎 <yamada@example.com>",
+				Participants: []model.ParticipantInput{
+					{Category: "大人", HeadCount: 1},
+				},
+			},
+			checkMember: func(t *testing.T, stub *stubEventJoinRepository) {
+				t.Helper()
+				if stub.gotMember.MailAddress != "yamada@example.com" {
+					t.Errorf("MailAddress: got %q, want %q", stub.gotMember.MailAddress, "yamada@example.com")
 				}
 			},
 		},
@@ -529,6 +549,22 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			req:        model.JoinEventRequest{Username: "山田太郎", MailAddress: "not-an-email"},
 			wantValErr: true,
 		},
+		{
+			name:         "異常: ログイン中のメールアドレスと一致しない",
+			stub:         &stubEventJoinRepository{joinCreatedAt: createdAt},
+			profileID:    loggedInProfileID,
+			profileEmail: "other@example.com",
+			req:          validReq,
+			wantValErr:   true,
+		},
+		{
+			name:         "異常: ログイン中のメールアドレスを確認できない",
+			stub:         &stubEventJoinRepository{joinCreatedAt: createdAt},
+			profileID:    loggedInProfileID,
+			profileEmail: "not-an-email",
+			req:          validReq,
+			wantValErr:   true,
+		},
 		// --- repository の sentinel エラー変換 ---
 		{
 			name:         "異常: イベントが存在しない（NotFoundError）",
@@ -536,14 +572,6 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			profileID:    loggedInProfileID,
 			req:          validReq,
 			wantNotFound: true,
-		},
-		{
-			name:             "異常: repository が ErrAlreadyJoined を返す（防御的）",
-			stub:             &stubEventJoinRepository{joinErr: repository.ErrAlreadyJoined},
-			profileID:        loggedInProfileID,
-			req:              validReq,
-			wantConflict:     true,
-			wantConflictCode: "already_joined",
 		},
 		{
 			name: "正常: メール重複は新規申込と同じ応答を返す",
@@ -740,7 +768,11 @@ func TestEventJoinServiceJoin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
 
-			resp, err := svc.Join(context.Background(), eventID, tt.profileID, tt.req)
+			profileEmail := tt.profileEmail
+			if tt.profileID.Valid && profileEmail == "" {
+				profileEmail = strings.TrimSpace(tt.req.MailAddress)
+			}
+			resp, err := svc.Join(context.Background(), eventID, tt.profileID, profileEmail, tt.req)
 
 			switch {
 			case tt.wantValErr:

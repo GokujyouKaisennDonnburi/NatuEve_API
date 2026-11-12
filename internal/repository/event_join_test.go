@@ -846,6 +846,65 @@ func TestEventJoinPostgres_Join_DuplicateEmail(t *testing.T) {
 	}
 }
 
+// TestEventJoinPostgres_Join_DuplicateEmail_LoggedIn は、認証済みメールのログイン参加が
+// 同一メールの確定済み申込と重複した場合、案内メールを予約せず
+// JoinOutcomeAlreadyJoinedSelf を返すことを検証する（ADR-0044）。
+func TestEventJoinPostgres_Join_DuplicateEmail_LoggedIn(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	eventID := insertTestEvent(t, db, ownerID)
+	insertTestCost(t, db, eventID, "大人", 500)
+
+	mailAddress := uuid.NewString() + "@example.com"
+	// ゲストとして確定済みの行（profile_id NULL）を用意する。
+	insertTestEventMember(t, db, eventID, mailAddress, 1)
+
+	profileID := insertTestProfile(t, db)
+	member := &model.EventMember{
+		EventID:     eventID,
+		ProfileID:   uuid.NullUUID{UUID: profileID, Valid: true},
+		Username:    "ログイン参加者",
+		MailAddress: mailAddress,
+		PartySize:   1,
+		Categories:  []model.MemberCategory{{Category: "大人", HeadCount: 1}},
+		Status:      model.EventMemberStatusConfirmed,
+	}
+	outcome, err := repo.Join(context.Background(), member, model.JoinNotification{
+		NoticeSubject: "すでに申し込まれています",
+		NoticeBody:    "案内本文",
+	})
+	if err != nil {
+		t.Fatalf("Join() returned error: %v", err)
+	}
+	if outcome != JoinOutcomeAlreadyJoinedSelf {
+		t.Fatalf("Join() outcome = %q, want %q", outcome, JoinOutcomeAlreadyJoinedSelf)
+	}
+
+	const countMembers = `SELECT COUNT(*) FROM event_members WHERE event_id = $1`
+	var count int
+	if err := db.QueryRowContext(context.Background(), countMembers, eventID).Scan(&count); err != nil {
+		t.Fatalf("count members: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("member count = %d, want 1（重複行を作らない）", count)
+	}
+
+	const countEmailOutbox = `
+	SELECT COUNT(*)
+	FROM event_notification_outbox
+	WHERE event_id = $1
+	AND recipient_kind = 'email'
+	`
+	if err := db.QueryRowContext(context.Background(), countEmailOutbox, eventID).Scan(&count); err != nil {
+		t.Fatalf("count email outbox: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("email outbox count = %d, want 0（ログイン中の重複は案内メールを送らない）", count)
+	}
+}
+
 // TestEventJoinPostgres_Join_LoggedInTakeover はログイン参加が同一メールの
 // pending 行を置き換えて即時確定することを検証する（ADR-0044）。
 func TestEventJoinPostgres_Join_LoggedInTakeover(t *testing.T) {

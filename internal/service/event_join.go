@@ -85,19 +85,38 @@ func NewEventJoinService(
 // Join はイベント参加処理を行う（ADR-0044）。
 //
 // profileID が Invalid（未ログイン）の場合は pending として登録し、確認メールを outbox に
-// 予約する。ログイン時は confirmed として即時登録する。
+// 予約する。ログイン時は confirmed として即時登録するが、入力されたメールアドレスが
+// JWT の email（profileEmail）と一致することを必須とする。
 // 存在確認・重複確認・定員確認・登録は repository が1トランザクションで
 // 原子的に行い、結果は JoinOutcome / sentinel エラーで返るためここで HTTP 向けに変換する。
 func (s *EventJoinService) Join(
 	ctx context.Context,
 	eventID uuid.UUID,
 	profileID uuid.NullUUID,
+	profileEmail string,
 	req model.JoinEventRequest,
 ) (model.JoinEventResponse, error) {
 
-	// バリデーション
-	if err := validateJoinEventRequest(req); err != nil {
+	// バリデーション（メールアドレスは正規化したアドレス部分を返す）
+	mailAddress, err := validateJoinEventRequest(req)
+	if err != nil {
 		return model.JoinEventResponse{}, err
+	}
+
+	// ログイン中の申込は、入力されたメールアドレスが認証ユーザーの email と一致すること。
+	// 一致しない申込を許すと、他人のメールアドレスで即時確定できてしまう（ADR-0044）。
+	if profileID.Valid {
+		verifiedEmail, err := normalizeMailAddress(profileEmail)
+		if err != nil || verifiedEmail == "" {
+			return model.JoinEventResponse{}, &ValidationError{
+				Message: "ログイン中のメールアドレスを確認できません",
+			}
+		}
+		if !strings.EqualFold(mailAddress, verifiedEmail) {
+			return model.JoinEventResponse{}, &ValidationError{
+				Message: "入力されたメールアドレスがログイン中のアカウントと一致しません",
+			}
+		}
 	}
 
 	// 内訳を組み立て、合計人数を算出する。
@@ -132,7 +151,7 @@ func (s *EventJoinService) Join(
 		EventID:     eventID,
 		ProfileID:   profileID,
 		Username:    strings.TrimSpace(req.Username),
-		MailAddress: strings.TrimSpace(req.MailAddress),
+		MailAddress: mailAddress,
 		PartySize:   partySize,
 		Categories:  categories,
 		Status:      status,
@@ -158,8 +177,6 @@ func (s *EventJoinService) Join(
 		switch {
 		case errors.Is(err, repository.ErrEventNotFound):
 			return model.JoinEventResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
-		case errors.Is(err, repository.ErrAlreadyJoined):
-			return model.JoinEventResponse{}, &ConflictError{Code: "already_joined", Message: "既に参加しています"}
 		case errors.Is(err, repository.ErrEventCapacityFull):
 			return model.JoinEventResponse{}, &ConflictError{Code: "capacity_full", Message: "定員に達しています"}
 		case errors.Is(err, repository.ErrEventCancelled):
@@ -604,33 +621,35 @@ func (s *EventJoinService) ListMembers(
 // maxPartySize は1回の参加申込で受け付ける参加人数の上限（ADR-0044）。
 const maxPartySize = 10
 
-// validateJoinEventRequest はリクエストの各フィールドを検証する。
-// 問題があれば *ValidationError を返す。
-func validateJoinEventRequest(req model.JoinEventRequest) error {
+// validateJoinEventRequest はリクエストの各フィールドを検証し、
+// 保存に使う正規化済みのメールアドレスを返す。問題があれば *ValidationError を返す。
+func validateJoinEventRequest(req model.JoinEventRequest) (string, error) {
 	// Username: trim 後に必須・255文字以内。
 	username := strings.TrimSpace(req.Username)
 	if username == "" {
-		return &ValidationError{Message: "ユーザー名は必須です"}
+		return "", &ValidationError{Message: "ユーザー名は必須です"}
 	}
 	if len([]rune(username)) > 255 {
-		return &ValidationError{Message: "ユーザー名は255文字以内で入力してください"}
+		return "", &ValidationError{Message: "ユーザー名は255文字以内で入力してください"}
 	}
 
 	// MailAddress: trim 後に必須・メール形式・255文字以内。
+	// 表示名付き（Name <addr>）はアドレス部分だけを保存する。
 	mailAddress := strings.TrimSpace(req.MailAddress)
 	if mailAddress == "" {
-		return &ValidationError{Message: "メールアドレスは必須です"}
+		return "", &ValidationError{Message: "メールアドレスは必須です"}
 	}
 	if len([]rune(mailAddress)) > 255 {
-		return &ValidationError{Message: "メールアドレスは255文字以内で入力してください"}
+		return "", &ValidationError{Message: "メールアドレスは255文字以内で入力してください"}
 	}
-	if _, err := mail.ParseAddress(mailAddress); err != nil {
-		return &ValidationError{Message: "メールアドレスの形式が不正です"}
+	normalizedMailAddress, err := normalizeMailAddress(mailAddress)
+	if err != nil {
+		return "", &ValidationError{Message: "メールアドレスの形式が不正です"}
 	}
 
 	// Participants: カテゴリ別の参加人数。1件以上必要で、合計が参加人数になる。
 	if len(req.Participants) == 0 {
-		return &ValidationError{Message: "参加人数の内訳は1件以上必要です"}
+		return "", &ValidationError{Message: "参加人数の内訳は1件以上必要です"}
 	}
 
 	// 同一カテゴリの重複を防ぐ。表記ゆれ（大文字小文字）も同一とみなす。
@@ -640,19 +659,19 @@ func validateJoinEventRequest(req model.JoinEventRequest) error {
 	for _, p := range req.Participants {
 		category := strings.TrimSpace(p.Category)
 		if category == "" {
-			return &ValidationError{Message: "参加者カテゴリは必須です"}
+			return "", &ValidationError{Message: "参加者カテゴリは必須です"}
 		}
 		if len([]rune(category)) > 255 {
-			return &ValidationError{Message: "参加者カテゴリは255文字以内で入力してください"}
+			return "", &ValidationError{Message: "参加者カテゴリは255文字以内で入力してください"}
 		}
 		if p.HeadCount < 1 {
-			return &ValidationError{Message: "各カテゴリの人数は1人以上で入力してください"}
+			return "", &ValidationError{Message: "各カテゴリの人数は1人以上で入力してください"}
 		}
 
 		// 合計が上限を超える申込は受け付けない（ADR-0044）。
 		// partySize は上限以下に保たれるため、引き算での比較はオーバーフローしない。
 		if p.HeadCount > maxPartySize-partySize {
-			return &ValidationError{
+			return "", &ValidationError{
 				Code:    "party_size_exceeded",
 				Message: fmt.Sprintf("参加人数の合計は%d人以下で入力してください", maxPartySize),
 			}
@@ -661,12 +680,21 @@ func validateJoinEventRequest(req model.JoinEventRequest) error {
 
 		key := strings.ToLower(category)
 		if _, dup := seen[key]; dup {
-			return &ValidationError{
+			return "", &ValidationError{
 				Message: fmt.Sprintf("参加者カテゴリ「%s」が重複しています", category),
 			}
 		}
 		seen[key] = struct{}{}
 	}
 
-	return nil
+	return normalizedMailAddress, nil
+}
+
+// normalizeMailAddress はメールアドレスを trim し、表示名を除いたアドレス部分を返す。
+func normalizeMailAddress(raw string) (string, error) {
+	addr, err := mail.ParseAddress(strings.TrimSpace(raw))
+	if err != nil {
+		return "", err
+	}
+	return addr.Address, nil
 }
