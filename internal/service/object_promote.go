@@ -175,7 +175,7 @@ func promoteOneObject(
 	} else {
 		// PDF はメタデータ（文書情報・XMP）を除去してから保存する（ADR-0046）。
 		// Content-Disposition を付け直すため ct も渡す。
-		clean, err := stripPDFMetadata(data)
+		clean, err := stripPDFMetadata(ctx, data)
 		if err != nil {
 			return "", &ValidationError{
 				Message: fmt.Sprintf("PDF %q のメタデータ除去に失敗しました: %v", key, err),

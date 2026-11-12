@@ -22,7 +22,7 @@ const (
 // assertPDFPageCount は data のページ数が want であることを確認する。
 func assertPDFPageCount(t *testing.T, data []byte, want int) {
 	t.Helper()
-	count, err := api.PageCount(context.Background(), bytes.NewReader(data), model.NewDefaultConfiguration())
+	count, err := api.PageCount(context.Background(), bytes.NewReader(data), model.NewStatelessConfiguration())
 	if err != nil {
 		t.Fatalf("ページ数の取得に失敗しました: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestStripPDFMetadata(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := stripPDFMetadata(tt.input)
+			out, err := stripPDFMetadata(context.Background(), tt.input)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("エラーを期待したが nil だった")
