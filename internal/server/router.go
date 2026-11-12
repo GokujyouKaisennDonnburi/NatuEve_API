@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -47,6 +48,9 @@ func NewRouter(ctx context.Context, cfg config.Config, sqlDB *sql.DB) (*gin.Engi
 	relayGuard, err := newRelayGuard(cfg)
 	if err != nil {
 		return nil, nil, err
+	}
+	if err := validateWebBaseURL(cfg.WebBaseURL); err != nil {
+		return nil, nil, fmt.Errorf("WEB_BASE_URL: %w", err)
 	}
 
 	// gin.Default() の代わりに slog 連携のロガー/リカバリを使う。
@@ -117,6 +121,32 @@ func newRelayGuard(cfg config.Config) (gin.HandlerFunc, error) {
 		return nil, fmt.Errorf("RELAY_SECRET / RELAY_CLIENT_IP_HEADER: %w", err)
 	}
 	return guard, nil
+}
+
+// validateWebBaseURL は確認メールのリンク先となる Web のベースURLを検証する（ADR-0044）。
+// 空は許容する（config.Load が既定値を入れるため、テストなど直接 Config を組む場合だけ空になる）。
+func validateWebBaseURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return errors.New("scheme must be http or https")
+	}
+	if u.Host == "" {
+		return errors.New("host is required")
+	}
+	if u.User != nil {
+		return errors.New("user info is not allowed")
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("query and fragment are not allowed")
+	}
+	return nil
 }
 
 // join のレートリミット設定。参加申込は匿名で叩けるため、同一 IP からの
