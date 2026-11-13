@@ -457,6 +457,10 @@ func (r *eventJoinPostgres) Join(
 		// UNIQUE 制約違反は重複参加として扱う（事前チェックの最後の砦）。
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolationCode {
+			// ここに到達するのは events の FOR UPDATE による直列化と事前チェックが
+			// 破れた場合の最後の砦。UNIQUE 違反でトランザクションは中断しているため、
+			// 案内メールの outbox 予約は同一トランザクションでは行えない。
+			// 通常の API 経由では到達しない前提。
 			switch pgErr.ConstraintName {
 			case "event_members_event_id_lower_mail_key":
 				if member.ProfileID.Valid {
