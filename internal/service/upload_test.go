@@ -36,13 +36,6 @@ type fakeObjectStore struct {
 	// putCalls は Put の呼び出し回数を数える。
 	putCalls int
 
-	// Copy の記録
-	copySrcKey      string
-	copyDstKey      string
-	copyContentType string
-	copyDisposition string
-	copyErr         error
-
 	// Delete の記録
 	deleteKeys []string
 	deleteErr  error
@@ -85,14 +78,6 @@ func (f *fakeObjectStore) Put(_ context.Context, key string, body []byte, conten
 	f.putContentType = contentType
 	f.putDisposition = contentDisposition
 	return f.putErr
-}
-
-func (f *fakeObjectStore) Copy(_ context.Context, srcKey, dstKey, contentType, contentDisposition string) error {
-	f.copySrcKey = srcKey
-	f.copyDstKey = dstKey
-	f.copyContentType = contentType
-	f.copyDisposition = contentDisposition
-	return f.copyErr
 }
 
 func (f *fakeObjectStore) Delete(_ context.Context, key string) error {

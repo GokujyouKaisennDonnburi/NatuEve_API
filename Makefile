@@ -8,7 +8,9 @@ SWAG_ENTRY := cmd/api/main.go
 SWAG_OUT := ./api
 
 # golangci-lint も CI と揃えるためバージョンを固定する。
-GOLANGCI_VERSION := v2.12.2
+# 依存 (pdfcpu) 配下に //go:build go1.27 のファイルがあり、ローカルの go1.27 で
+# 型検査されるため、go1.27 製ビルドのバージョンを使う（go1.26 製だと panic する）。
+GOLANGCI_VERSION := v2.15.0
 GOLANGCI ?= $(shell go env GOPATH)/bin/golangci-lint
 
 # goose(マイグレーション CLI)はバージョンを固定し、api コンテナ内で go run する。
