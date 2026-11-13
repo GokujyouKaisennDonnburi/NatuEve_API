@@ -120,6 +120,24 @@ describe("relay", () => {
     );
   });
 
+  it("HTTP の POST も転送せず 301 を返す", async () => {
+    const fetcher = vi.fn(async () => new Response("ok"));
+    const res = await relay(
+      new Request("http://natueve-api.natuportal.org/api/v1/events", {
+        method: "POST",
+        body: '{"a":1}',
+        headers: { "Content-Type": "application/json" },
+      }),
+      env,
+      fetcher as unknown as typeof fetch,
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe(
+      "https://natueve-api.natuportal.org/api/v1/events",
+    );
+  });
+
   it("redirect は manual、cache は no-store、method はそのまま", async () => {
     const { url, init } = await run(
       new Request("https://natueve-api.natuportal.org/events?q=1", {
