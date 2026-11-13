@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
@@ -34,6 +35,12 @@ type Mailer interface {
 // handler 層は errors.Is で判定し HTTP 429 を返す。
 var ErrMailRateLimited = errors.New("mail rate limited")
 
+// ErrNotificationSendLimitExceeded は一斉送信の回数上限に達したことを表す（ADR-0046）。
+//
+// repository.ErrNotificationSendLimitReached の別名。handler 層は errors.Is で判定し、
+// HTTP 429 を返す。
+var ErrNotificationSendLimitExceeded = repository.ErrNotificationSendLimitReached
+
 // maxNotificationRecipients は一斉送信1回あたりの宛先数上限。
 //
 // ADR-0001 で採用した Resend 無料枠は 100通/日のため、1回の一斉送信でこれを
@@ -46,6 +53,12 @@ var ErrMailRateLimited = errors.New("mail rate limited")
 // 引き上げる際は SendBatch 側のチャンク単位の成否集計もあわせて見直すこと。
 const maxNotificationRecipients = 100
 
+// maxNotificationSendsPerEvent はイベントごと・通知ウィンドウ期間内に許す一斉送信の回数上限（ADR-0046）。
+const maxNotificationSendsPerEvent = 5
+
+// notificationSendWindow は送信回数上限を数える期間（スライディングウィンドウ）（ADR-0046）。
+const notificationSendWindow = 24 * time.Hour
+
 // notificationSubjectMaxLen はメール件名の最大文字数。
 const notificationSubjectMaxLen = 255
 
@@ -54,27 +67,32 @@ const notificationBodyMaxLen = 10000
 
 // EventNotificationService はイベント参加者への一斉送信のビジネスロジックを提供する。
 type EventNotificationService struct {
-	eventRepo repository.EventRepository
-	joinRepo  repository.EventJoinRepository
-	mailer    Mailer
+	eventRepo   repository.EventRepository
+	joinRepo    repository.EventJoinRepository
+	sendLogRepo repository.EventNotificationSendLogRepository
+	mailer      Mailer
 }
 
 // NewEventNotificationService は EventNotificationService を生成する。
 func NewEventNotificationService(
 	eventRepo repository.EventRepository,
 	joinRepo repository.EventJoinRepository,
+	sendLogRepo repository.EventNotificationSendLogRepository,
 	mailer Mailer,
 ) *EventNotificationService {
 	return &EventNotificationService{
-		eventRepo: eventRepo,
-		joinRepo:  joinRepo,
-		mailer:    mailer,
+		eventRepo:   eventRepo,
+		joinRepo:    joinRepo,
+		sendLogRepo: sendLogRepo,
+		mailer:      mailer,
 	}
 }
 
 // SendBulk はイベント主催者からの依頼で、参加者全員へ一斉送信する。
 //
 // 送信できるのはイベント主催者のみ（events.profile_id == profileID）。
+// 送信回数上限（イベントごと・24時間あたり 5 回、ADR-0046）に達している場合は
+// ErrNotificationSendLimitExceeded を返し、メールは送信しない。
 // 検証エラーは *ValidationError、認可エラーは *ForbiddenError として返す。
 // handler 層で errors.As により判定する。
 func (s *EventNotificationService) SendBulk(
@@ -105,6 +123,17 @@ func (s *EventNotificationService) SendBulk(
 		}
 	}
 
+	// 送信回数上限の枠を確保する（ADR-0046）。送信前に予約し、送信失敗時は枠を返す。
+	// 枠は DB で数えるため、複数インスタンスから同時に送信しても上限を超えない。
+	now := time.Now()
+	reservationID, err := s.sendLogRepo.Reserve(ctx, parsedEventID, now, notificationSendWindow, maxNotificationSendsPerEvent)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotificationSendLimitReached) {
+			return model.SendEventNotificationResponse{}, repository.ErrNotificationSendLimitReached
+		}
+		return model.SendEventNotificationResponse{}, fmt.Errorf("reserve notification send: %w", err)
+	}
+
 	emails := make([]Email, 0, len(recipients))
 	for _, recipient := range recipients {
 		emails = append(emails, Email{
@@ -115,7 +144,19 @@ func (s *EventNotificationService) SendBulk(
 	}
 
 	if err := s.mailer.SendBatch(ctx, emails); err != nil {
+		// 送信できなかったため予約を取り消して枠を返す。取り消し自体の失敗は
+		// 元の送信エラーに併せて報告する。
+		if delErr := s.sendLogRepo.Delete(ctx, reservationID); delErr != nil {
+			return model.SendEventNotificationResponse{}, errors.Join(
+				fmt.Errorf("send batch: %w", err),
+				fmt.Errorf("release notification send reservation: %w", delErr),
+			)
+		}
 		return model.SendEventNotificationResponse{}, fmt.Errorf("send batch: %w", err)
+	}
+
+	if err := s.sendLogRepo.MarkSent(ctx, reservationID, time.Now()); err != nil {
+		return model.SendEventNotificationResponse{}, fmt.Errorf("mark notification send sent: %w", err)
 	}
 
 	return model.SendEventNotificationResponse{

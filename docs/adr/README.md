@@ -21,7 +21,7 @@
 | [0004](./0004-bulk-send-as-individual.md) | 一斉送信は個別送信で行う（特定電子メール法対応） | Accepted |
 | [0005](./0005-mail-rate-limit-handling.md) | メール送信のレート制限（429）対応方針 | Accepted |
 | [0006](./0006-resend-sdk-user-agent-override.md) | resend-go SDK の User-Agent を独自値に上書きする | Accepted |
-| [0007](./0007-bulk-notification-abuse-guard-scope.md) | 一斉送信の濫用対策はレート制限・送信量カウンタで行わない | Accepted 
+| [0007](./0007-bulk-notification-abuse-guard-scope.md) | 一斉送信の濫用対策はレート制限・送信量カウンタで行わない | Superseded by ADR-0046（有料プラン移行・宛先上限の決定は有効） |
 | [0008](./0008-event-search-ilike-nfkc.md) | イベント検索は ILIKE 部分一致＋クエリ時 NFKC 正規化で実装する | Accepted |
 | [0008](./0008-event-owner-check-unification.md) | イベント所有者が必要な操作の認可フローを統一する | Accepted |
 | [0009](./0009-participation-log-event-not-found-status.md) | 参加状態ログ追加のイベント不存在は 404 で返す | Accepted |
