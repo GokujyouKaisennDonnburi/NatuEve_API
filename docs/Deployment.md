@@ -239,7 +239,7 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 | `RELAY_SECRET_PREVIOUS` | 値の差し替え中だけ、古い値を設定する（[手順](#runapp-の-url-へ直接の大量アクセスを受けたとき)） | ○ |
 | `RELAY_CLIENT_IP_HEADER` | `X-NatuEve-Client-IP`（Worker の `CLIENT_IP_HEADER` と同じ値） | |
 | `CORS_ALLOW_ORIGINS` | `https://natueve-web.natuportal.org`（NatuEve_Web_Frontend#328 で決定） | |
-| `WEB_BASE_URL` | `https://natueve-web.natuportal.org`（参加申込の確認メールのリンク先。ADR-0046） | |
+| `WEB_BASE_URL` | `https://natueve-web.natuportal.org`（参加申込の確認メールのリンク先。ADR-0047） | |
 | `R2_ACCOUNT_ID` | Cloudflare のアカウント ID | |
 | `R2_ACCESS_KEY_ID` | R2 の API トークン（対象は本番用のバケットだけ） | ○ |
 | `R2_SECRET_ACCESS_KEY` | R2 の API トークン（対象は本番用のバケットだけ） | ○ |

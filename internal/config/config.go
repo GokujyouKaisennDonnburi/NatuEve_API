@@ -60,7 +60,7 @@ type Config struct {
 	ResendAPIKey string
 	// MailFrom は送信元メールアドレス。
 	MailFrom string
-	// WebBaseURL は確認メールのリンク先となる Web のベースURL（ADR-0046）。
+	// WebBaseURL は確認メールのリンク先となる Web のベースURL（ADR-0047）。
 	// 未設定なら http://localhost:3000。
 	WebBaseURL string
 	// OutboxWorkerEnabled が true なら、API プロセス内で一定周期に outbox を処理する
