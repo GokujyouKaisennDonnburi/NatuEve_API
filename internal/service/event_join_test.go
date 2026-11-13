@@ -575,8 +575,8 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				if resp.Username != "山田太郎" || resp.PartySize != 1 {
 					t.Errorf("resp = %#v, want 送信した内容", resp)
 				}
-				if resp.CreatedAt.IsZero() {
-					t.Error("CreatedAt がゼロ値")
+				if !resp.CreatedAt.Equal(createdAt) {
+					t.Errorf("CreatedAt: got %v, want %v", resp.CreatedAt, createdAt)
 				}
 			},
 		},
@@ -968,6 +968,15 @@ func TestBuildJoinEmails(t *testing.T) {
 	}
 	if !strings.Contains(body, "すでに参加申込を受け付けています") {
 		t.Errorf("body = %q, want 申込済みの案内を含む", body)
+	}
+	if !strings.Contains(body, "確認メール") {
+		t.Errorf("body = %q, want 確認メールの案内を含む", body)
+	}
+	if !strings.Contains(body, "24時間") {
+		t.Errorf("body = %q, want 有効期限の案内を含む", body)
+	}
+	if strings.Contains(body, "追加の操作は必要ありません") {
+		t.Errorf("body = %q, want 「追加の操作は必要ありません」を含まない", body)
 	}
 
 	// 長いタイトルでも件名が 255 文字を超えない。

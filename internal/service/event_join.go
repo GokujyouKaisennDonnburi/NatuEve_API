@@ -180,11 +180,10 @@ func (s *EventJoinService) Join(
 		return model.JoinEventResponse{}, &ConflictError{Code: "already_joined", Message: "既に参加しています"}
 	case repository.JoinOutcomeCapacityFull:
 		return model.JoinEventResponse{}, &ConflictError{Code: "capacity_full", Message: "定員に達しています"}
-	case repository.JoinOutcomeAlreadyJoined:
-		// 既存申込の内容は返さず、新規申込と同じ形のレスポンスを組み立てる（ADR-0047）。
-		member.CreatedAt = time.Now()
 	}
 
+	// JoinOutcomeAlreadyJoined の member.CreatedAt は repository が DB 時刻で埋める（ADR-0047）。
+	// 既存申込の内容は返さず、新規申込と同じ形のレスポンスを組み立てる（ADR-0047）。
 	// レスポンスの ProfileID: ログイン時のみ値を返す。匿名は nil（JSON: null）。
 	var respProfileID *uuid.UUID
 	if profileID.Valid {
@@ -293,7 +292,9 @@ func buildAlreadyJoinedEmail(title string) (subject, body string) {
 	b.WriteString("「")
 	b.WriteString(title)
 	b.WriteString("」は、このメールアドレスですでに参加申込を受け付けています。\n")
-	b.WriteString("追加の操作は必要ありません。心当たりがない場合は、このメールを破棄してください。")
+	b.WriteString("申込を確定していない場合は、確認メールのリンクから確定してください。\n")
+	b.WriteString("確認メールが見当たらない場合は、確認メールの有効期限（24時間）が切れた後に、あらためてお申し込みください。\n")
+	b.WriteString("心当たりがない場合は、このメールを破棄してください。")
 	body = b.String()
 	return subject, body
 }

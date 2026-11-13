@@ -74,7 +74,8 @@ const pgUniqueViolationCode = "23505"
 type EventJoinRepository interface {
 
 	// Join はイベント参加を1トランザクションで登録する（ADR-0047）。
-	// 成功時は member.ID・member.CreatedAt と、member.Categories の CostID・Category を埋める。
+	// 新規登録時は member.ID・member.CreatedAt と、member.Categories の CostID・Category を埋める。
+	// 未ログインの同一メール重複時は member.CreatedAt に DB の now() を入れる（member.ID は空）。
 	//
 	// イベント行を FOR UPDATE でロックして存在確認・重複確認・カテゴリ解決・定員確認・INSERT を
 	// 原子的に行うため、並行リクエストでも定員超過・重複登録は発生しない。
@@ -90,7 +91,7 @@ type EventJoinRepository interface {
 	//
 	// 同一メールアドレスの申込が既にある場合、未ログイン（ProfileID が Invalid）なら
 	// notification の Notice* を outbox に予約し、JoinOutcomeAlreadyJoined を返す
-	// （新規申込と同じ応答にするため、エラーにはしない）。ログイン中（ProfileID が Valid）は
+	// （新規申込と同じ応答を返し、エラーにはしない）。ログイン中（ProfileID が Valid）は
 	// 案内メールを予約せず JoinOutcomeAlreadyJoinedSelf を返す
 	// （同一プロフィールまたは同一メールアドレスの申込が既にある）。
 	// 定員超過は JoinOutcomeCapacityFull を返す。定員判定は confirmed だけを数え、
@@ -109,7 +110,7 @@ type EventJoinRepository interface {
 	//
 	// events を FOR UPDATE でロックして存在確認・取消状態・終了日時を確認し、tokenHash に
 	// 一致する pending 行を確定する。確定時は confirmed の party_size 合計で定員を再確認する。
-	// 申込期限は再確認しない（期限内に受け付けた申込をメール確認の遅れで失効させないため）。
+	// 申込期限は再確認しない（ADR-0047）。
 	// 成功時は status='confirmed' にしてトークン列を NULL にし、確定日時を返す。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
@@ -182,7 +183,8 @@ func NewEventJoinRepository(db *sql.DB) EventJoinRepository {
 
 // Join はイベント参加を登録する（ADR-0047）。
 // member.ProfileID が Invalid（匿名参加）の場合は NULL として保存される。
-// 成功時は member.CreatedAt を INSERT の created_at で埋める。
+// 新規登録時は member.CreatedAt を INSERT の created_at で、
+// 未ログインの重複時は DB の now() で埋める。
 func (r *eventJoinPostgres) Join(
 	ctx context.Context,
 	member *model.EventMember,
@@ -341,7 +343,7 @@ func (r *eventJoinPostgres) Join(
 
 	// 定員確認。capacity が NULL または 0 は「定員なし」。
 	// 人数は confirmed の party_size 合計で数える（未確定は含めない。ADR-0047）。
-	// 重複申込でも新規申込と同じ条件で判定し、応答の違いで申込の有無が分からないようにする。
+	// 重複申込でも新規申込と同じ条件で判定する。
 	capacityFull := false
 	if capacity.Valid && capacity.Int32 > 0 {
 		const sumPartySize = `
@@ -376,6 +378,10 @@ func (r *eventJoinPostgres) Join(
 			// ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある。
 			// 案内メールは送らず、409 用の outcome を返す。
 			return JoinOutcomeAlreadyJoinedSelf, nil
+		}
+		// 新規申込の created_at と同じく DB 時刻を返す（ADR-0047）。
+		if err := tx.QueryRowContext(ctx, `SELECT now()`).Scan(&member.CreatedAt); err != nil {
+			return "", fmt.Errorf("select now: %w", err)
 		}
 		if err := insertJoinOutboxEmail(ctx, tx, member, notification.NoticeSubject, notification.NoticeBody); err != nil {
 			return "", err
@@ -445,6 +451,11 @@ func (r *eventJoinPostgres) Join(
 			case "event_members_event_id_lower_mail_key":
 				if member.ProfileID.Valid {
 					return JoinOutcomeAlreadyJoinedSelf, nil
+				}
+				// UNIQUE 違反で tx は中断しているため、別クエリで DB 時刻を取得する。
+				_ = tx.Rollback()
+				if err := r.db.QueryRowContext(ctx, `SELECT now()`).Scan(&member.CreatedAt); err != nil {
+					return "", fmt.Errorf("select now: %w", err)
 				}
 				return JoinOutcomeAlreadyJoined, nil
 			case "event_members_event_id_profile_id_key":
@@ -546,7 +557,7 @@ func (r *eventJoinPostgres) Join(
 }
 
 // insertJoinOutboxEmail は参加申込のメールを outbox に予約する（ADR-0047）。
-// subject が空の場合は何もしない（リポジトリ単体テストで文面を省略できるようにするため）。
+// subject が空の場合は何もしない。
 func insertJoinOutboxEmail(
 	ctx context.Context,
 	tx *sql.Tx,
@@ -585,7 +596,7 @@ func insertJoinOutboxEmail(
 // ConfirmJoin は確認トークンで未確定（pending）の申込を確定する（ADR-0047）。
 // events を FOR UPDATE でロックして存在確認・取消状態・終了日時を確認し、
 // tokenHash に一致する pending 行を確定する。定員は confirmed の合計で再確認する。
-// 申込期限は再確認しない（期限内に受け付けた申込をメール確認の遅れで失効させないため）。
+// 申込期限は再確認しない（ADR-0047）。
 func (r *eventJoinPostgres) ConfirmJoin(
 	ctx context.Context,
 	eventID uuid.UUID,

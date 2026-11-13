@@ -15,7 +15,6 @@ import (
 )
 
 // eventJoinService は参加申込系ハンドラが使う service のインターフェース。
-// handler のテストでスタブに差し替えられるようにする。
 type eventJoinService interface {
 	Join(ctx context.Context, eventID uuid.UUID, profileID uuid.NullUUID, req model.JoinEventRequest) (model.JoinEventResponse, error)
 	ConfirmJoin(ctx context.Context, eventID uuid.UUID, token string) (model.ConfirmJoinResponse, error)

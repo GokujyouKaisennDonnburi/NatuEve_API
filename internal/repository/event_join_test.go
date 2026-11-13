@@ -854,6 +854,20 @@ func TestEventJoinPostgres_Join_DuplicateEmail(t *testing.T) {
 	if outcome != JoinOutcomeAlreadyJoined {
 		t.Fatalf("Join() outcome = %q, want %q", outcome, JoinOutcomeAlreadyJoined)
 	}
+	if duplicate.CreatedAt.IsZero() {
+		t.Fatal("Join() 重複時の CreatedAt がゼロ値")
+	}
+
+	var dbNow time.Time
+	if err := db.QueryRowContext(context.Background(), `SELECT now()`).Scan(&dbNow); err != nil {
+		t.Fatalf("select now: %v", err)
+	}
+	if duplicate.CreatedAt.Location().String() != dbNow.Location().String() {
+		t.Errorf("CreatedAt.Location = %v, want %v", duplicate.CreatedAt.Location(), dbNow.Location())
+	}
+	if duplicate.CreatedAt.Nanosecond()%1000 != 0 {
+		t.Errorf("CreatedAt = %v, want microsecond precision", duplicate.CreatedAt)
+	}
 
 	const countMembers = `SELECT COUNT(*) FROM event_members WHERE event_id = $1`
 	var count int
