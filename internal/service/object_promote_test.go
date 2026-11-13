@@ -154,3 +154,30 @@ func TestPromoteOneObject_ImagePixelLimitCheckedBeforeFullDecode(t *testing.T) {
 		t.Errorf("上限超過時に Put が呼ばれました: %d", store.putCalls)
 	}
 }
+
+func TestPromoteOneObject_ImageDecodeConfigError(t *testing.T) {
+	data := []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
+	store := &fakeObjectStore{
+		headSize:        int64(len(data)),
+		headContentType: "image/png",
+		getData:         data,
+	}
+
+	_, err := promoteOneObject(
+		context.Background(),
+		store,
+		"profile-001",
+		"natueve/tmp/profile-001/broken.png",
+		true,
+		"broken.png",
+		func(string) string { return "natueve/events/images/final.png" },
+	)
+
+	validationErr := assertValidationError(t, err)
+	if !strings.Contains(validationErr.Message, "寸法取得に失敗") {
+		t.Errorf("DecodeConfig のエラーが ValidationError に変換されていません: %q", validationErr.Message)
+	}
+	if store.putCalls != 0 {
+		t.Errorf("壊れた画像で Put が呼ばれました: %d", store.putCalls)
+	}
+}
