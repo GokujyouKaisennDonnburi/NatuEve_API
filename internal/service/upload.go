@@ -61,6 +61,8 @@ var contentTypeToExt = map[string]string{
 const (
 	// maxImageBytes は画像ファイルの最大サイズ（10MB）。
 	maxImageBytes int64 = 10 * 1024 * 1024
+	// maxImagePixels は画像の幅・高さそれぞれの最大ピクセル数。Web 側の上限と揃える。
+	maxImagePixels = 8000
 	// maxPDFBytes は PDF ファイルの最大サイズ（20MB）。
 	maxPDFBytes int64 = 20 * 1024 * 1024
 )
@@ -200,6 +202,24 @@ func stripEXIFAndReencode(data []byte, contentType string) ([]byte, error) {
 		return nil, fmt.Errorf("未対応の画像 contentType: %q", contentType)
 	}
 	return buf.Bytes(), nil
+}
+
+// validateImagePixelSize は画像全体を復元せず、ヘッダから幅・高さを検証する。
+func validateImagePixelSize(data []byte) error {
+	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("画像の寸法取得に失敗しました: %w", err)
+	}
+	if config.Width > maxImagePixels || config.Height > maxImagePixels {
+		return fmt.Errorf(
+			"画像の縦横ピクセル数(%dx%d)が上限(%dx%d)を超えています",
+			config.Width,
+			config.Height,
+			maxImagePixels,
+			maxImagePixels,
+		)
+	}
+	return nil
 }
 
 // buildFinalKey は最終キーを生成する。
