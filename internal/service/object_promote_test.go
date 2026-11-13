@@ -36,6 +36,7 @@ func pngConfigData(t *testing.T, width, height int) []byte {
 	t.Helper()
 
 	data := encodePromotionTestImage(t, "image/png", 1, 1)
+	// PNG: 0:8 signature / 8:12 IHDR length / 12:16 type / 16:29 data / 29:33 CRC.
 	binary.BigEndian.PutUint32(data[16:20], uint32(width))
 	binary.BigEndian.PutUint32(data[20:24], uint32(height))
 	binary.BigEndian.PutUint32(data[29:33], crc32.ChecksumIEEE(data[12:29]))
