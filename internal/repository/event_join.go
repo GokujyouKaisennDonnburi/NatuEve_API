@@ -58,7 +58,8 @@ const (
 	// JoinOutcomeAlreadyJoined は未ログインの同一メールアドレスの申込が既にあり、
 	// 新規申込と同じ応答を返すことを表す。
 	JoinOutcomeAlreadyJoined JoinOutcome = "already_joined"
-	// JoinOutcomeAlreadyJoinedSelf はログイン中の本人が既に参加していることを表す。
+	// JoinOutcomeAlreadyJoinedSelf はログイン中で同一プロフィールまたは同一メールアドレスの
+	// 申込が既にあることを表す。
 	JoinOutcomeAlreadyJoinedSelf JoinOutcome = "already_joined_self"
 	// JoinOutcomeCapacityFull は定員超過を表す。
 	JoinOutcomeCapacityFull JoinOutcome = "capacity_full"
@@ -90,7 +91,8 @@ type EventJoinRepository interface {
 	// 同一メールアドレスの申込が既にある場合、未ログイン（ProfileID が Invalid）なら
 	// notification の Notice* を outbox に予約し、JoinOutcomeAlreadyJoined を返す
 	// （新規申込と同じ応答にするため、エラーにはしない）。ログイン中（ProfileID が Valid）は
-	// 案内メールを予約せず JoinOutcomeAlreadyJoinedSelf を返す（ログイン中の本人による重複）。
+	// 案内メールを予約せず JoinOutcomeAlreadyJoinedSelf を返す
+	// （同一プロフィールまたは同一メールアドレスの申込が既にある）。
 	// 定員超過は JoinOutcomeCapacityFull を返す。定員判定は confirmed だけを数え、
 	// 重複申込でも新規申込と同じ条件で判定する。
 	//
@@ -357,7 +359,7 @@ func (r *eventJoinPostgres) Join(
 	}
 
 	if capacityFull {
-		// 未ログインの重複だけ案内メールを送る。ログイン中の重複は本人の申込なので送らない。
+		// 未ログインの重複だけ案内メールを送る。ログイン中の重複は案内メールを送らない。
 		if duplicateFound && !member.ProfileID.Valid {
 			if err := insertJoinOutboxEmail(ctx, tx, member, notification.NoticeSubject, notification.NoticeBody); err != nil {
 				return "", err
@@ -371,7 +373,8 @@ func (r *eventJoinPostgres) Join(
 
 	if duplicateFound {
 		if member.ProfileID.Valid {
-			// ログイン中の本人による重複。案内メールは送らず、409 用の outcome を返す。
+			// ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある。
+			// 案内メールは送らず、409 用の outcome を返す。
 			return JoinOutcomeAlreadyJoinedSelf, nil
 		}
 		if err := insertJoinOutboxEmail(ctx, tx, member, notification.NoticeSubject, notification.NoticeBody); err != nil {

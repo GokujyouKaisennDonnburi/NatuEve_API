@@ -62,7 +62,8 @@ func validationCode(ve *service.ValidationError) string {
 //	@Description	未ログインで申込済みのメールアドレスから再申込した場合は、新規申込と同じ 201 と
 //	@Description	本文の形で応答し（既存申込の内容は返さない）、そのアドレスに
 //	@Description	「すでに申込まれています」の案内メールを送信する。
-//	@Description	ログイン中の本人が既に参加している場合は 409 already_joined を返す（案内メールは送らない）。
+//	@Description	ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある場合
+//	@Description	（自分以外の申込を含む）は 409 already_joined を返す（案内メールは送らない）。
 //	@Description	申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。
 //	@Description	申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。
 //	@Description	確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。
@@ -76,7 +77,7 @@ func validationCode(ve *service.ValidationError) string {
 //	@Failure		400		{object}	model.ValidationErrorResponse	"invalid_request: 入力値が不正です / party_size_exceeded: participants の合計が10人を超えています"
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		404		{object}	model.NotFoundErrorResponse
-//	@Failure		409		{object}	model.JoinConflictErrorResponse	"already_joined: ログイン中の本人が既に参加済み / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後"
+//	@Failure		409		{object}	model.JoinConflictErrorResponse	"already_joined: ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後"
 //	@Failure		413		{object}	model.RequestTooLargeErrorResponse
 //	@Failure		429		{object}	model.RateLimitedErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse

@@ -667,7 +667,7 @@ definitions:
       code:
         description: |-
           Code は競合の原因を表す機械可読なエラーコード。
-          already_joined = ログイン中の本人が既に参加済み / capacity_full = 定員到達 /
+          already_joined = ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full = 定員到達 /
           deadline_passed = 申込期限経過後 / event_ended = イベント終了後。
           申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0046）。
         enum:
@@ -1584,7 +1584,8 @@ paths:
         未ログインで申込済みのメールアドレスから再申込した場合は、新規申込と同じ 201 と
         本文の形で応答し（既存申込の内容は返さない）、そのアドレスに
         「すでに申込まれています」の案内メールを送信する。
-        ログイン中の本人が既に参加している場合は 409 already_joined を返す（案内メールは送らない）。
+        ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある場合
+        （自分以外の申込を含む）は 409 already_joined を返す（案内メールは送らない）。
         申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。
         申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。
         確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。
@@ -1621,8 +1622,8 @@ paths:
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
         "409":
-          description: 'already_joined: ログイン中の本人が既に参加済み / capacity_full: 定員に達しています
-            / deadline_passed: 申込期限経過後 / event_ended: イベント終了後'
+          description: 'already_joined: ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full:
+            定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後'
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse'
         "413":
