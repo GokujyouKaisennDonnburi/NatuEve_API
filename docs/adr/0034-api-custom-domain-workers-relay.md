@@ -65,8 +65,10 @@ run.app の URL へ転送する。run.app の URL への直接アクセスは、
 - HTTPS でないリクエストは、ゾーンの Always Use HTTPS（Cloudflare の設定）で 301 が返る。Custom Domain の Worker 宛ての
   HTTP にも効くことを `curl` で確認した（#265）。設定はダッシュボードの SSL/TLS → Edge Certificates で、リポジトリには無い。
 - Worker も Always Use HTTPS がオフになった場合に備え、HTTPS でないリクエストを転送せず、同じパスとクエリの HTTPS へ
-  301 でリダイレクトする（`workers/api-relay/` の `httpsRedirect`）。ローカル開発（wrangler dev）の `localhost`・`127.0.0.1`・
-  `[::1]` はリダイレクトしない。HTTP のリクエストは、秘密ヘッダーの確認（`internal/middleware/relay.go`）より前に 301 を
+  301 でリダイレクトする（`workers/api-relay/` の `httpsRedirect`）。ローカル開発（wrangler dev）のループバック（`localhost`・
+  `127.0.0.0/8`・`[::1]`）とプライベート IPv4（RFC 1918）はリダイレクトしない。プライベート IPv4 を含めるのは、
+  `wrangler dev --ip 0.0.0.0` で LAN 経由（192.168.x.x など）にアクセスした場合、ローカルの `https://` に接続先がなく
+  届かなくなるため。HTTP のリクエストは、秘密ヘッダーの確認（`internal/middleware/relay.go`）より前に 301 を
   返すため、API に届かない。
 - 301 を選んだ理由: Always Use HTTPS と同じ挙動に揃えるため。HTTP で GET 以外のメソッドを送るクライアントは正しくない
   使い方で、どのみち API に届かない。

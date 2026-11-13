@@ -102,6 +102,19 @@ describe("httpsRedirect", () => {
     expect(httpsRedirect("http://localhost:8787/api/v1/events")).toBeNull();
     expect(httpsRedirect("http://127.0.0.1:8787/api/v1/events")).toBeNull();
     expect(httpsRedirect("http://[::1]:8787/api/v1/events")).toBeNull();
+    // wrangler dev --ip 0.0.0.0 で LAN 経由にアクセスした場合（RFC 1918 のプライベート IPv4）。
+    expect(httpsRedirect("http://192.168.1.50:8787/api/v1/events")).toBeNull();
+    expect(httpsRedirect("http://10.0.0.5:8787/api/v1/events")).toBeNull();
+    expect(httpsRedirect("http://172.16.0.1:8787/api/v1/events")).toBeNull();
+    expect(
+      httpsRedirect("http://172.31.255.255:8787/api/v1/events"),
+    ).toBeNull();
+  });
+
+  it("プライベート IPv4 の範囲外は 301 でリダイレクトする", () => {
+    expect(httpsRedirect("http://172.32.0.1/api/v1/events")?.status).toBe(301);
+    expect(httpsRedirect("http://192.169.0.1/api/v1/events")?.status).toBe(301);
+    expect(httpsRedirect("http://11.0.0.1/api/v1/events")?.status).toBe(301);
   });
 });
 

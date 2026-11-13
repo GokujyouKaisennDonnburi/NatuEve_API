@@ -122,7 +122,7 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 | 利用者 IP のヘッダー | `X-NatuEve-Client-IP`（`wrangler.jsonc` の `CLIENT_IP_HEADER`。API の `RELAY_CLIENT_IP_HEADER` と同じ値） |
 | `workers.dev`・Preview URL | 無効（`wrangler.jsonc` の `workers_dev: false`・`preview_urls: false`） |
 | キャッシュ | 使わない（`fetch()` は `cache: "no-store"`。API のホスト名にキャッシュルールを付けない） |
-| HTTP → HTTPS のリダイレクト | ゾーンの Always Use HTTPS（`natuportal.org` の SSL/TLS → Edge Certificates）で 301。Worker もそのフォールバックとして、HTTPS でないリクエストを転送せず同じパスとクエリの HTTPS へ 301 で返す（`httpsRedirect`。ローカル開発の `localhost` 等を除く。ADR-0034・#265） |
+| HTTP → HTTPS のリダイレクト | ゾーンの Always Use HTTPS（`natuportal.org` の SSL/TLS → Edge Certificates）で 301。Worker もそのフォールバックとして、HTTPS でないリクエストを転送せず同じパスとクエリの HTTPS へ 301 で返す（`httpsRedirect`。ローカル開発のループバックとプライベート IPv4 を除く。ADR-0034・#265） |
 | Pseudo IPv4（ゾーンの設定） | Off（既定） |
 | コードの置き場所 | `workers/api-relay/` |
 

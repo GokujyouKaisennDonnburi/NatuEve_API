@@ -9,17 +9,40 @@
 /** API が中継元の確認に使うヘッダー名。internal/middleware/relay.go の RelayAuthHeader と同じ値にする。 */
 export const RELAY_AUTH_HEADER = "X-Relay-Auth";
 
-/** ローカル開発（wrangler dev）では HTTP で使うため、HTTPS へリダイレクトしないホスト。 */
-const HTTP_LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+/**
+ * ローカル開発（wrangler dev）では HTTP で使うため、HTTPS へリダイレクトしないホストかどうかを返す。
+ * ループバック（localhost・127.0.0.0/8・[::1]）と、RFC 1918 のプライベート IPv4 を含める。
+ * `wrangler dev --ip 0.0.0.0` で LAN 経由（192.168.x.x など）にアクセスした場合、
+ * ローカルの https:// に接続先がないため、リダイレクトすると届かなくなる。
+ */
+function isLocalDevHost(hostname: string): boolean {
+  if (hostname === "localhost" || hostname === "[::1]") {
+    return true;
+  }
+  const parts = hostname.split(".");
+  if (parts.length !== 4 || parts.some((part) => !/^\d{1,3}$/.test(part))) {
+    return false;
+  }
+  const [first, second] = parts.map(Number);
+  if (first > 255 || second > 255) {
+    return false;
+  }
+  return (
+    first === 127 ||
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
 
 /**
  * HTTP のリクエストを、同じパスとクエリの HTTPS へ 301 でリダイレクトするレスポンスを返す。
- * HTTPS のリクエストと HTTP_LOCAL_HOSTS のホストでは null を返す。
+ * HTTPS のリクエストと isLocalDevHost のホストでは null を返す。
  * ゾーンの Always Use HTTPS（Cloudflare の設定）でも同じ 301 が返り、このリダイレクトはそのフォールバック（ADR-0034）。
  */
 export function httpsRedirect(requestURL: string): Response | null {
   const url = new URL(requestURL);
-  if (url.protocol !== "http:" || HTTP_LOCAL_HOSTS.has(url.hostname)) {
+  if (url.protocol !== "http:" || isLocalDevHost(url.hostname)) {
     return null;
   }
   url.protocol = "https:";
