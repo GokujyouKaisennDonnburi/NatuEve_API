@@ -635,7 +635,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "イベント主催者が、参加者全員へ運用通知メールを一斉送信する。送信できるのはイベント主催者のみ。",
+                "description": "イベント主催者が、参加者全員へ運用通知メールを一斉送信する。送信できるのはイベント主催者のみ。\n同一イベントからの送信は24時間あたり上限5回（ADR-0046）。上限超過時は429を返し、メールは1通も送信されない。\n上限以内の送信は、これまでどおり全参加者へ送信される。",
                 "consumes": [
                     "application/json"
                 ],
@@ -690,7 +690,7 @@
                         }
                     },
                     "429": {
-                        "description": "Too Many Requests",
+                        "description": "送信回数上限超過（notification_limit_exceeded）または送信基盤のレート制限（rate_limited）",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse"
                         }
