@@ -25,7 +25,7 @@ PBI77 のゴール 1〜3 を満たすには、メールアドレスの所有者�
 API の応答はメール送信に依存させない。**
 
 1. `event_members` に次の列を追加する（ADR-0046）。
-   - `status`（`pending` / `confirmed`、既定値 `confirmed`）
+   - `status`（`pending` / `confirmed`。既存行は `confirmed` として backfill し、その後は既定値を削除する）
    - `confirmation_token_hash`（SHA-256 の hex。平文トークンは保存しない）
    - `confirmation_token_expires_at`
    - 既存行は `confirmed` として扱う。`pending` はトークン必須、`confirmed` は
