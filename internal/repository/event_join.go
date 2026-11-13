@@ -58,7 +58,7 @@ const (
 	// JoinOutcomeAlreadyJoined は未ログインの同一メールアドレスの申込が既にあり、
 	// 新規申込と同じ応答を返すことを表す。
 	JoinOutcomeAlreadyJoined JoinOutcome = "already_joined"
-	// JoinOutcomeAlreadyJoinedSelf はログイン中の本人（認証済みメール）が既に参加していることを表す。
+	// JoinOutcomeAlreadyJoinedSelf はログイン中の本人が既に参加していることを表す。
 	JoinOutcomeAlreadyJoinedSelf JoinOutcome = "already_joined_self"
 	// JoinOutcomeCapacityFull は定員超過を表す。
 	JoinOutcomeCapacityFull JoinOutcome = "capacity_full"
@@ -90,12 +90,9 @@ type EventJoinRepository interface {
 	// 同一メールアドレスの申込が既にある場合、未ログイン（ProfileID が Invalid）なら
 	// notification の Notice* を outbox に予約し、JoinOutcomeAlreadyJoined を返す
 	// （新規申込と同じ応答にするため、エラーにはしない）。ログイン中（ProfileID が Valid）は
-	// サービス層で入力メールと JWT の email の一致を確認済みのため、案内メールは予約せず
-	// JoinOutcomeAlreadyJoinedSelf を返す（ログイン中の本人による重複）。
+	// 案内メールを予約せず JoinOutcomeAlreadyJoinedSelf を返す（ログイン中の本人による重複）。
 	// 定員超過は JoinOutcomeCapacityFull を返す。定員判定は confirmed だけを数え、
 	// 重複申込でも新規申込と同じ条件で判定する。
-	// ログイン参加で同一メールの pending 行がある場合は、その行を削除して confirmed で登録する。
-	// この乗っ取りは、サービス層で入力メールと JWT email の一致を確認済みであることを前提とする。
 	//
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
@@ -321,29 +318,23 @@ func (r *eventJoinPostgres) Join(
 
 	// 同一メールアドレスの申込を確認する。mail_address は UNIQUE インデックス
 	// （lower(mail_address)）と同じ基準で比較する。
-	const findMemberByMail = `
-	SELECT id, profile_id, status
-	FROM event_members
-	WHERE event_id = $1
-	AND lower(mail_address) = lower($2)
+	const existsMemberByMail = `
+	SELECT EXISTS(
+		SELECT 1
+		FROM event_members
+		WHERE event_id = $1
+		AND lower(mail_address) = lower($2)
+	)
 	`
 
-	var (
-		duplicateID        uuid.UUID
-		duplicateProfileID uuid.NullUUID
-		duplicateStatus    string
-	)
-	duplicateFound := true
-	err = tx.QueryRowContext(
+	var duplicateFound bool
+	if err := tx.QueryRowContext(
 		ctx,
-		findMemberByMail,
+		existsMemberByMail,
 		member.EventID,
 		member.MailAddress,
-	).Scan(&duplicateID, &duplicateProfileID, &duplicateStatus)
-	if errors.Is(err, sql.ErrNoRows) {
-		duplicateFound = false
-	} else if err != nil {
-		return "", fmt.Errorf("find member by mail: %w", err)
+	).Scan(&duplicateFound); err != nil {
+		return "", fmt.Errorf("exists member by mail: %w", err)
 	}
 
 	// 定員確認。capacity が NULL または 0 は「定員なし」。
@@ -379,31 +370,17 @@ func (r *eventJoinPostgres) Join(
 	}
 
 	if duplicateFound {
-		// ログイン参加で同一メールの pending 行がある場合は、その未確定行を破棄して
-		// ログイン申込で置き換える（第三者が作った pending 行で本人をブロックしない）。
-		// 入力メールと JWT email の一致はサービス層で確認済み。
-		switch {
-		case member.ProfileID.Valid && duplicateStatus == model.EventMemberStatusPending && !duplicateProfileID.Valid:
-			// 置き換えで無効になる確認メールの予約を先に消す（ADR-0046）。
-			if err := deletePendingJoinEmails(ctx, tx, member.EventID, member.MailAddress); err != nil {
-				return "", err
-			}
-			const deletePending = `DELETE FROM event_members WHERE id = $1`
-			if _, err := tx.ExecContext(ctx, deletePending, duplicateID); err != nil {
-				return "", fmt.Errorf("delete pending member: %w", err)
-			}
-		case member.ProfileID.Valid:
+		if member.ProfileID.Valid {
 			// ログイン中の本人による重複。案内メールは送らず、409 用の outcome を返す。
 			return JoinOutcomeAlreadyJoinedSelf, nil
-		default:
-			if err := insertJoinOutboxEmail(ctx, tx, member, notification.NoticeSubject, notification.NoticeBody); err != nil {
-				return "", err
-			}
-			if err := tx.Commit(); err != nil {
-				return "", fmt.Errorf("commit transaction: %w", err)
-			}
-			return JoinOutcomeAlreadyJoined, nil
 		}
+		if err := insertJoinOutboxEmail(ctx, tx, member, notification.NoticeSubject, notification.NoticeBody); err != nil {
+			return "", err
+		}
+		if err := tx.Commit(); err != nil {
+			return "", fmt.Errorf("commit transaction: %w", err)
+		}
+		return JoinOutcomeAlreadyJoined, nil
 	}
 
 	const insertMember = `
@@ -598,29 +575,6 @@ func insertJoinOutboxEmail(
 		body,
 	); err != nil {
 		return fmt.Errorf("insert join notification outbox: %w", err)
-	}
-	return nil
-}
-
-// deletePendingJoinEmails は、指定イベント・メールアドレス宛の未送信 email outbox を削除する。
-// ログイン参加による pending 行の置き換えで、無効になった確認リンクを送らないために使う（ADR-0046）。
-func deletePendingJoinEmails(ctx context.Context, tx *sql.Tx, eventID uuid.UUID, mailAddress string) error {
-	const query = `
-	DELETE FROM event_notification_outbox
-	WHERE event_id = $1
-	AND recipient_kind = $2
-	AND lower(recipient_email) = lower($3)
-	AND status = 'pending'
-	`
-
-	if _, err := tx.ExecContext(
-		ctx,
-		query,
-		eventID,
-		model.NotificationOutboxRecipientKindEmail,
-		mailAddress,
-	); err != nil {
-		return fmt.Errorf("delete pending join emails: %w", err)
 	}
 	return nil
 }

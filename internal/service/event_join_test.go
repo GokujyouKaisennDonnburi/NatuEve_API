@@ -182,7 +182,6 @@ func TestEventJoinServiceJoin(t *testing.T) {
 		name              string
 		stub              *stubEventJoinRepository
 		profileID         uuid.NullUUID
-		profileEmail      string // 空なら req.MailAddress を使う（ログイン時の既定）
 		req               model.JoinEventRequest
 		wantValErr        bool
 		wantValErrCode    string // wantValErr=true のとき、空でなければ ValidationError.Code を検証する
@@ -549,22 +548,6 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			req:        model.JoinEventRequest{Username: "山田太郎", MailAddress: "not-an-email"},
 			wantValErr: true,
 		},
-		{
-			name:         "異常: ログイン中のメールアドレスと一致しない",
-			stub:         &stubEventJoinRepository{joinCreatedAt: createdAt},
-			profileID:    loggedInProfileID,
-			profileEmail: "other@example.com",
-			req:          validReq,
-			wantValErr:   true,
-		},
-		{
-			name:         "異常: ログイン中のメールアドレスを確認できない",
-			stub:         &stubEventJoinRepository{joinCreatedAt: createdAt},
-			profileID:    loggedInProfileID,
-			profileEmail: "not-an-email",
-			req:          validReq,
-			wantValErr:   true,
-		},
 		// --- repository の sentinel エラー変換 ---
 		{
 			name:         "異常: イベントが存在しない（NotFoundError）",
@@ -768,11 +751,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
 
-			profileEmail := tt.profileEmail
-			if tt.profileID.Valid && profileEmail == "" {
-				profileEmail = strings.TrimSpace(tt.req.MailAddress)
-			}
-			resp, err := svc.Join(context.Background(), eventID, tt.profileID, profileEmail, tt.req)
+			resp, err := svc.Join(context.Background(), eventID, tt.profileID, tt.req)
 
 			switch {
 			case tt.wantValErr:

@@ -110,10 +110,9 @@ type stubEventJoinService struct {
 	confirmResp model.ConfirmJoinResponse
 	confirmErr  error
 
-	joinResp        model.JoinEventResponse
-	joinErr         error
-	gotProfileID    uuid.NullUUID
-	gotProfileEmail string
+	joinResp     model.JoinEventResponse
+	joinErr      error
+	gotProfileID uuid.NullUUID
 
 	gotConfirmEventID uuid.UUID
 	gotConfirmToken   string
@@ -123,11 +122,9 @@ func (s *stubEventJoinService) Join(
 	_ context.Context,
 	_ uuid.UUID,
 	profileID uuid.NullUUID,
-	profileEmail string,
 	_ model.JoinEventRequest,
 ) (model.JoinEventResponse, error) {
 	s.gotProfileID = profileID
-	s.gotProfileEmail = profileEmail
 	return s.joinResp, s.joinErr
 }
 

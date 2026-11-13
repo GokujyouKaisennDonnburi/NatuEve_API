@@ -85,15 +85,13 @@ func NewEventJoinService(
 // Join はイベント参加処理を行う（ADR-0046）。
 //
 // profileID が Invalid（未ログイン）の場合は pending として登録し、確認メールを outbox に
-// 予約する。ログイン時は confirmed として即時登録するが、入力されたメールアドレスが
-// JWT の email（profileEmail）と一致することを必須とする。
+// 予約する。ログイン時は confirmed として即時登録する。
 // 存在確認・重複確認・定員確認・登録は repository が1トランザクションで
 // 原子的に行い、結果は JoinOutcome / sentinel エラーで返るためここで HTTP 向けに変換する。
 func (s *EventJoinService) Join(
 	ctx context.Context,
 	eventID uuid.UUID,
 	profileID uuid.NullUUID,
-	profileEmail string,
 	req model.JoinEventRequest,
 ) (model.JoinEventResponse, error) {
 
@@ -101,22 +99,6 @@ func (s *EventJoinService) Join(
 	mailAddress, err := validateJoinEventRequest(req)
 	if err != nil {
 		return model.JoinEventResponse{}, err
-	}
-
-	// ログイン中の申込は、入力されたメールアドレスが認証ユーザーの email と一致すること。
-	// 一致しない申込を許すと、他人のメールアドレスで即時確定できてしまう（ADR-0046）。
-	if profileID.Valid {
-		verifiedEmail, err := normalizeMailAddress(profileEmail)
-		if err != nil || verifiedEmail == "" {
-			return model.JoinEventResponse{}, &ValidationError{
-				Message: "ログイン中のメールアドレスを確認できません",
-			}
-		}
-		if !strings.EqualFold(mailAddress, verifiedEmail) {
-			return model.JoinEventResponse{}, &ValidationError{
-				Message: "入力されたメールアドレスがログイン中のアカウントと一致しません",
-			}
-		}
 	}
 
 	// 内訳を組み立て、合計人数を算出する。

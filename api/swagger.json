@@ -367,7 +367,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → ゲスト参加。申込は未確定（pending）として保存され、\n申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで\n参加者一覧・参加人数・定員判定には含まれない。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → ログイン参加として即時確定する。このとき、入力された\nメールアドレスが認証ユーザーの email と一致している必要がある。一致しない場合は 400 を返す。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nparticipants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。\n定員判定は確定済みの申込だけを数える。\n未ログインで申込済みのメールアドレスから再申込した場合は、新規申込と同じ 201 と\n本文の形で応答し（既存申込の内容は返さない）、そのアドレスに\n「すでに申込まれています」の案内メールを送信する。\nログイン中の本人が既に参加している場合は 409 already_joined を返す（案内メールは送らない）。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。\n申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。\n確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。",
+                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → ゲスト参加。申込は未確定（pending）として保存され、\n申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで\n参加者一覧・参加人数・定員判定には含まれない。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → ログイン参加として即時確定する。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nparticipants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。\n定員判定は確定済みの申込だけを数える。\n未ログインで申込済みのメールアドレスから再申込した場合は、新規申込と同じ 201 と\n本文の形で応答し（既存申込の内容は返さない）、そのアドレスに\n「すでに申込まれています」の案内メールを送信する。\nログイン中の本人が既に参加している場合は 409 already_joined を返す（案内メールは送らない）。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。\n申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。\n確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。",
                 "consumes": [
                     "application/json"
                 ],
@@ -404,7 +404,7 @@
                         }
                     },
                     "400": {
-                        "description": "invalid_request: 入力内容が不正、またはログイン中のメールアドレスと一致しない / party_size_exceeded: participants の合計が10人を超えています",
+                        "description": "invalid_request: 入力値が不正です / party_size_exceeded: participants の合計が10人を超えています",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
                         }

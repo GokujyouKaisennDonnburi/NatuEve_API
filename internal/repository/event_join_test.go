@@ -880,7 +880,7 @@ func TestEventJoinPostgres_Join_DuplicateEmail(t *testing.T) {
 	}
 }
 
-// TestEventJoinPostgres_Join_DuplicateEmail_LoggedIn は、認証済みメールのログイン参加が
+// TestEventJoinPostgres_Join_DuplicateEmail_LoggedIn は、ログイン参加が
 // 同一メールの確定済み申込と重複した場合、案内メールを予約せず
 // JoinOutcomeAlreadyJoinedSelf を返すことを検証する（ADR-0046）。
 func TestEventJoinPostgres_Join_DuplicateEmail_LoggedIn(t *testing.T) {
@@ -939,9 +939,9 @@ func TestEventJoinPostgres_Join_DuplicateEmail_LoggedIn(t *testing.T) {
 	}
 }
 
-// TestEventJoinPostgres_Join_LoggedInTakeover はログイン参加が同一メールの
-// pending 行を置き換えて即時確定することを検証する（ADR-0046）。
-func TestEventJoinPostgres_Join_LoggedInTakeover(t *testing.T) {
+// TestEventJoinPostgres_Join_LoggedInDuplicatePending は、同一メールの pending 行がある状態で
+// ログイン申込すると 409 用の outcome を返し、pending 行を置き換えないことを検証する（ADR-0046）。
+func TestEventJoinPostgres_Join_LoggedInDuplicatePending(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventJoinRepository(db)
 
@@ -981,8 +981,8 @@ func TestEventJoinPostgres_Join_LoggedInTakeover(t *testing.T) {
 	if err != nil {
 		t.Fatalf("logged-in Join() returned error: %v", err)
 	}
-	if outcome != JoinOutcomeConfirmed {
-		t.Fatalf("logged-in Join() outcome = %q, want %q", outcome, JoinOutcomeConfirmed)
+	if outcome != JoinOutcomeAlreadyJoinedSelf {
+		t.Fatalf("logged-in Join() outcome = %q, want %q", outcome, JoinOutcomeAlreadyJoinedSelf)
 	}
 
 	const query = `
@@ -999,11 +999,11 @@ func TestEventJoinPostgres_Join_LoggedInTakeover(t *testing.T) {
 		Scan(&status, &gotProfile); err != nil {
 		t.Fatalf("select member: %v", err)
 	}
-	if status != model.EventMemberStatusConfirmed {
-		t.Errorf("status = %q, want %q", status, model.EventMemberStatusConfirmed)
+	if status != model.EventMemberStatusPending {
+		t.Errorf("status = %q, want %q", status, model.EventMemberStatusPending)
 	}
-	if !gotProfile.Valid || gotProfile.UUID != profileID {
-		t.Errorf("profile_id = %#v, want %v", gotProfile, profileID)
+	if gotProfile.Valid {
+		t.Errorf("profile_id = %#v, want NULL（pending 行を置き換えない）", gotProfile)
 	}
 
 	var count int
@@ -1012,23 +1012,22 @@ func TestEventJoinPostgres_Join_LoggedInTakeover(t *testing.T) {
 		t.Fatalf("count members: %v", err)
 	}
 	if count != 1 {
-		t.Errorf("member count = %d, want 1（pending 行を置き換える）", count)
+		t.Errorf("member count = %d, want 1（pending 行を残す）", count)
 	}
 
-	// 置き換えで無効になる確認メールの予約は残さない。
+	// 確認メールの予約だけが残り、ログイン重複の案内メールは追加されない。
 	const countEmailOutbox = `
 	SELECT COUNT(*)
 	FROM event_notification_outbox
 	WHERE event_id = $1
 	AND recipient_kind = 'email'
 	AND lower(recipient_email) = lower($2)
-	AND status = 'pending'
 	`
 	if err := db.QueryRowContext(context.Background(), countEmailOutbox, eventID, mailAddress).Scan(&count); err != nil {
 		t.Fatalf("count email outbox: %v", err)
 	}
-	if count != 0 {
-		t.Errorf("pending email outbox count = %d, want 0", count)
+	if count != 1 {
+		t.Errorf("email outbox count = %d, want 1（確認メールのみ）", count)
 	}
 }
 

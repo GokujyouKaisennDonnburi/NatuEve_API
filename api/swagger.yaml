@@ -1573,8 +1573,7 @@ paths:
         申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで
         参加者一覧・参加人数・定員判定には含まれない。
         ヘッダありでトークンが無効 → 401 で中断。
-        ヘッダありで有効 → ログイン参加として即時確定する。このとき、入力された
-        メールアドレスが認証ユーザーの email と一致している必要がある。一致しない場合は 400 を返す。
+        ヘッダありで有効 → ログイン参加として即時確定する。
         参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名
         （イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。
         合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。
@@ -1609,8 +1608,8 @@ paths:
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinEventResponse'
         "400":
-          description: 'invalid_request: 入力内容が不正、またはログイン中のメールアドレスと一致しない / party_size_exceeded:
-            participants の合計が10人を超えています'
+          description: 'invalid_request: 入力値が不正です / party_size_exceeded: participants
+            の合計が10人を超えています'
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
         "401":

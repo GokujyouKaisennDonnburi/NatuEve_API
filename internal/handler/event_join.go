@@ -17,7 +17,7 @@ import (
 // eventJoinService は参加申込系ハンドラが使う service のインターフェース。
 // handler のテストでスタブに差し替えられるようにする。
 type eventJoinService interface {
-	Join(ctx context.Context, eventID uuid.UUID, profileID uuid.NullUUID, profileEmail string, req model.JoinEventRequest) (model.JoinEventResponse, error)
+	Join(ctx context.Context, eventID uuid.UUID, profileID uuid.NullUUID, req model.JoinEventRequest) (model.JoinEventResponse, error)
 	ConfirmJoin(ctx context.Context, eventID uuid.UUID, token string) (model.ConfirmJoinResponse, error)
 	Leave(ctx context.Context, eventID, profileID uuid.UUID) (model.LeaveEventResponse, error)
 	Absence(ctx context.Context, eventID, profileID uuid.UUID, req model.AbsenceEventRequest) (model.AbsenceEventResponse, error)
@@ -51,8 +51,7 @@ func validationCode(ve *service.ValidationError) string {
 //	@Description	申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで
 //	@Description	参加者一覧・参加人数・定員判定には含まれない。
 //	@Description	ヘッダありでトークンが無効 → 401 で中断。
-//	@Description	ヘッダありで有効 → ログイン参加として即時確定する。このとき、入力された
-//	@Description	メールアドレスが認証ユーザーの email と一致している必要がある。一致しない場合は 400 を返す。
+//	@Description	ヘッダありで有効 → ログイン参加として即時確定する。
 //	@Description	参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名
 //	@Description	（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。
 //	@Description	合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。
@@ -74,7 +73,7 @@ func validationCode(ve *service.ValidationError) string {
 //	@Param			id		path		string					true	"イベントID"
 //	@Param			body	body		model.JoinEventRequest	true	"参加申込"
 //	@Success		201		{object}	model.JoinEventResponse
-//	@Failure		400		{object}	model.ValidationErrorResponse	"invalid_request: 入力内容が不正、またはログイン中のメールアドレスと一致しない / party_size_exceeded: participants の合計が10人を超えています"
+//	@Failure		400		{object}	model.ValidationErrorResponse	"invalid_request: 入力値が不正です / party_size_exceeded: participants の合計が10人を超えています"
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		404		{object}	model.NotFoundErrorResponse
 //	@Failure		409		{object}	model.JoinConflictErrorResponse	"already_joined: ログイン中の本人が既に参加済み / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後"
@@ -99,10 +98,7 @@ func (h *EventHandler) Join(c *gin.Context) {
 	//   - ヘッダなし → AuthFromContext は (_, false) を返す → ゲスト参加
 	//   - ヘッダありで無効 → ミドルウェアが 401 で中断済みのためここには到達しない
 	//   - ヘッダありで有効 → (authUser, true)
-	var (
-		profileID    uuid.NullUUID
-		profileEmail string
-	)
+	var profileID uuid.NullUUID
 	if authUser, ok := middleware.AuthFromContext(c); ok {
 		parsed, parseErr := uuid.Parse(authUser.ID)
 		if parseErr != nil {
@@ -113,7 +109,6 @@ func (h *EventHandler) Join(c *gin.Context) {
 			return
 		}
 		profileID = uuid.NullUUID{UUID: parsed, Valid: true}
-		profileEmail = authUser.Email
 	}
 
 	// JSON受け取り
@@ -123,7 +118,7 @@ func (h *EventHandler) Join(c *gin.Context) {
 	}
 
 	// Service呼び出し
-	resp, err := h.joinSvc.Join(c.Request.Context(), eventID, profileID, profileEmail, req)
+	resp, err := h.joinSvc.Join(c.Request.Context(), eventID, profileID, req)
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
