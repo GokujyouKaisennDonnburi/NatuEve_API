@@ -112,6 +112,49 @@ definitions:
         example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
         type: string
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinConflictErrorBody:
+    properties:
+      code:
+        description: |-
+          Code は競合の原因を表す機械可読なエラーコード。
+          capacity_full = 定員到達 / event_ended = イベント終了後 / event_cancelled = イベント取消済み。
+        enum:
+        - capacity_full
+        - event_ended
+        - event_cancelled
+        example: capacity_full
+        type: string
+      message:
+        description: Message は人間向けのエラーメッセージ。
+        example: 定員に達しています
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinConflictErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinConflictErrorBody'
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinRequest:
+    properties:
+      token:
+        description: Token は確認メールのリンクに含まれる確認トークン。
+        example: V1StGXR8_Z5jdHi6B-myT
+        maxLength: 255
+        type: string
+    required:
+    - token
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinResponse:
+    properties:
+      confirmedAt:
+        description: ConfirmedAt は申込を確定した日時。
+        example: "2026-11-12T12:00:00Z"
+        type: string
+      eventId:
+        description: EventID は確定した申込のイベントUUID。
+        example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        type: string
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody:
     properties:
       code:
@@ -624,8 +667,9 @@ definitions:
       code:
         description: |-
           Code は競合の原因を表す機械可読なエラーコード。
-          already_joined = 既に参加済み / capacity_full = 定員到達 /
+          already_joined = ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full = 定員到達 /
           deadline_passed = 申込期限経過後 / event_ended = イベント終了後。
+          申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0047）。
         enum:
         - already_joined
         - capacity_full
@@ -1378,6 +1422,7 @@ paths:
       description: |-
         指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。
         participantCount は現在申込中の参加人数の合計で、定員未設定（capacity=0）でも返す。
+        未確定（pending）の申込は含まない。
         定員がある場合の残り人数は capacity - participantCount で算出する。
       parameters:
       - description: イベントID
@@ -1524,17 +1569,26 @@ paths:
       - application/json
       description: |-
         認証は任意。ログイン時のみ profileId が記録される。
-        Authorization ヘッダなし → 匿名参加（profileId = null）。
+        Authorization ヘッダなし → ゲスト参加。申込は未確定（pending）として保存され、
+        申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで
+        参加者一覧・参加人数・定員判定には含まれない。
         ヘッダありでトークンが無効 → 401 で中断。
-        ヘッダありで有効 → profileId を記録してログイン参加。
+        ヘッダありで有効 → ログイン参加として即時確定する。
         参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名
         （イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。
         合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。
         0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。
         participants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。
         イベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。
+        定員判定は確定済みの申込だけを数える。
+        未ログインで申込済みのメールアドレスから再申込した場合は、新規申込と同じ 201 と
+        本文の形で応答し（既存申込の内容は返さない）、そのアドレスに
+        「すでに申込まれています」の案内メールを送信する。
+        ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある場合
+        （自分以外の申込を含む）は 409 already_joined を返す（案内メールは送らない）。
         申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。
         申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。
+        確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。
       parameters:
       - description: イベントID
         in: path
@@ -1568,8 +1622,8 @@ paths:
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
         "409":
-          description: 'already_joined: 既に参加しています / capacity_full: 定員に達しています / deadline_passed:
-            申込期限経過後 / event_ended: イベント終了後'
+          description: 'already_joined: ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full:
+            定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後'
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse'
         "413":
@@ -1587,6 +1641,65 @@ paths:
       security:
       - BearerAuth: []
       summary: イベント参加
+      tags:
+      - event
+  /api/v1/events/{id}/join/confirm:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        確認メールのリンクから呼ぶ。認証は不要。
+        未ログインで申し込んだ未確定の申込を、確認トークンで確定する。
+        トークンは発行から24時間有効で、確定に成功すると使用済みになる。
+        有効期限切れ・不正・使用済みのトークンは 400 invalid_request を返す。
+        確定時は確定済みの申込だけで定員を再確認する。申込期限は再確認しない。
+        イベント定員を超える場合は 409 Conflict（capacity_full）を返す。
+        取消済みイベントは 409 Conflict（event_cancelled）、終了済みは 409 Conflict（event_ended）を返す。
+      parameters:
+      - description: イベントID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 確認トークン
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinResponse'
+        "400":
+          description: 'invalid_request: 確認リンクが無効か、有効期限が切れています'
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
+        "409":
+          description: 'capacity_full: 定員に達しています / event_ended: イベント終了後 / event_cancelled:
+            イベント取消済み'
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinConflictErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      summary: イベント参加申込の確定
       tags:
       - event
   /api/v1/events/{id}/leave:
@@ -1640,6 +1753,7 @@ paths:
     get:
       description: |-
         イベント主催者が、参加者一覧を取得する。主催者のみ閲覧可能。
+        未確定（pending）の申込は含まれない。
         profile は参加者のプロフィールサマリー。匿名参加の場合は null。
         participants は申込のカテゴリ別人数（カテゴリ名の昇順）。内訳を持たない申込では空配列。
         イベント不存在は 400 invalid_request（兄弟エンドポイントと統一）。

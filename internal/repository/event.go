@@ -477,17 +477,17 @@ type myEventClause struct {
 //
 // applied / attended は event_members に自分の行がある（＝現在申込中の）イベントだけを対象とする。
 // 参加キャンセル（leave）で行が削除されたイベントはどちらにも現れない。
-// 種別の定義と設計判断は ADR-0024 を参照。
+// 未確定（pending）の申込は含めない（ADR-0047）。種別の定義と設計判断は ADR-0024 を参照。
 var myEventClauses = map[model.MyEventKind]myEventClause{
 	model.MyEventKindHosted: {
 		where: "e.profile_id = $1",
 	},
 	model.MyEventKindApplied: {
-		join:  "JOIN event_members m ON m.event_id = e.id AND m.profile_id = $1",
+		join:  "JOIN event_members m ON m.event_id = e.id AND m.profile_id = $1 AND m.status = 'confirmed'",
 		where: "e.end_date >= now()",
 	},
 	model.MyEventKindAttended: {
-		join:  "JOIN event_members m ON m.event_id = e.id AND m.profile_id = $1",
+		join:  "JOIN event_members m ON m.event_id = e.id AND m.profile_id = $1 AND m.status = 'confirmed'",
 		where: "e.end_date < now()",
 	},
 }
@@ -783,7 +783,7 @@ func (r *eventPostgres) GetOrganizerEmail(ctx context.Context, eventID uuid.UUID
 
 func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventResponse, error) {
 	// 参加人数は event_members.party_size の合計（参加キャンセル時は行ごと削除される）。
-	// 集計方針は ADR-0024 を参照。
+	// 未確定（pending）の申込は含めない（ADR-0047）。集計方針は ADR-0024 を参照。
 	const query = `
 		SELECT		e.id, e.title, e.description, e.location, e.event_date, e.end_date, e.application_deadline,
 					e.capacity, e.external_url, e.cancelled_at, e.created_at, e.updated_at,
@@ -791,6 +791,7 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 						SELECT	SUM(m.party_size)
 						FROM	event_members m
 						WHERE	m.event_id = e.id
+						AND		m.status = 'confirmed'
 					), 0),
 					p.id, p.display_name, p.avatar_url
 		FROM 		events e

@@ -119,7 +119,11 @@ type fakeWorkerJoinRepo struct {
 	recipientsErr     error
 }
 
-func (f *fakeWorkerJoinRepo) Join(context.Context, *model.EventMember) error {
+func (f *fakeWorkerJoinRepo) Join(context.Context, *model.EventMember, model.JoinNotification) (repository.JoinOutcome, error) {
+	panic("not implemented in worker test fake")
+}
+
+func (f *fakeWorkerJoinRepo) ConfirmJoin(context.Context, uuid.UUID, string) (time.Time, error) {
 	panic("not implemented in worker test fake")
 }
 
@@ -468,6 +472,63 @@ func TestNotificationOutboxWorker_ProcessOneOrganizer(t *testing.T) {
 		}
 		if len(outboxRepo.sentIDs) != 0 || len(outboxRepo.failedCalls) != 0 {
 			t.Errorf("sent/failed は更新されない: sent=%v failed=%v", outboxRepo.sentIDs, outboxRepo.failedCalls)
+		}
+	})
+}
+
+func TestNotificationOutboxWorker_ProcessOneEmail(t *testing.T) {
+	eventID := uuid.New()
+
+	newEmailItem := func() model.EventNotificationOutbox {
+		return model.EventNotificationOutbox{
+			ID:             uuid.New(),
+			EventID:        eventID,
+			RecipientKind:  model.NotificationOutboxRecipientKindEmail,
+			RecipientEmail: "guest@example.com",
+			Subject:        "確認メールの件名",
+			Body:           "確認メールの本文",
+		}
+	}
+
+	t.Run("正常: email 宛は recipient_email の1人へ1通だけ送信する", func(t *testing.T) {
+		item := newEmailItem()
+		outboxRepo := &fakeOutboxRepo{}
+		joinRepo := &fakeWorkerJoinRepo{recipientsByEvent: map[uuid.UUID][]model.EventRecipient{
+			eventID: {{MailAddress: "member@example.com"}},
+		}}
+		mailer := &workerFakeMailer{}
+
+		w := NewNotificationOutboxWorker(outboxRepo, joinRepo, &fakeWorkerEventRepo{}, mailer)
+		w.processOne(context.Background(), outboxRepo.claim(item))
+
+		if mailer.callCount != 1 {
+			t.Fatalf("SendBatch call count = %d, want 1", mailer.callCount)
+		}
+		if len(mailer.gotEmails) != 1 {
+			t.Fatalf("SendBatch emails = %d, want 1", len(mailer.gotEmails))
+		}
+		if mailer.gotEmails[0].To != item.RecipientEmail {
+			t.Errorf("SendBatch to = %q, want %q", mailer.gotEmails[0].To, item.RecipientEmail)
+		}
+		if len(outboxRepo.sentIDs) != 1 || outboxRepo.sentIDs[0] != item.ID {
+			t.Errorf("sentIDs = %v, want [%v]", outboxRepo.sentIDs, item.ID)
+		}
+	})
+
+	t.Run("異常: recipient_email が空なら送信せず failed にする", func(t *testing.T) {
+		item := newEmailItem()
+		item.RecipientEmail = ""
+		outboxRepo := &fakeOutboxRepo{}
+		mailer := &workerFakeMailer{}
+
+		w := NewNotificationOutboxWorker(outboxRepo, &fakeWorkerJoinRepo{}, &fakeWorkerEventRepo{}, mailer)
+		w.processOne(context.Background(), outboxRepo.claim(item))
+
+		if mailer.callCount != 0 {
+			t.Errorf("SendBatch call count = %d, want 0", mailer.callCount)
+		}
+		if len(outboxRepo.failedCalls) != 1 || outboxRepo.failedCalls[0].id != item.ID {
+			t.Errorf("failedCalls = %v, want [%v]", outboxRepo.failedCalls, item.ID)
 		}
 	})
 }

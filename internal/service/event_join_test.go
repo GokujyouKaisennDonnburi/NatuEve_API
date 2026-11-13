@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -19,8 +20,15 @@ type stubEventJoinRepository struct {
 	// Join 返却値（joinCreatedAt は成功時に member.CreatedAt へセットする）。
 	joinCreatedAt time.Time
 	joinErr       error
+	joinOutcome   repository.JoinOutcome
 	// 呼び出し時に Join へ渡された引数を記録する。
-	gotMember *model.EventMember
+	gotMember       *model.EventMember
+	gotNotification model.JoinNotification
+	// ConfirmJoin 返却値・引数記録。
+	confirmCreatedAt    time.Time
+	confirmErr          error
+	gotConfirmEventID   uuid.UUID
+	gotConfirmTokenHash string
 	// Leave 返却値・引数記録。
 	leaveCreatedAt    time.Time
 	leaveErr          error
@@ -49,13 +57,37 @@ type stubEventJoinRepository struct {
 	gotAbsenceBody      string
 }
 
-func (s *stubEventJoinRepository) Join(_ context.Context, member *model.EventMember) error {
+func (s *stubEventJoinRepository) Join(
+	_ context.Context,
+	member *model.EventMember,
+	notification model.JoinNotification,
+) (repository.JoinOutcome, error) {
 	s.gotMember = member
+	s.gotNotification = notification
 	if s.joinErr != nil {
-		return s.joinErr
+		return "", s.joinErr
 	}
 	member.CreatedAt = s.joinCreatedAt
-	return nil
+	if s.joinOutcome != "" {
+		return s.joinOutcome, nil
+	}
+	if member.Status == model.EventMemberStatusPending {
+		return repository.JoinOutcomePending, nil
+	}
+	return repository.JoinOutcomeConfirmed, nil
+}
+
+func (s *stubEventJoinRepository) ConfirmJoin(
+	_ context.Context,
+	eventID uuid.UUID,
+	tokenHash string,
+) (time.Time, error) {
+	s.gotConfirmEventID = eventID
+	s.gotConfirmTokenHash = tokenHash
+	if s.confirmErr != nil {
+		return time.Time{}, s.confirmErr
+	}
+	return s.confirmCreatedAt, nil
 }
 
 func (s *stubEventJoinRepository) Leave(_ context.Context, eventID, profileID uuid.UUID) (time.Time, error) {
@@ -227,6 +259,18 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				if m.PartySize != 1 {
 					t.Errorf("EventMember.PartySize: got %d, want 1", m.PartySize)
 				}
+				if m.Status != model.EventMemberStatusConfirmed {
+					t.Errorf("EventMember.Status: got %q, want %q", m.Status, model.EventMemberStatusConfirmed)
+				}
+				if m.ConfirmationTokenHash != "" || !m.ConfirmationTokenExpiresAt.IsZero() {
+					t.Error("ログイン参加に確認トークンが設定されている")
+				}
+				if stub.gotNotification.ConfirmationSubject != "" {
+					t.Error("ログイン参加に確認メールが設定されている")
+				}
+				if stub.gotNotification.NoticeSubject == "" {
+					t.Error("案内メールの件名が設定されていない")
+				}
 			},
 		},
 		// --- 正常系: 匿名参加 ---
@@ -250,6 +294,43 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				}
 				if m.ProfileID.Valid {
 					t.Errorf("EventMember.ProfileID.Valid: got true, want false（匿名）")
+				}
+				if m.Status != model.EventMemberStatusPending {
+					t.Errorf("EventMember.Status: got %q, want %q", m.Status, model.EventMemberStatusPending)
+				}
+				if m.ConfirmationTokenHash == "" {
+					t.Error("EventMember.ConfirmationTokenHash が空")
+				}
+				if !m.ConfirmationTokenExpiresAt.After(time.Now()) {
+					t.Errorf("EventMember.ConfirmationTokenExpiresAt = %v, want 未来", m.ConfirmationTokenExpiresAt)
+				}
+				if stub.gotNotification.ConfirmationSubject == "" || stub.gotNotification.ConfirmationBody == "" {
+					t.Error("確認メールの件名・本文が設定されていない")
+				}
+				if !strings.Contains(stub.gotNotification.ConfirmationBody, "/join/confirm?token=") {
+					t.Errorf("確認メールの本文に確認リンクが無い: %q", stub.gotNotification.ConfirmationBody)
+				}
+				if stub.gotNotification.NoticeSubject == "" || stub.gotNotification.NoticeBody == "" {
+					t.Error("案内メールの件名・本文が設定されていない")
+				}
+			},
+		},
+		// --- 正常系: TrimSpace ---
+		{
+			name:      "正常: 表示名付きメールはアドレス部分だけを保存する",
+			stub:      &stubEventJoinRepository{joinCreatedAt: createdAt},
+			profileID: anonymousProfileID,
+			req: model.JoinEventRequest{
+				Username:    "山田太郎",
+				MailAddress: "山田太郎 <yamada@example.com>",
+				Participants: []model.ParticipantInput{
+					{Category: "大人", HeadCount: 1},
+				},
+			},
+			checkMember: func(t *testing.T, stub *stubEventJoinRepository) {
+				t.Helper()
+				if stub.gotMember.MailAddress != "yamada@example.com" {
+					t.Errorf("MailAddress: got %q, want %q", stub.gotMember.MailAddress, "yamada@example.com")
 				}
 			},
 		},
@@ -476,20 +557,44 @@ func TestEventJoinServiceJoin(t *testing.T) {
 			wantNotFound: true,
 		},
 		{
-			name:             "異常: 既に参加済み（ConflictError）",
-			stub:             &stubEventJoinRepository{joinErr: repository.ErrAlreadyJoined},
+			name: "正常: メール重複は新規申込と同じ応答を返す",
+			stub: &stubEventJoinRepository{
+				joinCreatedAt: createdAt,
+				joinOutcome:   repository.JoinOutcomeAlreadyJoined,
+			},
+			profileID: anonymousProfileID,
+			req:       validReq,
+			checkResp: func(t *testing.T, resp model.JoinEventResponse) {
+				t.Helper()
+				if resp.EventID != eventID {
+					t.Errorf("EventID: got %v, want %v", resp.EventID, eventID)
+				}
+				if resp.ProfileID != nil {
+					t.Errorf("ProfileID: got %v, want nil", resp.ProfileID)
+				}
+				if resp.Username != "山田太郎" || resp.PartySize != 1 {
+					t.Errorf("resp = %#v, want 送信した内容", resp)
+				}
+				if resp.CreatedAt.IsZero() {
+					t.Error("CreatedAt がゼロ値")
+				}
+			},
+		},
+		{
+			name:             "異常: ログイン中の本人が既に参加済み（ConflictError）",
+			stub:             &stubEventJoinRepository{joinOutcome: repository.JoinOutcomeAlreadyJoinedSelf},
 			profileID:        loggedInProfileID,
 			req:              validReq,
 			wantConflict:     true,
 			wantConflictCode: "already_joined",
 		},
 		{
-			name:             "異常: メール重複 - UNIQUE 制約由来のラップ済みエラー（ConflictError）",
-			stub:             &stubEventJoinRepository{joinErr: fmtWrap(repository.ErrAlreadyJoined)},
+			name:             "異常: 定員超過（outcome, ConflictError）",
+			stub:             &stubEventJoinRepository{joinOutcome: repository.JoinOutcomeCapacityFull},
 			profileID:        anonymousProfileID,
 			req:              validReq,
 			wantConflict:     true,
-			wantConflictCode: "already_joined",
+			wantConflictCode: "capacity_full",
 		},
 		{
 			name:             "異常: 定員超過（ConflictError）",
@@ -644,7 +749,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
 
 			resp, err := svc.Join(context.Background(), eventID, tt.profileID, tt.req)
 
@@ -683,6 +788,193 @@ func TestEventJoinServiceJoin(t *testing.T) {
 				tt.checkMember(t, tt.stub)
 			}
 		})
+	}
+}
+
+func TestEventJoinServiceConfirmJoin(t *testing.T) {
+	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	confirmedAt := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	const token = "confirmation-token"
+
+	tests := []struct {
+		name             string
+		stub             *stubEventJoinRepository
+		token            string
+		wantValErr       bool
+		wantNotFound     bool
+		wantConflict     bool
+		wantConflictCode string
+		wantErr          bool
+	}{
+		{
+			name:  "正常: トークンをハッシュ化して確定する",
+			stub:  &stubEventJoinRepository{confirmCreatedAt: confirmedAt},
+			token: token,
+		},
+		{
+			name:       "異常: トークンが空",
+			stub:       &stubEventJoinRepository{},
+			token:      "",
+			wantValErr: true,
+		},
+		{
+			name:       "異常: トークンが長すぎる",
+			stub:       &stubEventJoinRepository{},
+			token:      strings.Repeat("a", joinConfirmationTokenMaxLen+1),
+			wantValErr: true,
+		},
+		{
+			name:       "異常: 不正・期限切れ・使用済みのトークン",
+			stub:       &stubEventJoinRepository{confirmErr: repository.ErrConfirmationTokenInvalid},
+			token:      token,
+			wantValErr: true,
+		},
+		{
+			name:         "異常: イベントが存在しない",
+			stub:         &stubEventJoinRepository{confirmErr: repository.ErrEventNotFound},
+			token:        token,
+			wantNotFound: true,
+		},
+		{
+			name:             "異常: 定員超過",
+			stub:             &stubEventJoinRepository{confirmErr: repository.ErrEventCapacityFull},
+			token:            token,
+			wantConflict:     true,
+			wantConflictCode: "capacity_full",
+		},
+		{
+			name:             "異常: イベントがキャンセル済み",
+			stub:             &stubEventJoinRepository{confirmErr: repository.ErrEventCancelled},
+			token:            token,
+			wantConflict:     true,
+			wantConflictCode: "event_cancelled",
+		},
+		{
+			name:             "異常: イベント終了後",
+			stub:             &stubEventJoinRepository{confirmErr: repository.ErrEventEnded},
+			token:            token,
+			wantConflict:     true,
+			wantConflictCode: "event_ended",
+		},
+		{
+			name:    "異常: repository が想定外のエラーを返す",
+			stub:    &stubEventJoinRepository{confirmErr: errors.New("db error")},
+			token:   token,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, "https://web.example.com")
+			resp, err := svc.ConfirmJoin(context.Background(), eventID, tt.token)
+
+			switch {
+			case tt.wantValErr:
+				_ = assertValidationError(t, err)
+				return
+			case tt.wantNotFound:
+				_ = assertNotFoundError(t, err)
+				return
+			case tt.wantConflict:
+				ce := assertConflictError(t, err)
+				if tt.wantConflictCode != "" && ce.Code != tt.wantConflictCode {
+					t.Errorf("ConflictError.Code: got %q, want %q", ce.Code, tt.wantConflictCode)
+				}
+				return
+			case tt.wantErr:
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				return
+			}
+
+			assertNoErr(t, err)
+			if resp.EventID != eventID {
+				t.Errorf("EventID: got %v, want %v", resp.EventID, eventID)
+			}
+			if !resp.ConfirmedAt.Equal(confirmedAt) {
+				t.Errorf("ConfirmedAt: got %v, want %v", resp.ConfirmedAt, confirmedAt)
+			}
+			if tt.stub.gotConfirmEventID != eventID {
+				t.Errorf("repository に渡した EventID: got %v, want %v", tt.stub.gotConfirmEventID, eventID)
+			}
+			wantHash := hashJoinConfirmationToken(token)
+			if tt.stub.gotConfirmTokenHash != wantHash {
+				t.Errorf("repository に渡した token hash: got %q, want %q", tt.stub.gotConfirmTokenHash, wantHash)
+			}
+		})
+	}
+}
+
+func TestJoinConfirmationToken(t *testing.T) {
+	token, err := newJoinConfirmationToken()
+	if err != nil {
+		t.Fatalf("newJoinConfirmationToken() returned error: %v", err)
+	}
+	if token == "" {
+		t.Fatal("token が空")
+	}
+	other, err := newJoinConfirmationToken()
+	if err != nil {
+		t.Fatalf("newJoinConfirmationToken() returned error: %v", err)
+	}
+	if token == other {
+		t.Error("トークンが再生成されていない")
+	}
+
+	hash := hashJoinConfirmationToken(token)
+	if hash == token {
+		t.Error("ハッシュがトークンと同じ")
+	}
+	if hash != hashJoinConfirmationToken(token) {
+		t.Error("同じトークンのハッシュが一致しない")
+	}
+	if len(hash) != sha256.Size*2 {
+		t.Errorf("hash length = %d, want %d", len(hash), sha256.Size*2)
+	}
+}
+
+func TestBuildJoinEmails(t *testing.T) {
+	const (
+		eventID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+		baseURL = "https://web.example.com/"
+		token   = "token-abc"
+	)
+
+	confirmURL := buildJoinConfirmationURL(baseURL, uuid.MustParse(eventID), token)
+	wantURL := "https://web.example.com/events/" + eventID + "/join/confirm?token=" + token
+	if confirmURL != wantURL {
+		t.Errorf("confirmURL = %q, want %q", confirmURL, wantURL)
+	}
+
+	subject, body := buildJoinConfirmationEmail("テストイベント", confirmURL)
+	if !strings.Contains(subject, "テストイベント") {
+		t.Errorf("subject = %q, want イベント名を含む", subject)
+	}
+	if len([]rune(subject)) > notificationSubjectMaxLen {
+		t.Errorf("subject length = %d, want <= %d", len([]rune(subject)), notificationSubjectMaxLen)
+	}
+	if !strings.Contains(body, confirmURL) {
+		t.Errorf("body = %q, want 確認リンクを含む", body)
+	}
+	if !strings.Contains(body, "24時間") {
+		t.Errorf("body = %q, want 有効期限の案内を含む", body)
+	}
+
+	subject, body = buildAlreadyJoinedEmail("テストイベント")
+	if !strings.Contains(subject, "すでに申し込まれています") {
+		t.Errorf("subject = %q, want 申込済みの案内を含む", subject)
+	}
+	if !strings.Contains(body, "すでに参加申込を受け付けています") {
+		t.Errorf("body = %q, want 申込済みの案内を含む", body)
+	}
+
+	// 長いタイトルでも件名が 255 文字を超えない。
+	longTitle := strings.Repeat("あ", 300)
+	subject, _ = buildJoinConfirmationEmail(longTitle, confirmURL)
+	if len([]rune(subject)) > notificationSubjectMaxLen {
+		t.Errorf("long subject length = %d, want <= %d", len([]rune(subject)), notificationSubjectMaxLen)
 	}
 }
 
@@ -749,7 +1041,7 @@ func TestEventJoinServiceLeave(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
 
 			resp, err := svc.Leave(context.Background(), eventID, profileID)
 
@@ -869,7 +1161,7 @@ func TestEventJoinServiceGetMyApplication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{})
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
 
 			resp, err := svc.GetMyApplication(context.Background(), eventID, profileID)
 
@@ -1209,7 +1501,7 @@ func TestEventJoinServiceAbsence(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.joinStub, tt.eventStub)
+			svc := NewEventJoinService(tt.joinStub, tt.eventStub, "https://web.example.com")
 
 			resp, err := svc.Absence(context.Background(), eventID, profileID, tt.req)
 
@@ -1515,7 +1807,7 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.joinStub, tt.eventStub)
+			svc := NewEventJoinService(tt.joinStub, tt.eventStub, "https://web.example.com")
 
 			resp, err := svc.ListMembers(context.Background(), tt.profileID, tt.eventID)
 

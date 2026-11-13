@@ -239,6 +239,7 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 | `RELAY_SECRET_PREVIOUS` | 値の差し替え中だけ、古い値を設定する（[手順](#runapp-の-url-へ直接の大量アクセスを受けたとき)） | ○ |
 | `RELAY_CLIENT_IP_HEADER` | `X-NatuEve-Client-IP`（Worker の `CLIENT_IP_HEADER` と同じ値） | |
 | `CORS_ALLOW_ORIGINS` | `https://natueve-web.natuportal.org`（NatuEve_Web_Frontend#328 で決定） | |
+| `WEB_BASE_URL` | `https://natueve-web.natuportal.org`（参加申込の確認メールのリンク先。ADR-0047） | |
 | `R2_ACCOUNT_ID` | Cloudflare のアカウント ID | |
 | `R2_ACCESS_KEY_ID` | R2 の API トークン（対象は本番用のバケットだけ） | ○ |
 | `R2_SECRET_ACCESS_KEY` | R2 の API トークン（対象は本番用のバケットだけ） | ○ |
@@ -296,7 +297,7 @@ unset DATABASE_URL
 
 | 置き場所 | 値 |
 |---|---|
-| `deploy/cloud-run/<環境>.yaml` | `GIN_MODE`・`DB_MAX_OPEN_CONNS`・`DB_AUTO_MIGRATE`・`RELAY_CLIENT_IP_HEADER`・`CORS_ALLOW_ORIGINS`・`R2_PUBLIC_BASE_URL` |
+| `deploy/cloud-run/<環境>.yaml` | `GIN_MODE`・`DB_MAX_OPEN_CONNS`・`DB_AUTO_MIGRATE`・`RELAY_CLIENT_IP_HEADER`・`CORS_ALLOW_ORIGINS`・`WEB_BASE_URL`・`R2_PUBLIC_BASE_URL` |
 | GitHub Environments の変数 | 下の表 |
 | GitHub Environments のシークレット | `CLOUD_RUN_SERVICE`・`SCHEDULER_OIDC_AUDIENCE`（run.app の URL を組み立てられる値）、`CLOUDFLARE_API_TOKEN` |
 | Secret Manager（環境ごとのプロジェクト） | `DATABASE_URL`・`RELAY_SECRET`・`R2_ACCESS_KEY_ID`・`R2_SECRET_ACCESS_KEY`・`RESEND_API_KEY` |

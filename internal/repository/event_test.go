@@ -465,8 +465,8 @@ func insertTestEventMember(t *testing.T, db *sql.DB, eventID uuid.UUID, mailAddr
 
 	id := uuid.New()
 	const insertMember = `
-	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size)
-	VALUES($1, $2, NULL, $3, $4, $5)
+	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size, status)
+	VALUES($1, $2, NULL, $3, $4, $5, 'confirmed')
 	`
 	if _, err := db.ExecContext(context.Background(), insertMember, id, eventID, "テスト参加者", mailAddress, partySize); err != nil {
 		t.Fatalf("insert test event member: %v", err)
@@ -474,9 +474,36 @@ func insertTestEventMember(t *testing.T, db *sql.DB, eventID uuid.UUID, mailAddr
 	return id
 }
 
+// insertTestPendingEventMember はテスト用の未確定（pending）の event_members 行を1件作成する。
+func insertTestPendingEventMember(t *testing.T, db *sql.DB, eventID uuid.UUID, mailAddress string, partySize int) uuid.UUID {
+	t.Helper()
+
+	id := uuid.New()
+	const insertMember = `
+	INSERT INTO event_members(
+		id, event_id, profile_id, username, mail_address, party_size,
+		status, confirmation_token_hash, confirmation_token_expires_at
+	)
+	VALUES($1, $2, NULL, $3, $4, $5, 'pending', $6, now() + interval '1 hour')
+	`
+	if _, err := db.ExecContext(
+		context.Background(),
+		insertMember,
+		id,
+		eventID,
+		"テスト参加者",
+		mailAddress,
+		partySize,
+		uuid.NewString(),
+	); err != nil {
+		t.Fatalf("insert test pending event member: %v", err)
+	}
+	return id
+}
+
 // TestEventPostgres_GetByID_ParticipantCount は GetByID の ParticipantCount が
 // event_members.party_size の合計になること、申込0件のイベントでは0になること、
-// 他イベントの申込が合算されないことを検証する（ADR-0024）。
+// 他イベントの申込が合算されないこと、未確定の申込が含まれないことを検証する（ADR-0024, ADR-0047）。
 func TestEventPostgres_GetByID_ParticipantCount(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventRepository(db)
@@ -526,6 +553,22 @@ func TestEventPostgres_GetByID_ParticipantCount(t *testing.T) {
 
 		if got.ParticipantCount != 2 {
 			t.Errorf("ParticipantCount = %d, want 2（別イベントの申込が混入している）", got.ParticipantCount)
+		}
+	})
+
+	t.Run("未確定の申込は合算されない", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, profileID)
+
+		insertTestEventMember(t, db, eventID, fmt.Sprintf("%s@example.com", uuid.NewString()), 2)
+		insertTestPendingEventMember(t, db, eventID, fmt.Sprintf("%s@example.com", uuid.NewString()), 10)
+
+		got, err := repo.GetByID(context.Background(), eventID.String())
+		if err != nil {
+			t.Fatalf("GetByID() returned error: %v", err)
+		}
+
+		if got.ParticipantCount != 2 {
+			t.Errorf("ParticipantCount = %d, want 2（未確定の申込が混入している）", got.ParticipantCount)
 		}
 	})
 }
@@ -898,8 +941,8 @@ func insertTestMember(t *testing.T, db *sql.DB, eventID uuid.UUID, profileID uui
 
 	id := uuid.New()
 	const insertMember = `
-	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size)
-	VALUES($1, $2, $3, $4, $5, $6)
+	INSERT INTO event_members(id, event_id, profile_id, username, mail_address, party_size, status)
+	VALUES($1, $2, $3, $4, $5, $6, 'confirmed')
 	`
 	if _, err := db.ExecContext(
 		context.Background(),

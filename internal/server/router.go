@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -47,6 +48,9 @@ func NewRouter(ctx context.Context, cfg config.Config, sqlDB *sql.DB) (*gin.Engi
 	relayGuard, err := newRelayGuard(cfg)
 	if err != nil {
 		return nil, nil, err
+	}
+	if err := validateWebBaseURL(cfg.WebBaseURL); err != nil {
+		return nil, nil, fmt.Errorf("WEB_BASE_URL: %w", err)
 	}
 
 	// gin.Default() の代わりに slog 連携のロガー/リカバリを使う。
@@ -119,6 +123,32 @@ func newRelayGuard(cfg config.Config) (gin.HandlerFunc, error) {
 	return guard, nil
 }
 
+// validateWebBaseURL は確認メールのリンク先となる Web のベースURLを検証する（ADR-0047）。
+// 空は許容する（config.Load が既定値を入れるため、テストなど直接 Config を組む場合だけ空になる）。
+func validateWebBaseURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+
+	u, err := url.Parse(raw)
+	if err != nil {
+		return err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return errors.New("scheme must be http or https")
+	}
+	if u.Host == "" {
+		return errors.New("host is required")
+	}
+	if u.User != nil {
+		return errors.New("user info is not allowed")
+	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return errors.New("query and fragment are not allowed")
+	}
+	return nil
+}
+
 // join のレートリミット設定。参加申込は匿名で叩けるため、同一 IP からの
 // 大量申込（架空メールでの定員埋め・DB 汚染）を平均 5回/分・バースト5回に絞る。
 const (
@@ -173,7 +203,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 			"イベントキャンセル時の通知は outbox に蓄積されますが送信されません")
 	}
 
-	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo)
+	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo, cfg.WebBaseURL)
 	eventCmdSvc := service.NewEventCommandService(eventRepo, store)
 
 	eventParticipationLogRepo := repository.NewEventParticipationLogRepository(sqlDB)
@@ -228,6 +258,10 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 
 	// join は匿名で叩けるため IP レートリミットを掛ける。
 	joinLimiter := middleware.NewIPRateLimiter(rate.Every(joinRateInterval), joinRateBurst).Middleware()
+
+	// join/confirm はメールのリンクから認証なしで呼ばれる（ADR-0047）。
+	// join と同じ IP レートリミットを掛ける。
+	v1Public.POST("/events/:id/join/confirm", joinLimiter, eventHandler.ConfirmJoin)
 
 	// user 系は認証が必要。DB と JWKS の両方が揃っているときのみ登録する。
 	// JWKS 未設定の場合: join ルートのみ認証なし（常に匿名参加）で登録して終了する。

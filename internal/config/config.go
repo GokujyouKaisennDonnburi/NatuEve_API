@@ -60,6 +60,9 @@ type Config struct {
 	ResendAPIKey string
 	// MailFrom は送信元メールアドレス。
 	MailFrom string
+	// WebBaseURL は確認メールのリンク先となる Web のベースURL（ADR-0047）。
+	// 未設定なら http://localhost:3000。
+	WebBaseURL string
 	// OutboxWorkerEnabled が true なら、API プロセス内で一定周期に outbox を処理する
 	// 常駐ワーカーを起動する（ローカル開発用）。本番は Cloud Scheduler から
 	// 内部エンドポイントを呼ぶため false のままにする（ADR-0035）。
@@ -117,6 +120,10 @@ func Load() Config {
 	cfg.R2PublicBaseURL = os.Getenv("R2_PUBLIC_BASE_URL")
 	cfg.ResendAPIKey = os.Getenv("RESEND_API_KEY")
 	cfg.MailFrom = os.Getenv("MAIL_FROM")
+	cfg.WebBaseURL = strings.TrimSpace(os.Getenv("WEB_BASE_URL"))
+	if cfg.WebBaseURL == "" {
+		cfg.WebBaseURL = "http://localhost:3000"
+	}
 	if v := os.Getenv("OUTBOX_WORKER_ENABLED"); v != "" {
 		// パースできない値は false 扱い(明示的に true/1 のときだけ有効)。
 		cfg.OutboxWorkerEnabled, _ = strconv.ParseBool(v)

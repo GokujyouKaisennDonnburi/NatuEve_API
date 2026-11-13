@@ -6,6 +6,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// event_members.status の値（ADR-0047）。
+//
+// pending: 確認メール待ちの申込（参加者一覧・人数・定員判定に含めない）/
+// confirmed: 確定済みの申込。
+const (
+	EventMemberStatusPending   = "pending"
+	EventMemberStatusConfirmed = "confirmed"
+)
+
 // ParticipantInput は参加申込のカテゴリ別人数1件分の入力 DTO。
 type ParticipantInput struct {
 	// Category は参加者カテゴリ（必須・255文字以内）。
@@ -57,6 +66,29 @@ type JoinEventResponse struct {
 	Participants []ParticipantResponse `json:"participants"`
 	// CreatedAt は参加申込日時。
 	CreatedAt time.Time `json:"createdAt" example:"2023-01-01T12:00:00Z"`
+}
+
+// JoinNotification は参加申込時に event_notification_outbox へ予約するメール文面（ADR-0047）。
+// Confirmation* は未確定の申込、Notice* は申込済みアドレスへの案内に使う。
+type JoinNotification struct {
+	ConfirmationSubject string
+	ConfirmationBody    string
+	NoticeSubject       string
+	NoticeBody          string
+}
+
+// ConfirmJoinRequest は参加申込確定エンドポイントのリクエストボディ DTO（ADR-0047）。
+type ConfirmJoinRequest struct {
+	// Token は確認メールのリンクに含まれる確認トークン。
+	Token string `json:"token" example:"V1StGXR8_Z5jdHi6B-myT" validate:"required,max=255"`
+}
+
+// ConfirmJoinResponse は参加申込確定時に返すレスポンス。
+type ConfirmJoinResponse struct {
+	// EventID は確定した申込のイベントUUID。
+	EventID uuid.UUID `json:"eventId" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	// ConfirmedAt は申込を確定した日時。
+	ConfirmedAt time.Time `json:"confirmedAt" example:"2026-11-12T12:00:00Z"`
 }
 
 // MyEventApplicationResponse はログイン中ユーザー自身の申込内容取得エンドポイントのレスポンス DTO。
@@ -177,6 +209,13 @@ type EventMember struct {
 	MailAddress string
 	// PartySize は代表者を含む参加人数（1以上）。Categories の HeadCount 合計と一致する。
 	PartySize int
+	// Status は EventMemberStatusPending / EventMemberStatusConfirmed のいずれか。
+	// Join（INSERT）時に呼び出し元が指定する。SELECT では使わない。
+	Status string
+	// ConfirmationTokenHash は確認トークンの SHA-256 の hex。pending のときだけ値が入る。
+	ConfirmationTokenHash string
+	// ConfirmationTokenExpiresAt は確認トークンの有効期限。pending のときだけ値が入る。
+	ConfirmationTokenExpiresAt time.Time
 	// Categories はカテゴリ別人数の内訳。Join（INSERT）時は Category と HeadCount を
 	// 呼び出し元が埋め、CostID は repository がカテゴリ名から解決して埋める。
 	Categories []MemberCategory

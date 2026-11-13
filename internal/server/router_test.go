@@ -110,6 +110,46 @@ func TestNewRouterRejectsInvalidCORSOrigins(t *testing.T) {
 	}
 }
 
+// TestNewRouterValidatesWebBaseURL は、WEB_BASE_URL が http/https の絶対URLでない場合に
+// NewRouter がエラーを返すことを検証する（ADR-0047）。
+func TestNewRouterValidatesWebBaseURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "空は既定値に任せる", value: ""},
+		{name: "https", value: "https://natueve-web.example.com"},
+		{name: "http と末尾スラッシュ", value: "http://localhost:3000/"},
+		{name: "パス付き", value: "https://example.com/app"},
+		{name: "scheme なし", value: "natueve-web.example.com", wantErr: true},
+		{name: "ftp", value: "ftp://natueve-web.example.com", wantErr: true},
+		{name: "host なし", value: "https://", wantErr: true},
+		{name: "user info 付き", value: "https://user@example.com", wantErr: true},
+		{name: "query 付き", value: "https://example.com?x=1", wantErr: true},
+		{name: "fragment 付き", value: "https://example.com/#top", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Config{
+				CORSAllowOrigins: []string{"http://localhost:3000"},
+				WebBaseURL:       tt.value,
+			}
+			_, _, err := NewRouter(context.Background(), cfg, nil)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("NewRouter() error = nil, want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+		})
+	}
+}
+
 // TestRegisterInternalRoutes_NotRegistered は、認証設定が揃っていない、または
 // 通知送信ワーカーが無いときに内部エンドポイントが登録されず 404 になることを検証する（ADR-0035）。
 func TestRegisterInternalRoutes_NotRegistered(t *testing.T) {
