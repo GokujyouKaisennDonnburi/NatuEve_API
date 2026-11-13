@@ -122,12 +122,15 @@ R2 のバケットの分け方は [ADR-0039](./adr/0039-r2-production-bucket-spl
 | 利用者 IP のヘッダー | `X-NatuEve-Client-IP`（`wrangler.jsonc` の `CLIENT_IP_HEADER`。API の `RELAY_CLIENT_IP_HEADER` と同じ値） |
 | `workers.dev`・Preview URL | 無効（`wrangler.jsonc` の `workers_dev: false`・`preview_urls: false`） |
 | キャッシュ | 使わない（`fetch()` は `cache: "no-store"`。API のホスト名にキャッシュルールを付けない） |
+| HTTP → HTTPS のリダイレクト | ゾーンの Always Use HTTPS（`natuportal.org` の SSL/TLS → Edge Certificates）で 301。Worker もそのフォールバックとして、HTTPS でないリクエストを転送せず同じパスとクエリの HTTPS へ 301 で返す（`httpsRedirect`。ローカル開発の `localhost` 等を除く。ADR-0034・#265） |
 | Pseudo IPv4（ゾーンの設定） | Off（既定） |
 | コードの置き場所 | `workers/api-relay/` |
 
 - 含まれる量はフロントと共有で、月 1,000 万リクエスト・CPU 3,000 万ミリ秒。超過は 100 万リクエストあたり $0.30、CPU 100 万ミリ秒あたり $0.02。
   `fetch()` の待ち時間は CPU 時間に数えられない。
 - 転送時に付けるヘッダーと API 側の確認は ADR-0034 の決定事項 3・4。実装上の注意は ADR-0034 の「トレードオフ・制約」。
+- Always Use HTTPS は Custom Domain の Worker 宛ての HTTP にも効く（#265 で `curl` で確認）。オフにした場合は Worker の 301 に切り替わる。
+  Worker のリダイレクトは、秘密ヘッダーの確認（`internal/middleware/relay.go`）より前に応答するため、HTTP のリクエストは API に届かない。
 - 受けたリクエストに `CF-Connecting-IP` が無い場合、Worker は利用者 IP のヘッダーを付けずに転送する。その場合 API は接続元の IP で数えるため、
   該当するリクエストは IP レート制限を共有する（利用者 IP の検証は #215）。
 - `ORIGIN_URL` と `RELAY_SECRET` は `wrangler.jsonc` の `secrets.required` に宣言しており、未設定だと `wrangler deploy` が失敗する。
@@ -523,6 +526,7 @@ API と Worker をデプロイした後に行う。結果は検証環境が #254
 | 確認すること | 手順 | 期待する結果 |
 |---|---|---|
 | HTTPS で届く | `curl -sS https://natueve-api.natuportal.org/health` | `{"status":"ok"}` |
+| HTTP は HTTPS へリダイレクトされる | `curl -sS -i http://natueve-api.natuportal.org/api/v1/events?q=1`（`-X POST` でも確かめる） | 301、`Location: https://natueve-api.natuportal.org/api/v1/events?q=1`（クエリも保持）。`POST` も転送されない（ADR-0034・#265） |
 | 認証付きの API | `curl -sS -H "Authorization: Bearer <JWT>" https://natueve-api.natuportal.org/api/v1/me` | 200 |
 | CORS のプリフライト | `curl -sS -i -X OPTIONS -H "Origin: <フロント>" -H "Access-Control-Request-Method: POST" -H "Access-Control-Request-Headers: authorization,content-type" https://natueve-api.natuportal.org/api/v1/events` | 204、`Access-Control-Allow-Origin: <フロント>` |
 | run.app への直接アクセス | `curl -sS -i https://<run.app>/api/v1/events` | 403（`/health` は 200） |

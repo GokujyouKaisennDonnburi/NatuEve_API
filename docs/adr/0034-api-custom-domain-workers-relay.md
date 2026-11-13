@@ -60,6 +60,17 @@ run.app の URL へ転送する。run.app の URL への直接アクセスは、
   このリダイレクトは middleware より前に応答するため、有効のままだと秘密ヘッダーなしでも 403 にならない。
   確認を有効にしたときだけ無効にすると、開発環境と本番で応答が変わるため、常に無効にする。
 
+**#265 で決めた事項**:
+
+- HTTPS でないリクエストは、ゾーンの Always Use HTTPS（Cloudflare の設定）で 301 が返る。Custom Domain の Worker 宛ての
+  HTTP にも効くことを `curl` で確認した（#265）。設定はダッシュボードの SSL/TLS → Edge Certificates で、リポジトリには無い。
+- Worker も Always Use HTTPS がオフになった場合に備え、HTTPS でないリクエストを転送せず、同じパスとクエリの HTTPS へ
+  301 でリダイレクトする（`workers/api-relay/` の `httpsRedirect`）。ローカル開発（wrangler dev）の `localhost`・`127.0.0.1`・
+  `[::1]` はリダイレクトしない。HTTP のリクエストは、秘密ヘッダーの確認（`internal/middleware/relay.go`）より前に 301 を
+  返すため、API に届かない。
+- 301 を選んだ理由: Always Use HTTPS と同じ挙動に揃えるため。HTTP で GET 以外のメソッドを送るクライアントは正しくない
+  使い方で、どのみち API に届かない。
+
 ## 理由
 
 - **費用**: 中継は、フロントと共有する Workers Paid の枠（月 1,000 万リクエスト・CPU 3,000 万ミリ秒）に含まれる。
