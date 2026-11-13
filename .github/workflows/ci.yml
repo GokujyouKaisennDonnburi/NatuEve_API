@@ -4,9 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+  # 週1回 vulncheck ジョブだけを実行する（ADR-0048）。毎週月曜 00:00 UTC（09:00 JST）
+  schedule:
+    - cron: "0 0 * * 1"
 
 jobs:
   build:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +41,21 @@ jobs:
       - name: Test
         run: make test
 
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vulnerability check (govulncheck, pinned)
+        run: make vulncheck
+
   worker:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +71,7 @@ jobs:
         run: make worker-check
 
   migrate:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     services:
       postgres:

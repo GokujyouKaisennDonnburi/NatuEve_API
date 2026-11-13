@@ -13,6 +13,10 @@ SWAG_OUT := ./api
 GOLANGCI_VERSION := v2.15.0
 GOLANGCI ?= $(shell go env GOPATH)/bin/golangci-lint
 
+# govulncheck はバージョンを固定して go run する（ADR-0048）。
+# 標準ライブラリの脆弱性は、実行した Go の版で判定される（CI は go.mod の版）。
+GOVULNCHECK_VERSION := v1.9.0
+
 # goose(マイグレーション CLI)はバージョンを固定し、api コンテナ内で go run する。
 GOOSE_VERSION := v3.27.1
 MIGRATIONS_DIR := db/migrations
@@ -81,6 +85,10 @@ lint-install: ## golangci-lint をインストール (バージョン固定)
 .PHONY: lint
 lint: ## golangci-lint を実行
 	$(GOLANGCI) run ./...
+
+.PHONY: vulncheck
+vulncheck: ## govulncheck で脆弱性を検査 (バージョン固定・コードが影響を受ける脆弱性があれば失敗)
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 .PHONY: swag-install
 swag-install: ## swag CLI をインストール (バージョン固定)
