@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { RELAY_AUTH_HEADER, relay, upstreamURL } from "../src/index";
+import {
+  httpsRedirect,
+  RELAY_AUTH_HEADER,
+  relay,
+  upstreamURL,
+} from "../src/index";
 
 const ORIGIN = "https://natueve-api-xxxx.a.run.app";
 const SECRET = "0123456789abcdef0123456789abcdef-secret";
@@ -76,7 +81,76 @@ describe("upstreamURL", () => {
   }
 });
 
+describe("httpsRedirect", () => {
+  it("HTTP のリクエストを同じパスとクエリの HTTPS へ 301 でリダイレクトする", () => {
+    const res = httpsRedirect(
+      "http://natueve-api.natuportal.org/api/v1/events?q=test&page=2",
+    );
+    expect(res?.status).toBe(301);
+    expect(res?.headers.get("Location")).toBe(
+      "https://natueve-api.natuportal.org/api/v1/events?q=test&page=2",
+    );
+  });
+
+  it("HTTPS のリクエストはリダイレクトしない", () => {
+    expect(
+      httpsRedirect("https://natueve-api.natuportal.org/api/v1/events"),
+    ).toBeNull();
+  });
+
+  it("ローカル開発のホストは HTTP のままにする", () => {
+    expect(httpsRedirect("http://localhost:8787/api/v1/events")).toBeNull();
+    expect(httpsRedirect("http://127.0.0.1:8787/api/v1/events")).toBeNull();
+    expect(httpsRedirect("http://[::1]:8787/api/v1/events")).toBeNull();
+    // wrangler dev --ip 0.0.0.0 で LAN 経由にアクセスした場合（RFC 1918 のプライベート IPv4）。
+    expect(httpsRedirect("http://192.168.1.50:8787/api/v1/events")).toBeNull();
+    expect(httpsRedirect("http://10.0.0.5:8787/api/v1/events")).toBeNull();
+    expect(httpsRedirect("http://172.16.0.1:8787/api/v1/events")).toBeNull();
+    expect(
+      httpsRedirect("http://172.31.255.255:8787/api/v1/events"),
+    ).toBeNull();
+  });
+
+  it("プライベート IPv4 の範囲外は 301 でリダイレクトする", () => {
+    expect(httpsRedirect("http://172.32.0.1/api/v1/events")?.status).toBe(301);
+    expect(httpsRedirect("http://192.169.0.1/api/v1/events")?.status).toBe(301);
+    expect(httpsRedirect("http://11.0.0.1/api/v1/events")?.status).toBe(301);
+  });
+});
+
 describe("relay", () => {
+  it("HTTP のリクエストは転送せず 301 を返す", async () => {
+    const fetcher = vi.fn(async () => new Response("ok"));
+    const res = await relay(
+      new Request("http://natueve-api.natuportal.org/api/v1/events?q=1"),
+      env,
+      fetcher as unknown as typeof fetch,
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe(
+      "https://natueve-api.natuportal.org/api/v1/events?q=1",
+    );
+  });
+
+  it("HTTP の POST も転送せず 301 を返す", async () => {
+    const fetcher = vi.fn(async () => new Response("ok"));
+    const res = await relay(
+      new Request("http://natueve-api.natuportal.org/api/v1/events", {
+        method: "POST",
+        body: '{"a":1}',
+        headers: { "Content-Type": "application/json" },
+      }),
+      env,
+      fetcher as unknown as typeof fetch,
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(res.status).toBe(301);
+    expect(res.headers.get("Location")).toBe(
+      "https://natueve-api.natuportal.org/api/v1/events",
+    );
+  });
+
   it("redirect は manual、cache は no-store、method はそのまま", async () => {
     const { url, init } = await run(
       new Request("https://natueve-api.natuportal.org/events?q=1", {

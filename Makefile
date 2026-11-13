@@ -8,8 +8,14 @@ SWAG_ENTRY := cmd/api/main.go
 SWAG_OUT := ./api
 
 # golangci-lint も CI と揃えるためバージョンを固定する。
-GOLANGCI_VERSION := v2.12.2
+# 依存 (pdfcpu) 配下に //go:build go1.27 のファイルがあり、ローカルの go1.27 で
+# 型検査されるため、go1.27 製ビルドのバージョンを使う（go1.26 製だと panic する）。
+GOLANGCI_VERSION := v2.15.0
 GOLANGCI ?= $(shell go env GOPATH)/bin/golangci-lint
+
+# govulncheck はバージョンを固定して go run する（ADR-0048）。
+# 標準ライブラリの脆弱性は、実行した Go の版で判定される（CI は go.mod の版）。
+GOVULNCHECK_VERSION := v1.9.0
 
 # goose(マイグレーション CLI)はバージョンを固定し、api コンテナ内で go run する。
 GOOSE_VERSION := v3.27.1
@@ -79,6 +85,10 @@ lint-install: ## golangci-lint をインストール (バージョン固定)
 .PHONY: lint
 lint: ## golangci-lint を実行
 	$(GOLANGCI) run ./...
+
+.PHONY: vulncheck
+vulncheck: ## govulncheck で脆弱性を検査 (バージョン固定・コードが影響を受ける脆弱性があれば失敗)
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 .PHONY: swag-install
 swag-install: ## swag CLI をインストール (バージョン固定)

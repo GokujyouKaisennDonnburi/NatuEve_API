@@ -50,7 +50,7 @@
 | [0031](./0031-absence-notification.md) | 申込期限経過後の参加キャンセルは欠席連絡 API で行い主催者へ通知する | Accepted（outbox の起動方式を ADR-0032 で変更） |
 | [0032](./0032-production-deployment-cloud-run-supabase.md) | 本番デプロイ構成を Cloud Run＋Cloud Scheduler＋Supabase（DB・Auth）とする | Accepted（決定事項 2 の実装方式を ADR-0035 で具体化、Supabase Pro の前提を ADR-0036 で撤回） |
 | [0033](./0033-cors-allow-origins-env.md) | CORS の許可オリジンを環境変数で設定し、起動時に検証する | Accepted |
-| [0034](./0034-api-custom-domain-workers-relay.md) | API の独自ドメインを Cloudflare Workers の中継で Cloud Run に割り当て、中継元を秘密ヘッダーで確かめる | Accepted（サブドメイン名・確認から外す経路を #226 で追記） |
+| [0034](./0034-api-custom-domain-workers-relay.md) | API の独自ドメインを Cloudflare Workers の中継で Cloud Run に割り当て、中継元を秘密ヘッダーで確かめる | Accepted（サブドメイン名・確認から外す経路を #226 で追記、HTTP → HTTPS のリダイレクトを #265 で追記） |
 | [0035](./0035-outbox-scheduler-endpoint.md) | outbox の処理を Cloud Scheduler の OIDC 認証付き内部エンドポイントで起動し、行ごとのトランザクションで排他する | Accepted |
 | [0036](./0036-github-flow-staging-approval.md) | GitHub Flow を続け、main へのマージで検証環境へ、承認後に同じイメージを本番へデプロイする | Accepted（#219 に任せた事項を ADR-0040 で決定。検証環境の R2 を ADR-0039、Supabase を ADR-0041 で変更） |
 | [0037](./0037-cloud-run-max-instances.md) | Cloud Run の最大インスタンス数をサービス単位で 1 とし、1 台あたりの DB 接続数に上限を設ける | Accepted |
@@ -63,3 +63,5 @@
 | [0044](./0044-party-size-limit.md) | 1回の参加申込の人数上限を10人とし、超過は400で拒否する | Accepted |
 | [0045](./0045-delete-tmp-objects-after-promotion.md) | メディア昇格後に一時領域の元オブジェクトを削除する | Accepted |
 | [0046](./0046-image-pixel-dimension-limit.md) | 画像の幅と高さを各8000pxに制限し超過は400で拒否する | Accepted |
+| [0046](./0046-strip-pdf-metadata-on-promotion.md) | PDF 昇格時に文書情報と XMP メタデータを除去して保存する | Accepted |
+| [0048](./0048-govulncheck-in-ci.md) | CI で govulncheck を実行し、週1回の定期実行でも検査する | Accepted |

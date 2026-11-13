@@ -28,9 +28,6 @@ type ObjectStore interface {
 	// Put は body を指定キーで PUT する。
 	// contentDisposition が空でなければ Content-Disposition として保存する。
 	Put(ctx context.Context, key string, body []byte, contentType, contentDisposition string) error
-	// Copy はバケット内でオブジェクトをコピーする。
-	// contentDisposition が空でなければ、コピー先に contentType と Content-Disposition を付け直す。
-	Copy(ctx context.Context, srcKey, dstKey, contentType, contentDisposition string) error
 	// Delete はオブジェクトを削除する。
 	Delete(ctx context.Context, key string) error
 }

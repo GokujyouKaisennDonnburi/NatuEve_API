@@ -18,6 +18,7 @@ docker コマンドは基本使わない。make経由で使用する。
 | `make tidy` / `make fmt` / `make vet` | 依存整理 / 整形 / 静的解析 |
 | `make lint-install` | golangci-lint を導入（バージョン固定） |
 | `make lint` | golangci-lint を実行（`.golangci.yml`） |
+| `make vulncheck` | govulncheck で脆弱性を検査（バージョン固定。コードが影響を受ける脆弱性があれば失敗） |
 | `make swag-install` | swag CLI を導入（バージョン固定） |
 | `make swag` | OpenAPI ドキュメント（`api/`）を再生成 |
 | `make swag-check` | `api/` が最新か検証（CI用。差分があれば失敗） |
@@ -235,6 +236,8 @@ swag-check: swag                 # ① api/ を再生成
 `make swag-check`（docs 更新漏れ） → `make vet` → `make lint` → `make build` → `make test`
 
 中継用 Worker は別のジョブで `make worker-install` → `make worker-check` を実行する（デプロイは含まない。#219）。
+
+govulncheck は別のジョブで `make vulncheck` を実行する（ADR-0048）。週 1 回（月曜 09:00 JST）の schedule では、このジョブだけを動かす。
 
 ローカルでも同じ `make` ターゲットで再現できる。push 前に `make swag-check vet lint build test` を回すと CI を落としにくい。
 

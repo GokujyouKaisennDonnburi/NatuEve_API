@@ -11,6 +11,7 @@
 | [joho/godotenv](https://github.com/joho/godotenv) | 開発時の `.env` 読み込み |
 | [jackc/pgx/v5](https://github.com/jackc/pgx) | PostgreSQL ドライバ（`pgx/stdlib` 経由で `database/sql` に接続） |
 | [pressly/goose/v3](https://github.com/pressly/goose) | DB マイグレーション（SQL を embed し起動時/CLI で適用。[Database.md](./Database.md)） |
+| [pdfcpu/pdfcpu](https://github.com/pdfcpu/pdfcpu) | PDF 昇格時の文書情報・XMP メタデータ除去（[ADR-0046](./adr/0046-strip-pdf-metadata-on-promotion.md)） |
 
 ## 中継用 Worker（`workers/api-relay/`）
 
