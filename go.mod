@@ -1,6 +1,6 @@
 module github.com/GokujyouKaisennDonnburi/NatuEve_API
 
-go 1.26.10
+go 1.26.11
 
 ignore ./workers
 
