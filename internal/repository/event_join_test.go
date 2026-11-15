@@ -726,11 +726,11 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 		t.Fatalf("ConfirmJoin(wrong) error = %v, want ErrConfirmationTokenInvalid", err)
 	}
 
-	confirmedAt, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash)
+	result, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash)
 	if err != nil {
 		t.Fatalf("ConfirmJoin() returned error: %v", err)
 	}
-	if confirmedAt.IsZero() {
+	if result.ConfirmedAt.IsZero() {
 		t.Error("confirmedAt がゼロ値")
 	}
 

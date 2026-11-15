@@ -25,7 +25,7 @@ type stubEventJoinRepository struct {
 	gotMember       *model.EventMember
 	gotNotification model.JoinNotification
 	// ConfirmJoin 返却値・引数記録。
-	confirmCreatedAt    time.Time
+	confirmResult       repository.ConfirmJoinResult
 	confirmErr          error
 	gotConfirmEventID   uuid.UUID
 	gotConfirmTokenHash string
@@ -81,13 +81,13 @@ func (s *stubEventJoinRepository) ConfirmJoin(
 	_ context.Context,
 	eventID uuid.UUID,
 	tokenHash string,
-) (time.Time, error) {
+) (repository.ConfirmJoinResult, error) {
 	s.gotConfirmEventID = eventID
 	s.gotConfirmTokenHash = tokenHash
 	if s.confirmErr != nil {
-		return time.Time{}, s.confirmErr
+		return repository.ConfirmJoinResult{}, s.confirmErr
 	}
-	return s.confirmCreatedAt, nil
+	return s.confirmResult, nil
 }
 
 func (s *stubEventJoinRepository) Leave(_ context.Context, eventID, profileID uuid.UUID) (time.Time, error) {
@@ -807,8 +807,10 @@ func TestEventJoinServiceConfirmJoin(t *testing.T) {
 		wantErr          bool
 	}{
 		{
-			name:  "正常: トークンをハッシュ化して確定する",
-			stub:  &stubEventJoinRepository{confirmCreatedAt: confirmedAt},
+			name: "正常: トークンをハッシュ化して確定する",
+			stub: &stubEventJoinRepository{
+				confirmResult: repository.ConfirmJoinResult{ConfirmedAt: confirmedAt},
+			},
 			token: token,
 		},
 		{

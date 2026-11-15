@@ -123,7 +123,7 @@ func (f *fakeWorkerJoinRepo) Join(context.Context, *model.EventMember, model.Joi
 	panic("not implemented in worker test fake")
 }
 
-func (f *fakeWorkerJoinRepo) ConfirmJoin(context.Context, uuid.UUID, string) (time.Time, error) {
+func (f *fakeWorkerJoinRepo) ConfirmJoin(context.Context, uuid.UUID, string) (repository.ConfirmJoinResult, error) {
 	panic("not implemented in worker test fake")
 }
 

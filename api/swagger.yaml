@@ -154,6 +154,20 @@ definitions:
         description: EventID は確定した申込のイベントUUID。
         example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
         type: string
+      participants:
+        description: |-
+          Participants は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。
+          API 経由で作成された pending 申込は必ず1件以上持つ。
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse'
+        type: array
+      partySize:
+        description: PartySize は participants の headCount 合計。
+        example: 3
+        type: integer
+    required:
+    - participants
+    - partySize
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody:
     properties:
@@ -1660,6 +1674,9 @@ paths:
         確定時は確定済みの申込だけで定員を再確認する。申込期限は再確認しない。
         イベント定員を超える場合は 409 Conflict（capacity_full）を返す。
         取消済みイベントは 409 Conflict（event_cancelled）、終了済みは 409 Conflict（event_ended）を返す。
+        レスポンスには確定した申込のカテゴリ別人数（participants）と合計（partySize）を含む。
+        participants / partySize は申込時に保存した内容で、現在のイベント設定から再計算しない。
+        mailAddress・username は返さない。
       parameters:
       - description: イベントID
         in: path
