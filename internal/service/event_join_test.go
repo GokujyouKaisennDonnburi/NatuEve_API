@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -805,13 +806,27 @@ func TestEventJoinServiceConfirmJoin(t *testing.T) {
 		wantConflict     bool
 		wantConflictCode string
 		wantErr          bool
+		wantParticipants []model.ParticipantResponse
+		wantPartySize    int
 	}{
 		{
 			name: "正常: トークンをハッシュ化して確定する",
 			stub: &stubEventJoinRepository{
-				confirmResult: repository.ConfirmJoinResult{ConfirmedAt: confirmedAt},
+				confirmResult: repository.ConfirmJoinResult{
+					ConfirmedAt: confirmedAt,
+					PartySize:   3,
+					Categories: []model.MemberCategory{
+						{Category: "子ども", HeadCount: 1},
+						{Category: "大人", HeadCount: 2},
+					},
+				},
 			},
 			token: token,
+			wantParticipants: []model.ParticipantResponse{
+				{Category: "大人", HeadCount: 2},
+				{Category: "子ども", HeadCount: 1},
+			},
+			wantPartySize: 3,
 		},
 		{
 			name:       "異常: トークンが空",
@@ -897,6 +912,19 @@ func TestEventJoinServiceConfirmJoin(t *testing.T) {
 			}
 			if !resp.ConfirmedAt.Equal(confirmedAt) {
 				t.Errorf("ConfirmedAt: got %v, want %v", resp.ConfirmedAt, confirmedAt)
+			}
+			if !reflect.DeepEqual(resp.Participants, tt.wantParticipants) {
+				t.Errorf("Participants: got %#v, want %#v", resp.Participants, tt.wantParticipants)
+			}
+			if resp.PartySize != tt.wantPartySize {
+				t.Errorf("PartySize: got %d, want %d", resp.PartySize, tt.wantPartySize)
+			}
+			sum := 0
+			for _, p := range resp.Participants {
+				sum += p.HeadCount
+			}
+			if sum != resp.PartySize {
+				t.Errorf("participants の headCount 合計: got %d, want PartySize %d", sum, resp.PartySize)
 			}
 			if tt.stub.gotConfirmEventID != eventID {
 				t.Errorf("repository に渡した EventID: got %v, want %v", tt.stub.gotConfirmEventID, eventID)

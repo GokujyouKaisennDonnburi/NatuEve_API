@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -625,7 +626,8 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 
 	ownerID := insertTestProfile(t, db)
 	eventID := insertTestEvent(t, db, ownerID)
-	insertTestCost(t, db, eventID, "大人", 500)
+	adultCostID := insertTestCost(t, db, eventID, "大人", 500)
+	childCostID := insertTestCost(t, db, eventID, "子ども", 300)
 
 	mailAddress := uuid.NewString() + "@example.com"
 	tokenHash := uuid.NewString()
@@ -633,9 +635,10 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 		EventID:     eventID,
 		Username:    "ゲスト花子",
 		MailAddress: mailAddress,
-		PartySize:   2,
+		PartySize:   3,
 		Categories: []model.MemberCategory{
 			{Category: "大人", HeadCount: 2},
+			{Category: "子ども", HeadCount: 1},
 		},
 		Status:                     model.EventMemberStatusPending,
 		ConfirmationTokenHash:      tokenHash,
@@ -733,6 +736,23 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 	if result.ConfirmedAt.IsZero() {
 		t.Error("confirmedAt がゼロ値")
 	}
+	wantCategories := []model.MemberCategory{
+		{CostID: adultCostID, Category: "大人", HeadCount: 2},
+		{CostID: childCostID, Category: "子ども", HeadCount: 1},
+	}
+	if !reflect.DeepEqual(result.Categories, wantCategories) {
+		t.Errorf("Categories = %#v, want %#v", result.Categories, wantCategories)
+	}
+	if result.PartySize != 3 {
+		t.Errorf("PartySize = %d, want 3", result.PartySize)
+	}
+	sum := 0
+	for _, c := range result.Categories {
+		sum += c.HeadCount
+	}
+	if sum != result.PartySize {
+		t.Errorf("Categories の headCount 合計 = %d, want PartySize %d", sum, result.PartySize)
+	}
 
 	const selectConfirmed = `
 	SELECT status, confirmation_token_hash IS NULL, confirmation_token_expires_at IS NULL
@@ -766,8 +786,8 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByID() returned error: %v", err)
 	}
-	if gotEvent.ParticipantCount != 2 {
-		t.Errorf("ParticipantCount = %d, want 2", gotEvent.ParticipantCount)
+	if gotEvent.ParticipantCount != 3 {
+		t.Errorf("ParticipantCount = %d, want 3", gotEvent.ParticipantCount)
 	}
 
 	// 使用済みトークンでは再度確定できない。
