@@ -796,6 +796,40 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 	}
 }
 
+// TestEventJoinPostgres_ConfirmJoin_WithoutCategories は、内訳を持たない pending 申込を
+// 確定した場合も Categories が nil ではなく空スライスになることを検証する（ADR-0049）。
+func TestEventJoinPostgres_ConfirmJoin_WithoutCategories(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	eventID := insertTestEvent(t, db, ownerID)
+	memberID := insertTestPendingEventMember(
+		t, db, eventID, uuid.NewString()+"@example.com", 1,
+	)
+
+	const selectTokenHash = `
+	SELECT confirmation_token_hash
+	FROM event_members
+	WHERE id = $1
+	`
+	var tokenHash string
+	if err := db.QueryRowContext(context.Background(), selectTokenHash, memberID).Scan(&tokenHash); err != nil {
+		t.Fatalf("select confirmation token hash: %v", err)
+	}
+
+	result, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash)
+	if err != nil {
+		t.Fatalf("ConfirmJoin() returned error: %v", err)
+	}
+	if result.Categories == nil {
+		t.Fatal("Categories が nil（空スライスを期待）")
+	}
+	if len(result.Categories) != 0 {
+		t.Errorf("Categories = %#v, want 空スライス", result.Categories)
+	}
+}
+
 // TestEventJoinPostgres_Join_PendingRequiresNotification は、pending の申込に
 // 確認メールの件名・本文が無い場合に登録を拒否することを検証する（ADR-0049）。
 func TestEventJoinPostgres_Join_PendingRequiresNotification(t *testing.T) {
