@@ -24,7 +24,7 @@ PBI77 のゴール 1〜3 を満たすには、メールアドレスの所有者�
 トークンで `confirmed` に遷移させる。確認・案内メールは ADR-0016 の outbox に予約し、
 API の応答はメール送信に依存させない。**
 
-1. `event_members` に次の列を追加する（ADR-0049）。
+1. `event_members` に次の列を追加する。
    - `status`（`pending` / `confirmed`。既存行は `confirmed` として backfill する）
    - `status` の既定値は backfill 後に削除する。`status` を指定し忘れた INSERT が
      `confirmed` 扱いになる事故を防ぐ。
