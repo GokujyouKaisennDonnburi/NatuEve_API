@@ -1692,6 +1692,8 @@ const docTemplate = `{
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinResponse": {
             "type": "object",
             "required": [
+                "confirmedAt",
+                "eventId",
                 "participants",
                 "partySize"
             ],
@@ -1707,14 +1709,14 @@ const docTemplate = `{
                     "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
                 },
                 "participants": {
-                    "description": "Participants は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。\nAPI 経由で作成された pending 申込は必ず1件以上持つ。",
+                    "description": "Participants は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。\nAPI 経由の申込では必ず1件以上入る。DB は内訳0件を禁じていないため、\n直接 INSERT された行では空配列になりうる（ADR-0026）。",
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse"
                     }
                 },
                 "partySize": {
-                    "description": "PartySize は participants の headCount 合計。",
+                    "description": "PartySize は申込時に保存した参加人数。\nAPI 経由の申込では participants の headCount 合計と一致する。",
                     "type": "integer",
                     "example": 3
                 }

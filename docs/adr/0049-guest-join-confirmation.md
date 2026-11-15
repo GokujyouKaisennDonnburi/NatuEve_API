@@ -40,7 +40,9 @@ API の応答はメール送信に依存させない。**
    経由させる。確定用 API は `POST /api/v1/events/{id}/join/confirm` で、
    リクエストボディは `{"token":"..."}`、成功時は `200` と
    `{eventId, confirmedAt, participants, partySize}` を返す。
-   `participants` は申込時に保存したカテゴリ別人数、`partySize` はその合計で、
+   `participants` は申込時に保存したカテゴリ別人数、`partySize` は申込時に保存した
+   参加人数で、API 経由の申込では `participants` の合計と一致する。DB は内訳0件を
+   禁じていないため、直接 INSERT された行では `participants` が空配列になりうる。
    現在のイベント設定から再計算しない。`mailAddress` と `username` は返さない。
 4. 未確定の申込は参加者一覧・参加人数・定員判定・通知宛先に含めない。
    `event_members` を参照する読み取り系と定員の集計に `status='confirmed'` を付ける。
