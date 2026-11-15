@@ -44,10 +44,10 @@ var ErrCategoryNotFound = errors.New("participant category not found")
 // 大文字小文字違いなど、表記が異なっていても同じ費用カテゴリに解決された場合を含む。
 var ErrDuplicateCategory = errors.New("duplicate participant category")
 
-// ErrConfirmationTokenInvalid は確認トークンが不正・期限切れ・使用済みの場合に返されるエラー（ADR-0047）。
+// ErrConfirmationTokenInvalid は確認トークンが不正・期限切れ・使用済みの場合に返されるエラー（ADR-0049）。
 var ErrConfirmationTokenInvalid = errors.New("confirmation token invalid")
 
-// JoinOutcome は Join の結果を表す（ADR-0047）。
+// JoinOutcome は Join の結果を表す（ADR-0049）。
 type JoinOutcome string
 
 const (
@@ -73,7 +73,7 @@ const pgUniqueViolationCode = "23505"
 // 実際のDB実装(PostgreSQLなど)には依存しない。
 type EventJoinRepository interface {
 
-	// Join はイベント参加を1トランザクションで登録する（ADR-0047）。
+	// Join はイベント参加を1トランザクションで登録する（ADR-0049）。
 	// 新規登録時は member.ID・member.CreatedAt と、member.Categories の CostID・Category を埋める。
 	// 未ログインの同一メール重複時は member.CreatedAt に DB の now() を入れる（member.ID は空）。
 	//
@@ -106,11 +106,11 @@ type EventJoinRepository interface {
 	//   - ErrDuplicateCategory: 同一カテゴリが内訳で重複している
 	Join(ctx context.Context, member *model.EventMember, notification model.JoinNotification) (JoinOutcome, error)
 
-	// ConfirmJoin は確認トークンで未確定（pending）の申込を確定する（ADR-0047）。
+	// ConfirmJoin は確認トークンで未確定（pending）の申込を確定する（ADR-0049）。
 	//
 	// events を FOR UPDATE でロックして存在確認・取消状態・終了日時を確認し、tokenHash に
 	// 一致する pending 行を確定する。確定時は confirmed の party_size 合計で定員を再確認する。
-	// 申込期限は再確認しない（ADR-0047）。
+	// 申込期限は再確認しない（ADR-0049）。
 	// 成功時は status='confirmed' にしてトークン列を NULL にし、確定日時を返す。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
@@ -150,18 +150,18 @@ type EventJoinRepository interface {
 	Absence(ctx context.Context, eventID, profileID uuid.UUID, reason, detail, subject, body string) (time.Time, error)
 
 	// ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
-	// 未確定（pending）の申込は含めない（ADR-0047）。
+	// 未確定（pending）の申込は含めない（ADR-0049）。
 	ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error)
 
 	// ListMembers は指定 eventID の参加者一覧を作成日時の昇順で返す。
-	// 未確定（pending）の申込は含めない（ADR-0047）。
+	// 未確定（pending）の申込は含めない（ADR-0049）。
 	// profiles を LEFT JOIN してプロフィールサマリーを同時取得する。
 	// 匿名参加（profile_id NULL）は EventMember.Profile が nil になる。
 	// 0件の場合は nil ではなく空スライスを返す（呼び出し元の totalCount 計算で安全側に倒すため）。
 	ListMembers(ctx context.Context, eventID uuid.UUID) ([]model.EventMember, error)
 
 	// GetMemberByProfile は指定 eventID・profileID のログイン参加者の申込1件を返す。
-	// 未確定（pending）の申込は対象外（ADR-0047）。
+	// 未確定（pending）の申込は対象外（ADR-0049）。
 	// Categories はカテゴリ名の昇順で返す。0件でも nil ではなく空スライスを返す。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
@@ -181,7 +181,7 @@ func NewEventJoinRepository(db *sql.DB) EventJoinRepository {
 	}
 }
 
-// Join はイベント参加を登録する（ADR-0047）。
+// Join はイベント参加を登録する（ADR-0049）。
 // member.ProfileID が Invalid（匿名参加）の場合は NULL として保存される。
 // 新規登録時は member.CreatedAt を INSERT の created_at で、
 // 未ログインの重複時は DB の now() で埋める。
@@ -245,7 +245,7 @@ func (r *eventJoinPostgres) Join(
 		return "", fmt.Errorf("event %s: %w", member.EventID, ErrEventEnded)
 	}
 
-	// 期限切れの未確定申込を同じイベントへの申込時に削除する（ADR-0047）。
+	// 期限切れの未確定申込を同じイベントへの申込時に削除する（ADR-0049）。
 	const deleteExpiredPending = `
 	DELETE FROM event_members
 	WHERE event_id = $1
@@ -342,7 +342,7 @@ func (r *eventJoinPostgres) Join(
 	}
 
 	// 定員確認。capacity が NULL または 0 は「定員なし」。
-	// 人数は confirmed の party_size 合計で数える（未確定は含めない。ADR-0047）。
+	// 人数は confirmed の party_size 合計で数える（未確定は含めない。ADR-0049）。
 	// 重複申込でも新規申込と同じ条件で判定する。
 	capacityFull := false
 	if capacity.Valid && capacity.Int32 > 0 {
@@ -379,7 +379,7 @@ func (r *eventJoinPostgres) Join(
 			// 案内メールは送らず、409 用の outcome を返す。
 			return JoinOutcomeAlreadyJoinedSelf, nil
 		}
-		// 新規申込の created_at と同じく DB 時刻を返す（ADR-0047）。
+		// 新規申込の created_at と同じく DB 時刻を返す（ADR-0049）。
 		if err := tx.QueryRowContext(ctx, `SELECT now()`).Scan(&member.CreatedAt); err != nil {
 			return "", fmt.Errorf("select now: %w", err)
 		}
@@ -490,7 +490,7 @@ func (r *eventJoinPostgres) Join(
 	}
 
 	if member.Status == model.EventMemberStatusPending {
-		// 確認メールを outbox に予約する。送信はワーカーが非同期で行う（ADR-0047）。
+		// 確認メールを outbox に予約する。送信はワーカーが非同期で行う（ADR-0049）。
 		if err := insertJoinOutboxEmail(
 			ctx, tx, member, notification.ConfirmationSubject, notification.ConfirmationBody,
 		); err != nil {
@@ -556,7 +556,7 @@ func (r *eventJoinPostgres) Join(
 	return JoinOutcomeConfirmed, nil
 }
 
-// insertJoinOutboxEmail は参加申込のメールを outbox に予約する（ADR-0047）。
+// insertJoinOutboxEmail は参加申込のメールを outbox に予約する（ADR-0049）。
 // subject が空の場合は何もしない。
 func insertJoinOutboxEmail(
 	ctx context.Context,
@@ -593,10 +593,10 @@ func insertJoinOutboxEmail(
 	return nil
 }
 
-// ConfirmJoin は確認トークンで未確定（pending）の申込を確定する（ADR-0047）。
+// ConfirmJoin は確認トークンで未確定（pending）の申込を確定する（ADR-0049）。
 // events を FOR UPDATE でロックして存在確認・取消状態・終了日時を確認し、
 // tokenHash に一致する pending 行を確定する。定員は confirmed の合計で再確認する。
-// 申込期限は再確認しない（ADR-0047）。
+// 申込期限は再確認しない（ADR-0049）。
 func (r *eventJoinPostgres) ConfirmJoin(
 	ctx context.Context,
 	eventID uuid.UUID,
@@ -936,7 +936,7 @@ func (r *eventJoinPostgres) Absence(
 }
 
 // ListRecipients は指定した eventID に参加登録済みの宛先一覧を返す。
-// 未確定（pending）の申込は通知対象に含めない（ADR-0047）。
+// 未確定（pending）の申込は通知対象に含めない（ADR-0049）。
 func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID uuid.UUID) ([]model.EventRecipient, error) {
 	// 参加登録順で返す（送信順を決定的にし、ログ・監査での追跡を容易にする）。
 	const query = `
@@ -971,7 +971,7 @@ func (r *eventJoinPostgres) ListRecipients(ctx context.Context, eventID uuid.UUI
 // ListMembers は指定 eventID の参加者一覧を作成日時の昇順で返す。
 // profile_id は nullable なので uuid.NullUUID で受ける。
 // profiles を LEFT JOIN してプロフィールサマリー（display_name・avatar_url）を同時取得する。
-// 未確定（pending）の申込は参加者一覧に含めない（ADR-0047）。
+// 未確定（pending）の申込は参加者一覧に含めない（ADR-0049）。
 //
 // 匿名参加（profile_id NULL）は Profile を nil にする。event.go の ListSummaries が
 // NULL を空文字で埋めた model.ProfileSummary として返すのとは意図的に異なる扱いで、
@@ -1049,7 +1049,7 @@ func (r *eventJoinPostgres) ListMembers(ctx context.Context, eventID uuid.UUID) 
 
 // GetMemberByProfile は指定 eventID・profileID のログイン参加者の申込1件を返す。
 // 申込行と内訳は LEFT JOIN の1クエリで取得する（ADR-0026）。
-// 未確定（pending）の申込は対象外（ADR-0047）。
+// 未確定（pending）の申込は対象外（ADR-0049）。
 func (r *eventJoinPostgres) GetMemberByProfile(
 	ctx context.Context,
 	eventID, profileID uuid.UUID,

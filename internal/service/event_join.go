@@ -46,7 +46,7 @@ func (e *ConflictError) Error() string {
 	return e.Message
 }
 
-// 確認トークンと確認メールの設定（ADR-0047）。
+// 確認トークンと確認メールの設定（ADR-0049）。
 const (
 	// joinConfirmationTokenBytes は確認トークンの乱数バイト数。
 	joinConfirmationTokenBytes = 32
@@ -65,7 +65,7 @@ const (
 type EventJoinService struct {
 	joinRepo  repository.EventJoinRepository
 	eventRepo repository.EventRepository
-	// webBaseURL は確認メールのリンク先となる Web のベースURL（ADR-0047）。
+	// webBaseURL は確認メールのリンク先となる Web のベースURL（ADR-0049）。
 	webBaseURL string
 }
 
@@ -82,7 +82,7 @@ func NewEventJoinService(
 	}
 }
 
-// Join はイベント参加処理を行う（ADR-0047）。
+// Join はイベント参加処理を行う（ADR-0049）。
 //
 // profileID が Invalid（未ログイン）の場合は pending として登録し、確認メールを outbox に
 // 予約する。ログイン時は confirmed として即時登録する。
@@ -182,8 +182,8 @@ func (s *EventJoinService) Join(
 		return model.JoinEventResponse{}, &ConflictError{Code: "capacity_full", Message: "定員に達しています"}
 	}
 
-	// JoinOutcomeAlreadyJoined の member.CreatedAt は repository が DB 時刻で埋める（ADR-0047）。
-	// 既存申込の内容は返さず、新規申込と同じ形のレスポンスを組み立てる（ADR-0047）。
+	// JoinOutcomeAlreadyJoined の member.CreatedAt は repository が DB 時刻で埋める（ADR-0049）。
+	// 既存申込の内容は返さず、新規申込と同じ形のレスポンスを組み立てる（ADR-0049）。
 	// レスポンスの ProfileID: ログイン時のみ値を返す。匿名は nil（JSON: null）。
 	var respProfileID *uuid.UUID
 	if profileID.Valid {
@@ -202,7 +202,7 @@ func (s *EventJoinService) Join(
 	}, nil
 }
 
-// ConfirmJoin は確認トークンで未確定の申込を確定する（ADR-0047）。
+// ConfirmJoin は確認トークンで未確定の申込を確定する（ADR-0049）。
 //
 // repository が返す sentinel エラーをここで HTTP 向けエラーに変換する。
 func (s *EventJoinService) ConfirmJoin(
@@ -243,7 +243,7 @@ func (s *EventJoinService) ConfirmJoin(
 	}, nil
 }
 
-// newJoinConfirmationToken は確認トークンを生成する（ADR-0047）。
+// newJoinConfirmationToken は確認トークンを生成する（ADR-0049）。
 func newJoinConfirmationToken() (string, error) {
 	buf := make([]byte, joinConfirmationTokenBytes)
 	if _, err := rand.Read(buf); err != nil {
@@ -252,20 +252,20 @@ func newJoinConfirmationToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 
-// hashJoinConfirmationToken は確認トークンの SHA-256 を hex で返す（ADR-0047）。
+// hashJoinConfirmationToken は確認トークンの SHA-256 を hex で返す（ADR-0049）。
 func hashJoinConfirmationToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
 
-// buildJoinConfirmationURL は確認メールに載せる Web の確認画面 URL を組み立てる（ADR-0047）。
+// buildJoinConfirmationURL は確認メールに載せる Web の確認画面 URL を組み立てる（ADR-0049）。
 func buildJoinConfirmationURL(baseURL string, eventID uuid.UUID, token string) string {
 	return strings.TrimRight(baseURL, "/") +
 		"/events/" + eventID.String() +
 		"/join/confirm?token=" + url.QueryEscape(token)
 }
 
-// buildJoinConfirmationEmail は確認メールの件名・本文を組み立てる（ADR-0047）。
+// buildJoinConfirmationEmail は確認メールの件名・本文を組み立てる（ADR-0049）。
 func buildJoinConfirmationEmail(title, confirmURL string) (subject, body string) {
 	subject = joinConfirmationSubjectPrefix +
 		truncateSubjectTitle(title, joinConfirmationSubjectPrefix, joinConfirmationSubjectSuffix) +
@@ -282,7 +282,7 @@ func buildJoinConfirmationEmail(title, confirmURL string) (subject, body string)
 	return subject, body
 }
 
-// buildAlreadyJoinedEmail は申込済みアドレスへの案内メールの件名・本文を組み立てる（ADR-0047）。
+// buildAlreadyJoinedEmail は申込済みアドレスへの案内メールの件名・本文を組み立てる（ADR-0049）。
 func buildAlreadyJoinedEmail(title string) (subject, body string) {
 	subject = alreadyJoinedSubjectPrefix +
 		truncateSubjectTitle(title, alreadyJoinedSubjectPrefix, alreadyJoinedSubjectSuffix) +
