@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -168,19 +169,33 @@ func TestEventHandler_ConfirmJoin(t *testing.T) {
 
 	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
 	tests := []struct {
-		name          string
-		eventID       string
-		body          string
-		stub          *stubEventJoinService
-		wantStatus    int
-		wantErrorCode string
+		name             string
+		eventID          string
+		body             string
+		stub             *stubEventJoinService
+		wantStatus       int
+		wantErrorCode    string
+		wantParticipants []model.ParticipantResponse
+		wantPartySize    int
 	}{
 		{
-			name:       "正常: 200 と確定結果を返す",
-			eventID:    eventID.String(),
-			body:       `{"token":"token-abc"}`,
-			stub:       &stubEventJoinService{confirmResp: model.ConfirmJoinResponse{EventID: eventID}},
+			name:    "正常: 200 と確定結果を返す",
+			eventID: eventID.String(),
+			body:    `{"token":"token-abc"}`,
+			stub: &stubEventJoinService{confirmResp: model.ConfirmJoinResponse{
+				EventID: eventID,
+				Participants: []model.ParticipantResponse{
+					{Category: "大人", HeadCount: 2},
+					{Category: "子ども", HeadCount: 1},
+				},
+				PartySize: 3,
+			}},
 			wantStatus: http.StatusOK,
+			wantParticipants: []model.ParticipantResponse{
+				{Category: "大人", HeadCount: 2},
+				{Category: "子ども", HeadCount: 1},
+			},
+			wantPartySize: 3,
 		},
 		{
 			name:       "異常: イベントIDが不正",
@@ -264,6 +279,27 @@ func TestEventHandler_ConfirmJoin(t *testing.T) {
 				if resp.EventID != eventID {
 					t.Errorf("EventID = %v, want %v", resp.EventID, eventID)
 				}
+				if !reflect.DeepEqual(resp.Participants, tt.wantParticipants) {
+					t.Errorf("Participants = %#v, want %#v", resp.Participants, tt.wantParticipants)
+				}
+				if resp.PartySize != tt.wantPartySize {
+					t.Errorf("PartySize = %d, want %d", resp.PartySize, tt.wantPartySize)
+				}
+
+				var raw map[string]json.RawMessage
+				if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+					t.Fatalf("failed to parse raw response: %v", err)
+				}
+				if string(raw["participants"]) == "null" {
+					t.Error("participants が null です")
+				}
+				if _, ok := raw["username"]; ok {
+					t.Error("username がレスポンスに含まれています")
+				}
+				if _, ok := raw["mailAddress"]; ok {
+					t.Error("mailAddress がレスポンスに含まれています")
+				}
+
 				if tt.stub.gotConfirmEventID != eventID {
 					t.Errorf("service に渡した EventID = %v, want %v", tt.stub.gotConfirmEventID, eventID)
 				}

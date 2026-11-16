@@ -463,7 +463,7 @@ const docTemplate = `{
         },
         "/api/v1/events/{id}/join/confirm": {
             "post": {
-                "description": "確認メールのリンクから呼ぶ。認証は不要。\n未ログインで申し込んだ未確定の申込を、確認トークンで確定する。\nトークンは発行から24時間有効で、確定に成功すると使用済みになる。\n有効期限切れ・不正・使用済みのトークンは 400 invalid_request を返す。\n確定時は確定済みの申込だけで定員を再確認する。申込期限は再確認しない。\nイベント定員を超える場合は 409 Conflict（capacity_full）を返す。\n取消済みイベントは 409 Conflict（event_cancelled）、終了済みは 409 Conflict（event_ended）を返す。",
+                "description": "確認メールのリンクから呼ぶ。認証は不要。\n未ログインで申し込んだ未確定の申込を、確認トークンで確定する。\nトークンは発行から24時間有効で、確定に成功すると使用済みになる。\n有効期限切れ・不正・使用済みのトークンは 400 invalid_request を返す。\n確定時は確定済みの申込だけで定員を再確認する。申込期限は再確認しない。\nイベント定員を超える場合は 409 Conflict（capacity_full）を返す。\n取消済みイベントは 409 Conflict（event_cancelled）、終了済みは 409 Conflict（event_ended）を返す。\nレスポンスには確定した申込のカテゴリ別人数（participants）と合計（partySize）を含む。\nparticipants / partySize は申込時に保存した内容で、現在のイベント設定から再計算しない。\nmailAddress・username は返さない。",
                 "consumes": [
                     "application/json"
                 ],
@@ -1691,6 +1691,12 @@ const docTemplate = `{
         },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinResponse": {
             "type": "object",
+            "required": [
+                "confirmedAt",
+                "eventId",
+                "participants",
+                "partySize"
+            ],
             "properties": {
                 "confirmedAt": {
                     "description": "ConfirmedAt は申込を確定した日時。",
@@ -1701,6 +1707,18 @@ const docTemplate = `{
                     "description": "EventID は確定した申込のイベントUUID。",
                     "type": "string",
                     "example": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                },
+                "participants": {
+                    "description": "Participants は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。\nAPI 経由の申込では必ず1件以上入る。DB は内訳0件を禁じていないため、\n直接 INSERT された行では空配列になりうる（ADR-0026）。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse"
+                    }
+                },
+                "partySize": {
+                    "description": "PartySize は申込時に保存した参加人数。\nAPI 経由の申込では participants の headCount 合計と一致する。",
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },

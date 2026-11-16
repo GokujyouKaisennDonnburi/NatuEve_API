@@ -84,11 +84,20 @@ type ConfirmJoinRequest struct {
 }
 
 // ConfirmJoinResponse は参加申込確定時に返すレスポンス。
+// participants / partySize は申込時に保存した内容のスナップショットで、
+// mailAddress / username は含まない。
 type ConfirmJoinResponse struct {
 	// EventID は確定した申込のイベントUUID。
-	EventID uuid.UUID `json:"eventId" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890"`
+	EventID uuid.UUID `json:"eventId" example:"a1b2c3d4-e5f6-7890-abcd-ef1234567890" validate:"required"`
 	// ConfirmedAt は申込を確定した日時。
-	ConfirmedAt time.Time `json:"confirmedAt" example:"2026-11-12T12:00:00Z"`
+	ConfirmedAt time.Time `json:"confirmedAt" example:"2026-11-12T12:00:00Z" validate:"required"`
+	// Participants は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。
+	// API 経由の申込では必ず1件以上入る。DB は内訳0件を禁じていないため、
+	// 直接 INSERT された行では空配列になりうる（ADR-0026）。
+	Participants []ParticipantResponse `json:"participants" validate:"required"`
+	// PartySize は申込時に保存した参加人数。
+	// API 経由の申込では participants の headCount 合計と一致する。
+	PartySize int `json:"partySize" example:"3" validate:"required"`
 }
 
 // MyEventApplicationResponse はログイン中ユーザー自身の申込内容取得エンドポイントのレスポンス DTO。

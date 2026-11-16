@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -625,7 +626,8 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 
 	ownerID := insertTestProfile(t, db)
 	eventID := insertTestEvent(t, db, ownerID)
-	insertTestCost(t, db, eventID, "大人", 500)
+	adultCostID := insertTestCost(t, db, eventID, "大人", 500)
+	childCostID := insertTestCost(t, db, eventID, "子ども", 300)
 
 	mailAddress := uuid.NewString() + "@example.com"
 	tokenHash := uuid.NewString()
@@ -633,9 +635,10 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 		EventID:     eventID,
 		Username:    "ゲスト花子",
 		MailAddress: mailAddress,
-		PartySize:   2,
+		PartySize:   3,
 		Categories: []model.MemberCategory{
 			{Category: "大人", HeadCount: 2},
+			{Category: "子ども", HeadCount: 1},
 		},
 		Status:                     model.EventMemberStatusPending,
 		ConfirmationTokenHash:      tokenHash,
@@ -726,12 +729,29 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 		t.Fatalf("ConfirmJoin(wrong) error = %v, want ErrConfirmationTokenInvalid", err)
 	}
 
-	confirmedAt, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash)
+	result, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash)
 	if err != nil {
 		t.Fatalf("ConfirmJoin() returned error: %v", err)
 	}
-	if confirmedAt.IsZero() {
+	if result.ConfirmedAt.IsZero() {
 		t.Error("confirmedAt がゼロ値")
+	}
+	wantCategories := []model.MemberCategory{
+		{CostID: adultCostID, Category: "大人", HeadCount: 2},
+		{CostID: childCostID, Category: "子ども", HeadCount: 1},
+	}
+	if !reflect.DeepEqual(result.Categories, wantCategories) {
+		t.Errorf("Categories = %#v, want %#v", result.Categories, wantCategories)
+	}
+	if result.PartySize != 3 {
+		t.Errorf("PartySize = %d, want 3", result.PartySize)
+	}
+	sum := 0
+	for _, c := range result.Categories {
+		sum += c.HeadCount
+	}
+	if sum != result.PartySize {
+		t.Errorf("Categories の headCount 合計 = %d, want PartySize %d", sum, result.PartySize)
 	}
 
 	const selectConfirmed = `
@@ -766,13 +786,47 @@ func TestEventJoinPostgres_Join_PendingAndConfirm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetByID() returned error: %v", err)
 	}
-	if gotEvent.ParticipantCount != 2 {
-		t.Errorf("ParticipantCount = %d, want 2", gotEvent.ParticipantCount)
+	if gotEvent.ParticipantCount != 3 {
+		t.Errorf("ParticipantCount = %d, want 3", gotEvent.ParticipantCount)
 	}
 
 	// 使用済みトークンでは再度確定できない。
 	if _, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash); !errors.Is(err, ErrConfirmationTokenInvalid) {
 		t.Fatalf("2回目の ConfirmJoin() error = %v, want ErrConfirmationTokenInvalid", err)
+	}
+}
+
+// TestEventJoinPostgres_ConfirmJoin_WithoutCategories は、内訳を持たない pending 申込を
+// 確定した場合も Categories が nil ではなく空スライスになることを検証する（ADR-0049）。
+func TestEventJoinPostgres_ConfirmJoin_WithoutCategories(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+
+	ownerID := insertTestProfile(t, db)
+	eventID := insertTestEvent(t, db, ownerID)
+	memberID := insertTestPendingEventMember(
+		t, db, eventID, uuid.NewString()+"@example.com", 1,
+	)
+
+	const selectTokenHash = `
+	SELECT confirmation_token_hash
+	FROM event_members
+	WHERE id = $1
+	`
+	var tokenHash string
+	if err := db.QueryRowContext(context.Background(), selectTokenHash, memberID).Scan(&tokenHash); err != nil {
+		t.Fatalf("select confirmation token hash: %v", err)
+	}
+
+	result, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash)
+	if err != nil {
+		t.Fatalf("ConfirmJoin() returned error: %v", err)
+	}
+	if result.Categories == nil {
+		t.Fatal("Categories が nil（空スライスを期待）")
+	}
+	if len(result.Categories) != 0 {
+		t.Errorf("Categories = %#v, want 空スライス", result.Categories)
 	}
 }
 

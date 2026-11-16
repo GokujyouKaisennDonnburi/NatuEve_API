@@ -65,6 +65,17 @@ const (
 	JoinOutcomeCapacityFull JoinOutcome = "capacity_full"
 )
 
+// ConfirmJoinResult は確定した申込の内容（ADR-0049）。
+type ConfirmJoinResult struct {
+	// ConfirmedAt は申込を確定した日時。
+	ConfirmedAt time.Time
+	// PartySize は申込時に保存した参加人数。
+	PartySize int
+	// Categories は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。
+	// 内訳がない場合も nil ではなく空スライス。
+	Categories []model.MemberCategory
+}
+
 // pgUniqueViolationCode は PostgreSQL の unique_violation エラーコード。
 const pgUniqueViolationCode = "23505"
 
@@ -111,14 +122,16 @@ type EventJoinRepository interface {
 	// events を FOR UPDATE でロックして存在確認・取消状態・終了日時を確認し、tokenHash に
 	// 一致する pending 行を確定する。確定時は confirmed の party_size 合計で定員を再確認する。
 	// 申込期限は再確認しない（ADR-0049）。
-	// 成功時は status='confirmed' にしてトークン列を NULL にし、確定日時を返す。
+	// 成功時は status='confirmed' にしてトークン列を NULL にし、確定日時・保存済みの
+	// party_size・カテゴリ別人数を返す。Categories はカテゴリ名の昇順で、内訳がない場合も
+	// nil ではなく空スライスを返す。
 	// 失敗時は次の sentinel エラーを %w でラップして返す:
 	//   - ErrEventNotFound: イベントが存在しない
 	//   - ErrEventCancelled: イベントが取りやめになっている
 	//   - ErrEventEnded: end_date 経過後
 	//   - ErrEventCapacityFull: 定員超過
 	//   - ErrConfirmationTokenInvalid: トークンが不正・期限切れ・使用済み
-	ConfirmJoin(ctx context.Context, eventID uuid.UUID, tokenHash string) (time.Time, error)
+	ConfirmJoin(ctx context.Context, eventID uuid.UUID, tokenHash string) (ConfirmJoinResult, error)
 
 	// Leave はログイン参加者のイベント参加を1トランザクションで取り消す。
 	//
@@ -601,11 +614,11 @@ func (r *eventJoinPostgres) ConfirmJoin(
 	ctx context.Context,
 	eventID uuid.UUID,
 	tokenHash string,
-) (time.Time, error) {
+) (ConfirmJoinResult, error) {
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("begin transaction: %w", err)
+		return ConfirmJoinResult{}, fmt.Errorf("begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -623,16 +636,16 @@ func (r *eventJoinPostgres) ConfirmJoin(
 	)
 	err = tx.QueryRowContext(ctx, lockEvent, eventID).Scan(&capacity, &cancelledAt, &endDate)
 	if errors.Is(err, sql.ErrNoRows) {
-		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+		return ConfirmJoinResult{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
 	}
 	if err != nil {
-		return time.Time{}, fmt.Errorf("lock event: %w", err)
+		return ConfirmJoinResult{}, fmt.Errorf("lock event: %w", err)
 	}
 	if cancelledAt.Valid {
-		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventCancelled)
+		return ConfirmJoinResult{}, fmt.Errorf("event %s: %w", eventID, ErrEventCancelled)
 	}
 	if time.Now().After(endDate) {
-		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventEnded)
+		return ConfirmJoinResult{}, fmt.Errorf("event %s: %w", eventID, ErrEventEnded)
 	}
 
 	const deleteExpiredPending = `
@@ -642,7 +655,7 @@ func (r *eventJoinPostgres) ConfirmJoin(
 	AND confirmation_token_expires_at <= now()
 	`
 	if _, err := tx.ExecContext(ctx, deleteExpiredPending, eventID); err != nil {
-		return time.Time{}, fmt.Errorf("delete expired pending members: %w", err)
+		return ConfirmJoinResult{}, fmt.Errorf("delete expired pending members: %w", err)
 	}
 
 	const findPending = `
@@ -661,10 +674,10 @@ func (r *eventJoinPostgres) ConfirmJoin(
 	)
 	err = tx.QueryRowContext(ctx, findPending, eventID, tokenHash).Scan(&memberID, &partySize)
 	if errors.Is(err, sql.ErrNoRows) {
-		return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrConfirmationTokenInvalid)
+		return ConfirmJoinResult{}, fmt.Errorf("event %s: %w", eventID, ErrConfirmationTokenInvalid)
 	}
 	if err != nil {
-		return time.Time{}, fmt.Errorf("find pending member: %w", err)
+		return ConfirmJoinResult{}, fmt.Errorf("find pending member: %w", err)
 	}
 
 	if capacity.Valid && capacity.Int32 > 0 {
@@ -677,11 +690,37 @@ func (r *eventJoinPostgres) ConfirmJoin(
 
 		var taken int
 		if err := tx.QueryRowContext(ctx, sumPartySize, eventID).Scan(&taken); err != nil {
-			return time.Time{}, fmt.Errorf("sum party size: %w", err)
+			return ConfirmJoinResult{}, fmt.Errorf("sum party size: %w", err)
 		}
 		if taken+partySize > int(capacity.Int32) {
-			return time.Time{}, fmt.Errorf("event %s: %w", eventID, ErrEventCapacityFull)
+			return ConfirmJoinResult{}, fmt.Errorf("event %s: %w", eventID, ErrEventCapacityFull)
 		}
+	}
+
+	const selectCategories = `
+	SELECT mc.cost_id, c.category, mc.head_count
+	FROM event_member_categories mc
+	JOIN event_costs c ON c.id = mc.cost_id
+	WHERE mc.member_id = $1
+	ORDER BY c.category
+	`
+
+	categories := []model.MemberCategory{}
+	rows, err := tx.QueryContext(ctx, selectCategories, memberID)
+	if err != nil {
+		return ConfirmJoinResult{}, fmt.Errorf("list confirm member categories: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var category model.MemberCategory
+		if err := rows.Scan(&category.CostID, &category.Category, &category.HeadCount); err != nil {
+			return ConfirmJoinResult{}, fmt.Errorf("scan confirm member category: %w", err)
+		}
+		categories = append(categories, category)
+	}
+	if err := rows.Err(); err != nil {
+		return ConfirmJoinResult{}, fmt.Errorf("iterate confirm member categories: %w", err)
 	}
 
 	const confirmMember = `
@@ -695,13 +734,17 @@ func (r *eventJoinPostgres) ConfirmJoin(
 
 	var confirmedAt time.Time
 	if err := tx.QueryRowContext(ctx, confirmMember, memberID).Scan(&confirmedAt); err != nil {
-		return time.Time{}, fmt.Errorf("confirm member: %w", err)
+		return ConfirmJoinResult{}, fmt.Errorf("confirm member: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
-		return time.Time{}, fmt.Errorf("commit transaction: %w", err)
+		return ConfirmJoinResult{}, fmt.Errorf("commit transaction: %w", err)
 	}
-	return confirmedAt, nil
+	return ConfirmJoinResult{
+		ConfirmedAt: confirmedAt,
+		PartySize:   partySize,
+		Categories:  categories,
+	}, nil
 }
 
 // Leave はログイン参加者のイベント参加を取り消す。

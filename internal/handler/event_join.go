@@ -168,6 +168,9 @@ func (h *EventHandler) Join(c *gin.Context) {
 //	@Description	確定時は確定済みの申込だけで定員を再確認する。申込期限は再確認しない。
 //	@Description	イベント定員を超える場合は 409 Conflict（capacity_full）を返す。
 //	@Description	取消済みイベントは 409 Conflict（event_cancelled）、終了済みは 409 Conflict（event_ended）を返す。
+//	@Description	レスポンスには確定した申込のカテゴリ別人数（participants）と合計（partySize）を含む。
+//	@Description	participants / partySize は申込時に保存した内容で、現在のイベント設定から再計算しない。
+//	@Description	mailAddress・username は返さない。
 //	@Tags			event
 //	@Accept			json
 //	@Produce		json

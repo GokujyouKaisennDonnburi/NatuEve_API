@@ -2,7 +2,7 @@
 
 - ステータス: Accepted
 - 日付: 2026-11-12
-- 関連: #273, ADR-0016, ADR-0031, NatuEve_Web_Frontend#403
+- 関連: #273, #294, ADR-0016, ADR-0031, NatuEve_Web_Frontend#403
 
 ## コンテキストと課題
 
@@ -39,7 +39,11 @@ API の応答はメール送信に依存させない。**
    `{WEB_BASE_URL}/events/{eventID}/join/confirm?token={token}` とし、Web の確認画面を
    経由させる。確定用 API は `POST /api/v1/events/{id}/join/confirm` で、
    リクエストボディは `{"token":"..."}`、成功時は `200` と
-   `{eventId, confirmedAt}` を返す。
+   `{eventId, confirmedAt, participants, partySize}` を返す。
+   `participants` は申込時に保存したカテゴリ別人数、`partySize` は申込時に保存した
+   参加人数で、API 経由の申込では `participants` の合計と一致する。DB は内訳0件を
+   禁じていないため、直接 INSERT された行では `participants` が空配列になりうる。
+   現在のイベント設定から再計算しない。`mailAddress` と `username` は返さない。
 4. 未確定の申込は参加者一覧・参加人数・定員判定・通知宛先に含めない。
    `event_members` を参照する読み取り系と定員の集計に `status='confirmed'` を付ける。
 5. 期限切れの `pending` は、同じイベントへの次回申込時に遅延削除する。イベントに

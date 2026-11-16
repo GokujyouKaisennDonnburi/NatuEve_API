@@ -218,7 +218,7 @@ func (s *EventJoinService) ConfirmJoin(
 		}
 	}
 
-	confirmedAt, err := s.joinRepo.ConfirmJoin(ctx, eventID, hashJoinConfirmationToken(token))
+	result, err := s.joinRepo.ConfirmJoin(ctx, eventID, hashJoinConfirmationToken(token))
 	if err != nil {
 		switch {
 		case errors.Is(err, repository.ErrEventNotFound):
@@ -237,9 +237,12 @@ func (s *EventJoinService) ConfirmJoin(
 		return model.ConfirmJoinResponse{}, fmt.Errorf("confirm join: %w", err)
 	}
 
+	// participants は申込時に保存した内訳のスナップショット（ADR-0049）。
 	return model.ConfirmJoinResponse{
-		EventID:     eventID,
-		ConfirmedAt: confirmedAt,
+		EventID:      eventID,
+		ConfirmedAt:  result.ConfirmedAt,
+		Participants: toParticipantResponses(result.Categories),
+		PartySize:    result.PartySize,
 	}, nil
 }
 
