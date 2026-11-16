@@ -903,9 +903,16 @@ definitions:
         - pdf
         example: image
         type: string
+      size:
+        description: |-
+          Size はアップロードするファイルのサイズ（バイト）
+          image は最大10MiB、pdf は最大20MiB
+        example: 10485760
+        type: integer
     required:
     - contentType
     - kind
+    - size
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignResponse:
     description: アップロード用署名付き URL とオブジェクトキー。

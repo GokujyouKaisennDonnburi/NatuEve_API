@@ -2582,7 +2582,8 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "contentType",
-                "kind"
+                "kind",
+                "size"
             ],
             "properties": {
                 "contentType": {
@@ -2598,6 +2599,11 @@ const docTemplate = `{
                         "pdf"
                     ],
                     "example": "image"
+                },
+                "size": {
+                    "description": "Size はアップロードするファイルのサイズ（バイト）\nimage は最大10MiB、pdf は最大20MiB",
+                    "type": "integer",
+                    "example": 10485760
                 }
             }
         },
