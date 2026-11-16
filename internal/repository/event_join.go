@@ -839,7 +839,8 @@ func (r *eventJoinPostgres) PreviewJoin(
 
 // Leave はログイン参加者のイベント参加を取り消す。
 // events を FOR UPDATE でロックして存在確認と申込期限の取得を行い、event_members から
-// (event_id, profile_id) 一致行を DELETE し、event_participation_logs に action='leave' を1件追記して、その created_at を返す。
+// (event_id, profile_id) 一致行を DELETE し、同一トランザクション内で
+// event_participation_logs に action='leave' を1件追記して、その created_at を返す。
 func (r *eventJoinPostgres) Leave(
 	ctx context.Context,
 	eventID, profileID uuid.UUID,
