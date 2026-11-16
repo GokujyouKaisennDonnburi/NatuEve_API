@@ -23,28 +23,28 @@ func NewUploadHandler(uploadSvc *service.UploadService) *UploadHandler {
 
 // PresignPut godoc
 //
-//		@Summary		アップロード用署名付き URL 発行
-//		@Description	指定した kind/contentType に対応する R2 tmp 領域への PUT 署名付き URL を返す。
-//		@Description	返却された uploadUrl に直接 PUT することでクライアントがファイルをアップロードできる。
-//		@Description	取得した objectKey をイベント作成時の imageObjectKeys/pdfObjectKeys に渡すこと。
-//		@Description	kind="image": image/jpeg, image/png のみ対応（WebP は MVP 非対応）。
-//		@Description	kind="pdf": application/pdf のみ対応。
-//	 	@Description	size にはアップロードするファイルの実際のバイト数を指定します。
-//	 	@Description	image は 10MiB、pdf は 20MiB まで指定できます。上限を超える場合は 400 を返します。
-//	 	@Description	uploadUrl への PUT は、size と同じサイズのリクエストボディと、contentType と同じ Content-Type で送信してください。
-//	 	@Description	どちらかが一致しない場合、R2 は 403 を返します。
+//	@Summary		アップロード用署名付き URL 発行
+//	@Description	指定した kind/contentType に対応する R2 tmp 領域への PUT 署名付き URL を返す。
+//	@Description	返却された uploadUrl に直接 PUT することでクライアントがファイルをアップロードできる。
+//	@Description	取得した objectKey をイベント作成時の imageObjectKeys/pdfObjectKeys に渡すこと。
+//	@Description	kind="image": image/jpeg, image/png のみ対応（WebP は MVP 非対応）。
+//	@Description	kind="pdf": application/pdf のみ対応。
+//	@Description	size にはアップロードするファイルの実際のバイト数を指定します。
+//	@Description	image は 10MiB、pdf は 20MiB まで指定できます。上限を超える場合は 400 を返します。
+//	@Description	uploadUrl への PUT は、size と同じサイズのリクエストボディと、contentType と同じ Content-Type で送信してください。
+//	@Description	どちらかが一致しない場合、R2 は 403 を返します。
 //
-//		@Tags			upload
-//		@Accept			json
-//		@Produce		json
-//		@Security		BearerAuth
-//		@Param			body	body		model.PresignRequest	true	"presign リクエスト"
-//		@Success		200		{object}	model.PresignResponse
-//		@Failure		400		{object}	model.ValidationErrorResponse
-//		@Failure		401		{object}	model.UnauthorizedErrorResponse
-//		@Failure		413		{object}	model.RequestTooLargeErrorResponse
-//		@Failure		500		{object}	model.InternalErrorResponse
-//		@Router			/api/v1/uploads/presign [post]
+//	@Tags			upload
+//	@Accept			json
+//	@Produce		json
+//	@Security		BearerAuth
+//	@Param			body	body		model.PresignRequest	true	"presign リクエスト"
+//	@Success		200		{object}	model.PresignResponse
+//	@Failure		400		{object}	model.ValidationErrorResponse
+//	@Failure		401		{object}	model.UnauthorizedErrorResponse
+//	@Failure		413		{object}	model.RequestTooLargeErrorResponse
+//	@Failure		500		{object}	model.InternalErrorResponse
+//	@Router			/api/v1/uploads/presign [post]
 func (h *UploadHandler) PresignPut(c *gin.Context) {
 	authUser, ok := middleware.AuthFromContext(c)
 	if !ok {
