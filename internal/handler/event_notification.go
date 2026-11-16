@@ -2,8 +2,10 @@ package handler
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -26,6 +28,8 @@ func NewEventNotificationHandler(svc *service.EventNotificationService) *EventNo
 //
 //	@Summary		イベント参加者への一斉送信
 //	@Description	イベント主催者が、参加者全員へ運用通知メールを一斉送信する。送信できるのはイベント主催者のみ。
+//	@Description	同一イベントからの送信は24時間あたり上限5回（ADR-0051）。上限超過時は429を返し、メールは1通も送信されない。
+//	@Description	上限以内の送信は、これまでどおり全参加者へ送信される。
 //	@Tags			notification
 //	@Accept			json
 //	@Produce		json
@@ -36,7 +40,7 @@ func NewEventNotificationHandler(svc *service.EventNotificationService) *EventNo
 //	@Failure		400		{object}	model.ValidationErrorResponse
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		403		{object}	model.ForbiddenErrorResponse
-//	@Failure		429		{object}	model.RateLimitedErrorResponse
+//	@Failure		429		{object}	model.NotificationRateLimitedErrorResponse	"送信回数上限超過（notification_limit_exceeded）または送信基盤のレート制限（rate_limited）"
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/notifications [post]
 func (h *EventNotificationHandler) Send(c *gin.Context) {
@@ -67,6 +71,20 @@ func (h *EventNotificationHandler) Send(c *gin.Context) {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
 			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))
+			return
+		}
+		// 送信回数上限超過（ADR-0051）。メールは送信されず、期間内の再試行を促す。
+		if errors.Is(err, service.ErrNotificationSendLimitExceeded) {
+			slog.Warn("一斉送信が回数上限により拒否されました",
+				slog.String("event_id", eventID),
+				slog.Any("error", err),
+			)
+			message := fmt.Sprintf(
+				"このイベントの送信回数が上限（%d時間あたり%d回）に達しました。しばらく待ってから再度お試しください",
+				int(service.NotificationSendWindow/time.Hour),
+				service.MaxNotificationSendsPerEvent,
+			)
+			c.JSON(http.StatusTooManyRequests, model.NewErrorResponse("notification_limit_exceeded", message))
 			return
 		}
 		// メール送信基盤のレート制限。クライアントには 429 を返し、時間をおいた
