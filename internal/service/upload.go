@@ -86,7 +86,7 @@ func (s *UploadService) PresignPut(ctx context.Context, profileID, kind, content
 		return model.PresignResponse{}, err
 	}
 
-	if err := validateUploadSize(kind, size); err != nil {
+	if err := validateUploadSize(contentType, size); err != nil {
 		return model.PresignResponse{}, err
 	}
 
@@ -128,24 +128,19 @@ func validateKindContentType(kind, contentType string) error {
 	return nil
 }
 
-// validateUploadSize は kind に対応したアップロードサイズ上限を検証する
-func validateUploadSize(kind string, size int64) error {
+// validateUploadSize は Content-Type に対応したアップロードサイズ上限を検証する
+func validateUploadSize(contentType string, size int64) error {
 	if size <= 0 {
 		return &ValidationError{
 			Message: "ファイルサイズは1 byte以上を指定してください",
 		}
 	}
 
-	var maxBytes int64
+	maxBytes := maxSizeByContentType(contentType)
 
-	switch kind {
-	case "image":
-		maxBytes = maxImageBytes
-	case "pdf":
-		maxBytes = maxPDFBytes
-	default:
+	if maxBytes == 0 {
 		return &ValidationError{
-			Message: fmt.Sprintf("未対応の kind です（指定値: %q）", kind),
+			Message: fmt.Sprintf("未対応の Content-Type です（指定値: %q）", contentType),
 		}
 	}
 
@@ -199,7 +194,10 @@ func maxSizeByContentType(ct string) int64 {
 	if isImageContentType(ct) {
 		return maxImageBytes
 	}
-	return maxPDFBytes
+	if isPDFContentType(ct) {
+		return maxPDFBytes
+	}
+	return 0
 }
 
 // sniffContentType は先頭バイトから実際の MIME タイプを判定する。
