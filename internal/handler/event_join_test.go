@@ -334,7 +334,7 @@ func TestEventHandler_PreviewJoin(t *testing.T) {
 	tests := []struct {
 		name             string
 		eventID          string
-		query            string
+		body             string
 		stub             *stubEventJoinService
 		wantStatus       int
 		wantErrorCode    string
@@ -345,7 +345,7 @@ func TestEventHandler_PreviewJoin(t *testing.T) {
 		{
 			name:    "正常: 200 と申込内容を返す",
 			eventID: eventID.String(),
-			query:   "token=token-abc",
+			body:    `{"token":"token-abc"}`,
 			stub: &stubEventJoinService{previewResp: model.PreviewJoinResponse{
 				Participants: []model.ParticipantResponse{
 					{Category: "大人", HeadCount: 2},
@@ -364,14 +364,22 @@ func TestEventHandler_PreviewJoin(t *testing.T) {
 		{
 			name:       "異常: イベントIDが不正",
 			eventID:    "not-a-uuid",
-			query:      "token=token-abc",
+			body:       `{"token":"token-abc"}`,
 			stub:       &stubEventJoinService{},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name:          "異常: リクエストボディが不正",
+			eventID:       eventID.String(),
+			body:          `{`,
+			stub:          &stubEventJoinService{},
+			wantStatus:    http.StatusBadRequest,
+			wantErrorCode: "invalid_request",
+		},
+		{
 			name:          "異常: トークンが無効",
 			eventID:       eventID.String(),
-			query:         "token=invalid",
+			body:          `{"token":"invalid"}`,
 			stub:          &stubEventJoinService{previewErr: &service.ValidationError{Message: "確認リンクが無効か、有効期限が切れています"}},
 			wantStatus:    http.StatusBadRequest,
 			wantErrorCode: "invalid_request",
@@ -379,6 +387,7 @@ func TestEventHandler_PreviewJoin(t *testing.T) {
 		{
 			name:          "異常: トークン未指定",
 			eventID:       eventID.String(),
+			body:          `{}`,
 			stub:          &stubEventJoinService{previewErr: &service.ValidationError{Message: "確認リンクが無効か、有効期限が切れています"}},
 			wantStatus:    http.StatusBadRequest,
 			wantErrorCode: "invalid_request",
@@ -386,7 +395,7 @@ func TestEventHandler_PreviewJoin(t *testing.T) {
 		{
 			name:          "異常: イベントが存在しない",
 			eventID:       eventID.String(),
-			query:         "token=token-abc",
+			body:          `{"token":"token-abc"}`,
 			stub:          &stubEventJoinService{previewErr: &service.NotFoundError{Message: "イベントが見つかりません"}},
 			wantStatus:    http.StatusNotFound,
 			wantErrorCode: "not_found",
@@ -394,7 +403,7 @@ func TestEventHandler_PreviewJoin(t *testing.T) {
 		{
 			name:       "異常: 想定外のエラー",
 			eventID:    eventID.String(),
-			query:      "token=token-abc",
+			body:       `{"token":"token-abc"}`,
 			stub:       &stubEventJoinService{previewErr: errors.New("db error")},
 			wantStatus: http.StatusInternalServerError,
 		},
@@ -404,14 +413,15 @@ func TestEventHandler_PreviewJoin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h := NewEventHandler(nil, nil, nil, tt.stub)
 			r := gin.New()
-			r.GET("/api/v1/events/:id/join/preview", h.PreviewJoin)
+			r.POST("/api/v1/events/:id/join/preview", h.PreviewJoin)
 
-			url := "/api/v1/events/" + tt.eventID + "/join/preview"
-			if tt.query != "" {
-				url += "?" + tt.query
-			}
 			// 認証不要の確認のため Authorization ヘッダは付けない（ADR-0049）。
-			req := httptest.NewRequest(http.MethodGet, url, nil)
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/api/v1/events/"+tt.eventID+"/join/preview",
+				strings.NewReader(tt.body),
+			)
+			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req)
 

@@ -253,21 +253,24 @@ func (h *EventHandler) ConfirmJoin(c *gin.Context) {
 //	@Summary		イベント参加申込内容のプレビュー
 //	@Description	確認メールのリンクから呼ぶ。認証は不要。
 //	@Description	確認トークンに対応する未確定申込の内容（カテゴリ別人数と合計）を返す。
+//	@Description	トークンはリクエストボディで受け取る（confirm と同じ。平文トークンを URL に載せない）。
 //	@Description	トークンは消費しないため、呼び出した後でも POST /api/v1/events/{id}/join/confirm で確定できる。
 //	@Description	無効・期限切れ・使用済みのトークンは 400 invalid_request を返す。
 //	@Description	イベントの取消・終了・定員は検証しない（表示用のため。検証は確定時に行う）。
 //	@Description	participants / partySize は申込時に保存した内容で、現在のイベント設定から再計算しない。
 //	@Description	mailAddress・username は返さない。
 //	@Tags			event
+//	@Accept			json
 //	@Produce		json
-//	@Param			id		path		string	true	"イベントID"
-//	@Param			token	query		string	true	"確認トークン"
+//	@Param			id		path		string						true	"イベントID"
+//	@Param			body	body		model.ConfirmJoinRequest	true	"確認トークン"
 //	@Success		200		{object}	model.PreviewJoinResponse
 //	@Failure		400		{object}	model.ValidationErrorResponse	"invalid_request: 確認リンクが無効か、有効期限が切れています"
 //	@Failure		404		{object}	model.NotFoundErrorResponse
+//	@Failure		413		{object}	model.RequestTooLargeErrorResponse
 //	@Failure		429		{object}	model.RateLimitedErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
-//	@Router			/api/v1/events/{id}/join/preview [get]
+//	@Router			/api/v1/events/{id}/join/preview [post]
 func (h *EventHandler) PreviewJoin(c *gin.Context) {
 
 	// パスパラメータからイベントID取得
@@ -280,8 +283,14 @@ func (h *EventHandler) PreviewJoin(c *gin.Context) {
 		return
 	}
 
+	// JSON受け取り
+	var req model.ConfirmJoinRequest
+	if !bindJSON(c, &req) {
+		return
+	}
+
 	// Service呼び出し（トークンの検証は service で行う）
-	resp, err := h.joinSvc.PreviewJoin(c.Request.Context(), eventID, c.Query("token"))
+	resp, err := h.joinSvc.PreviewJoin(c.Request.Context(), eventID, req.Token)
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {

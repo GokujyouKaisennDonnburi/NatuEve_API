@@ -273,7 +273,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 
 	// join/preview は確認画面が確定前に申込内容を表示するために呼ぶ（ADR-0049）。
 	// confirm と同じく認証なし・join と同じ IP レートリミットを掛ける。
-	v1Public.GET("/events/:id/join/preview", joinLimiter, eventHandler.PreviewJoin)
+	v1Public.POST("/events/:id/join/preview", joinLimiter, eventHandler.PreviewJoin)
 
 	// user 系は認証が必要。DB と JWKS の両方が揃っているときのみ登録する。
 	// JWKS 未設定の場合: join ルートのみ認証なし（常に匿名参加）で登録して終了する。
