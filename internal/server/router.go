@@ -287,7 +287,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	// 失敗し毎回 500 になる）ため、両方揃っているときのみ登録する。mailer は
 	// outboxWorker と同じ条件で上でも生成済みのため、ここでは使い回す。
 	if mailer != nil {
-		// 送信回数上限のカウント用リポジトリ（ADR-0047）。
+		// 送信回数上限のカウント用リポジトリ（ADR-0051）。
 		sendLogRepo := repository.NewEventNotificationSendLogRepository(sqlDB)
 		notifySvc := service.NewEventNotificationService(eventRepo, eventJoinRepo, sendLogRepo, mailer)
 		notifyHandler := handler.NewEventNotificationHandler(notifySvc)

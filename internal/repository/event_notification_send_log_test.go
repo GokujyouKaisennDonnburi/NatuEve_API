@@ -120,7 +120,7 @@ func TestEventNotificationSendLogPostgres_Reserve(t *testing.T) {
 
 // TestEventNotificationSendLogPostgres_ReserveConcurrent は同一イベントへの同時予約が
 // 上限件数で直列化されることを検証する。複数インスタンス（複数 goroutine）から同時に
-// Reserve しても、成功は limit 件に限られる（ADR-0047）。
+// Reserve しても、成功は limit 件に限られる（ADR-0051）。
 func TestEventNotificationSendLogPostgres_ReserveConcurrent(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventNotificationSendLogRepository(db)
