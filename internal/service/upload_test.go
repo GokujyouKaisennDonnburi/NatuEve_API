@@ -195,7 +195,7 @@ func TestUploadServicePresignPut_KeyFormat(t *testing.T) {
 	}
 }
 
-func TestIploadServicePresignPut_SizeLimit(t *testing.T) {
+func TestUploadServicePresignPut_SizeLimit(t *testing.T) {
 	tests := []struct {
 		name        string
 		kind        string
