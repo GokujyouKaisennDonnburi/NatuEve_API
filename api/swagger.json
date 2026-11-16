@@ -531,6 +531,66 @@
                 }
             }
         },
+        "/api/v1/events/{id}/join/preview": {
+            "get": {
+                "description": "確認メールのリンクから呼ぶ。認証は不要。\n確認トークンに対応する未確定申込の内容（カテゴリ別人数と合計）を返す。\nトークンは消費しないため、呼び出した後でも POST /api/v1/events/{id}/join/confirm で確定できる。\n無効・期限切れ・使用済みのトークンは 400 invalid_request を返す。\nイベントの取消・終了・定員は検証しない（表示用のため。検証は確定時に行う）。\nparticipants / partySize は申込時に保存した内容で、現在のイベント設定から再計算しない。\nmailAddress・username は返さない。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event"
+                ],
+                "summary": "イベント参加申込内容のプレビュー",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "イベントID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "確認トークン",
+                        "name": "token",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PreviewJoinResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid_request: 確認リンクが無効か、有効期限が切れています",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/events/{id}/leave": {
             "post": {
                 "security": [
@@ -2791,6 +2851,27 @@
                     "description": "UploadURL はファイルを直接 PUT するための署名付き URL。",
                     "type": "string",
                     "example": "https://xxxxx.r2.cloudflarestorage.com/natuportal/natueve/tmp/profile-uuid/uuid.jpg?X-Amz-..."
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PreviewJoinResponse": {
+            "type": "object",
+            "required": [
+                "participants",
+                "partySize"
+            ],
+            "properties": {
+                "participants": {
+                    "description": "Participants は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。\nAPI 経由の申込では必ず1件以上入る。DB は内訳0件を禁じていないため、\n直接 INSERT された行では空配列になりうる（ADR-0026）。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse"
+                    }
+                },
+                "partySize": {
+                    "description": "PartySize は申込時に保存した参加人数。\nAPI 経由の申込では participants の headCount 合計と一致する。",
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },

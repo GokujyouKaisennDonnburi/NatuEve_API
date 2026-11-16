@@ -30,6 +30,11 @@ type stubEventJoinRepository struct {
 	confirmErr          error
 	gotConfirmEventID   uuid.UUID
 	gotConfirmTokenHash string
+	// PreviewJoin 返却値・引数記録。
+	previewResult       repository.PreviewJoinResult
+	previewErr          error
+	gotPreviewEventID   uuid.UUID
+	gotPreviewTokenHash string
 	// Leave 返却値・引数記録。
 	leaveCreatedAt    time.Time
 	leaveErr          error
@@ -89,6 +94,19 @@ func (s *stubEventJoinRepository) ConfirmJoin(
 		return repository.ConfirmJoinResult{}, s.confirmErr
 	}
 	return s.confirmResult, nil
+}
+
+func (s *stubEventJoinRepository) PreviewJoin(
+	_ context.Context,
+	eventID uuid.UUID,
+	tokenHash string,
+) (repository.PreviewJoinResult, error) {
+	s.gotPreviewEventID = eventID
+	s.gotPreviewTokenHash = tokenHash
+	if s.previewErr != nil {
+		return repository.PreviewJoinResult{}, s.previewErr
+	}
+	return s.previewResult, nil
 }
 
 func (s *stubEventJoinRepository) Leave(_ context.Context, eventID, profileID uuid.UUID) (time.Time, error) {

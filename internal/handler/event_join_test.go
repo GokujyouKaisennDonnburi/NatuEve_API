@@ -117,6 +117,12 @@ type stubEventJoinService struct {
 
 	gotConfirmEventID uuid.UUID
 	gotConfirmToken   string
+
+	previewResp model.PreviewJoinResponse
+	previewErr  error
+
+	gotPreviewEventID uuid.UUID
+	gotPreviewToken   string
 }
 
 func (s *stubEventJoinService) Join(
@@ -137,6 +143,16 @@ func (s *stubEventJoinService) ConfirmJoin(
 	s.gotConfirmEventID = eventID
 	s.gotConfirmToken = token
 	return s.confirmResp, s.confirmErr
+}
+
+func (s *stubEventJoinService) PreviewJoin(
+	_ context.Context,
+	eventID uuid.UUID,
+	token string,
+) (model.PreviewJoinResponse, error) {
+	s.gotPreviewEventID = eventID
+	s.gotPreviewToken = token
+	return s.previewResp, s.previewErr
 }
 
 func (s *stubEventJoinService) Leave(context.Context, uuid.UUID, uuid.UUID) (model.LeaveEventResponse, error) {

@@ -246,6 +246,43 @@ func (s *EventJoinService) ConfirmJoin(
 	}, nil
 }
 
+// PreviewJoin は確認トークンに一致する未確定申込の内容を返す（ADR-0049）。
+//
+// トークンは消費しない。イベントの取消・終了・定員は検証しない（確定時にのみ検証する）。
+// repository が返す sentinel エラーをここで HTTP 向けエラーに変換する。
+func (s *EventJoinService) PreviewJoin(
+	ctx context.Context,
+	eventID uuid.UUID,
+	token string,
+) (model.PreviewJoinResponse, error) {
+
+	token = strings.TrimSpace(token)
+	if token == "" || len(token) > joinConfirmationTokenMaxLen {
+		return model.PreviewJoinResponse{}, &ValidationError{
+			Message: "確認リンクが無効か、有効期限が切れています",
+		}
+	}
+
+	result, err := s.joinRepo.PreviewJoin(ctx, eventID, hashJoinConfirmationToken(token))
+	if err != nil {
+		switch {
+		case errors.Is(err, repository.ErrEventNotFound):
+			return model.PreviewJoinResponse{}, &NotFoundError{Message: "イベントが見つかりません"}
+		case errors.Is(err, repository.ErrConfirmationTokenInvalid):
+			return model.PreviewJoinResponse{}, &ValidationError{
+				Message: "確認リンクが無効か、有効期限が切れています",
+			}
+		}
+		return model.PreviewJoinResponse{}, fmt.Errorf("preview join: %w", err)
+	}
+
+	// participants は申込時に保存した内訳のスナップショット（ADR-0049）。
+	return model.PreviewJoinResponse{
+		Participants: toParticipantResponses(result.Categories),
+		PartySize:    result.PartySize,
+	}, nil
+}
+
 // newJoinConfirmationToken は確認トークンを生成する（ADR-0049）。
 func newJoinConfirmationToken() (string, error) {
 	buf := make([]byte, joinConfirmationTokenBytes)

@@ -1008,6 +1008,26 @@ definitions:
         example: https://xxxxx.r2.cloudflarestorage.com/natuportal/natueve/tmp/profile-uuid/uuid.jpg?X-Amz-...
         type: string
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PreviewJoinResponse:
+    properties:
+      participants:
+        description: |-
+          Participants は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。
+          API 経由の申込では必ず1件以上入る。DB は内訳0件を禁じていないため、
+          直接 INSERT された行では空配列になりうる（ADR-0026）。
+        items:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse'
+        type: array
+      partySize:
+        description: |-
+          PartySize は申込時に保存した参加人数。
+          API 経由の申込では participants の headCount 合計と一致する。
+        example: 3
+        type: integer
+    required:
+    - participants
+    - partySize
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ProfileEventCounts:
     properties:
       attended:
@@ -1748,6 +1768,53 @@ paths:
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
       summary: イベント参加申込の確定
+      tags:
+      - event
+  /api/v1/events/{id}/join/preview:
+    get:
+      description: |-
+        確認メールのリンクから呼ぶ。認証は不要。
+        確認トークンに対応する未確定申込の内容（カテゴリ別人数と合計）を返す。
+        トークンは消費しないため、呼び出した後でも POST /api/v1/events/{id}/join/confirm で確定できる。
+        無効・期限切れ・使用済みのトークンは 400 invalid_request を返す。
+        イベントの取消・終了・定員は検証しない（表示用のため。検証は確定時に行う）。
+        participants / partySize は申込時に保存した内容で、現在のイベント設定から再計算しない。
+        mailAddress・username は返さない。
+      parameters:
+      - description: イベントID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 確認トークン
+        in: query
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PreviewJoinResponse'
+        "400":
+          description: 'invalid_request: 確認リンクが無効か、有効期限が切れています'
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      summary: イベント参加申込内容のプレビュー
       tags:
       - event
   /api/v1/events/{id}/leave:
