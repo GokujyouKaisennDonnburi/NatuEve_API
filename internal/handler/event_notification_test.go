@@ -19,28 +19,34 @@ import (
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/service"
 )
 
-type notificationLimitEventRepo struct {
+// stubNotificationLimitEventRepo は GetOwnerProfileID だけを実装するスタブ。
+// 他のメソッドは埋め込んだ nil インターフェースを経由するため、呼ばれると panic する。
+type stubNotificationLimitEventRepo struct {
 	repository.EventRepository
 	ownerID string
 }
 
-func (r *notificationLimitEventRepo) GetOwnerProfileID(context.Context, string) (string, error) {
+func (r *stubNotificationLimitEventRepo) GetOwnerProfileID(context.Context, string) (string, error) {
 	return r.ownerID, nil
 }
 
-type notificationLimitEventJoinRepo struct {
+// stubNotificationLimitEventJoinRepo は ListRecipients だけを実装するスタブ。
+// 他のメソッドは埋め込んだ nil インターフェースを経由するため、呼ばれると panic する。
+type stubNotificationLimitEventJoinRepo struct {
 	repository.EventJoinRepository
 }
 
-func (*notificationLimitEventJoinRepo) ListRecipients(context.Context, uuid.UUID) ([]model.EventRecipient, error) {
+func (*stubNotificationLimitEventJoinRepo) ListRecipients(context.Context, uuid.UUID) ([]model.EventRecipient, error) {
 	return []model.EventRecipient{{MailAddress: "participant@example.com"}}, nil
 }
 
-type notificationLimitSendLogRepo struct {
+// stubNotificationLimitSendLogRepo は Reserve だけを実装するスタブ。
+// 他のメソッドは埋め込んだ nil インターフェースを経由するため、呼ばれると panic する。
+type stubNotificationLimitSendLogRepo struct {
 	repository.EventNotificationSendLogRepository
 }
 
-func (*notificationLimitSendLogRepo) Reserve(context.Context, uuid.UUID, time.Time, time.Duration, int) (int64, error) {
+func (*stubNotificationLimitSendLogRepo) Reserve(context.Context, uuid.UUID, time.Time, time.Duration, int) (int64, error) {
 	return 0, repository.ErrNotificationSendLimitReached
 }
 
@@ -50,9 +56,9 @@ func TestEventNotificationHandler_SendNotificationLimitExceeded(t *testing.T) {
 	ownerID := "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 	eventID := "b1b2c3d4-e5f6-7890-abcd-ef1234567890"
 	svc := service.NewEventNotificationService(
-		&notificationLimitEventRepo{ownerID: ownerID},
-		&notificationLimitEventJoinRepo{},
-		&notificationLimitSendLogRepo{},
+		&stubNotificationLimitEventRepo{ownerID: ownerID},
+		&stubNotificationLimitEventJoinRepo{},
+		&stubNotificationLimitSendLogRepo{},
 		nil,
 	)
 	h := NewEventNotificationHandler(svc)
