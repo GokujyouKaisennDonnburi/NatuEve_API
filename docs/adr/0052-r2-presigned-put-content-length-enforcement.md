@@ -1,4 +1,4 @@
-# ADR-0051: R2 の署名付き PUT で Content-Length を強制する
+# ADR-0052: R2 の署名付き PUT で Content-Length を強制する
 
 - ステータス: Accepted
 - 日付: 2026-11-16

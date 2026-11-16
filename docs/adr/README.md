@@ -66,4 +66,4 @@
 | [0047](./0047-image-pixel-dimension-limit.md) | 画像の幅と高さを各8000pxに制限し超過は400で拒否する | Accepted |
 | [0048](./0048-govulncheck-in-ci.md) | CI で govulncheck を実行し、週1回の定期実行でも検査する | Accepted |
 | [0050](./0050-event-list-ip-rate-limit.md) | イベント一覧 API に API 側で IP レートリミットを掛け、他の公開 GET には今は掛けない | Accepted |
-| [0051](./0051-r2-presigned-put-content-length-enforcement.md) | R2 の署名付き PUT で Content-Length を強制する | Accepted |
+| [0052](./0052-r2-presigned-put-content-length-enforcement.md) | R2 の署名付き PUT で Content-Length を強制する | Accepted |
