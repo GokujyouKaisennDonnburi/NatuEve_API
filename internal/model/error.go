@@ -185,6 +185,20 @@ type RateLimitedErrorBody struct {
 	Message string `json:"message" example:"リクエストが多すぎます。しばらくしてから再試行してください"`
 }
 
+// NotificationRateLimitedErrorResponse は一斉送信のレート制限エラー(HTTP 429)のドキュメント用レスポンス型。
+type NotificationRateLimitedErrorResponse struct {
+	Error NotificationRateLimitedErrorBody `json:"error"`
+}
+
+// NotificationRateLimitedErrorBody は NotificationRateLimitedErrorResponse のエラー本体。
+type NotificationRateLimitedErrorBody struct {
+	// Code は機械可読なエラーコード。
+	// notification_limit_exceeded = 送信回数上限超過 / rate_limited = 送信基盤のレート制限。
+	Code string `json:"code" example:"notification_limit_exceeded" enums:"notification_limit_exceeded,rate_limited"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"このイベントの送信回数が上限（24時間あたり5回）に達しました。しばらく待ってから再度お試しください"`
+}
+
 // InternalErrorResponse はサーバー内部エラー(HTTP 500)のドキュメント用レスポンス型。
 type InternalErrorResponse struct {
 	Error InternalErrorBody `json:"error"`

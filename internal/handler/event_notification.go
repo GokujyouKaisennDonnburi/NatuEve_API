@@ -40,7 +40,7 @@ func NewEventNotificationHandler(svc *service.EventNotificationService) *EventNo
 //	@Failure		400		{object}	model.ValidationErrorResponse
 //	@Failure		401		{object}	model.UnauthorizedErrorResponse
 //	@Failure		403		{object}	model.ForbiddenErrorResponse
-//	@Failure		429		{object}	model.RateLimitedErrorResponse	"送信回数上限超過（notification_limit_exceeded）または送信基盤のレート制限（rate_limited）"
+//	@Failure		429		{object}	model.NotificationRateLimitedErrorResponse	"送信回数上限超過（notification_limit_exceeded）または送信基盤のレート制限（rate_limited）"
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/notifications [post]
 func (h *EventNotificationHandler) Send(c *gin.Context) {

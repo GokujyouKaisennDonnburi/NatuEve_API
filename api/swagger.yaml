@@ -832,6 +832,27 @@ definitions:
       error:
         $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorBody'
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotificationRateLimitedErrorBody:
+    properties:
+      code:
+        description: |-
+          Code は機械可読なエラーコード。
+          notification_limit_exceeded = 送信回数上限超過 / rate_limited = 送信基盤のレート制限。
+        enum:
+        - notification_limit_exceeded
+        - rate_limited
+        example: notification_limit_exceeded
+        type: string
+      message:
+        description: Message は人間向けのエラーメッセージ。
+        example: このイベントの送信回数が上限（24時間あたり5回）に達しました。しばらく待ってから再度お試しください
+        type: string
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotificationRateLimitedErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotificationRateLimitedErrorBody'
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantInput:
     properties:
       category:
@@ -1765,7 +1786,7 @@ paths:
         "429":
           description: 送信回数上限超過（notification_limit_exceeded）または送信基盤のレート制限（rate_limited）
           schema:
-            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse'
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotificationRateLimitedErrorResponse'
         "500":
           description: Internal Server Error
           schema:
