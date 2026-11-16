@@ -162,6 +162,12 @@ const (
 	sitemapRateBurst    = 5
 )
 
+// イベント一覧のレートリミット設定。同一 IP から平均 2回/秒・バースト30回に絞る（ADR-0050）。
+const (
+	eventListRateInterval = 500 * time.Millisecond
+	eventListRateBurst    = 30
+)
+
 // registerRoutes は各ハンドラをルーターに登録する。
 // 戻り値の *service.NotificationOutboxWorker については NewRouter の doc を参照。
 func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB *sql.DB) (*service.NotificationOutboxWorker, error) {
@@ -236,9 +242,11 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 
 	// sitemap に IP レートリミットを掛ける（ADR-0043）。
 	sitemapLimiter := middleware.NewIPRateLimiter(rate.Every(sitemapRateInterval), sitemapRateBurst).Middleware()
+	// events 一覧に IP レートリミットを掛ける。他の公開 GET には掛けない（ADR-0050）。
+	eventListLimiter := middleware.NewIPRateLimiter(rate.Every(eventListRateInterval), eventListRateBurst).Middleware()
 
 	v1Public := r.Group("/api/v1")
-	v1Public.GET("/events", eventHandler.List)
+	v1Public.GET("/events", eventListLimiter, eventHandler.List)
 	v1Public.GET("/tags", tagHandler.List)
 
 	// sitemap用のイベント一覧(認証不要)

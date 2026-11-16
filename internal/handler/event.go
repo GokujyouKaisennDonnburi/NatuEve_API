@@ -73,6 +73,7 @@ func NewEventHandler(
 //	@Description	推奨: 階層UIで親（都道府県）を全選択した場合は親のみを送るとよい。部分一致のため
 //	@Description	"兵庫県"1件で配下の市区町村をすべてカバーできる。全選択の場合は location 自体を
 //	@Description	省略する方が速い。これは推奨であり必須ではない。
+//	@Description	同一 IP から平均 2回/秒・バースト30回を超えると 429 を返す。
 //	@Tags			event
 //	@Produce		json
 //	@Param			q			query		[]string	false	"検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)"	collectionFormat(multi)
@@ -85,6 +86,7 @@ func NewEventHandler(
 //	@Param			offset		query		int		false	"取得開始位置(default 0)"
 //	@Success		200			{object}	model.EventListResponse
 //	@Failure		400		{object}	model.ValidationErrorResponse
+//	@Failure		429		{object}	model.RateLimitedErrorResponse
 //	@Failure		500		{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events [get]
 func (h *EventHandler) List(c *gin.Context) {

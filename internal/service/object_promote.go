@@ -162,6 +162,11 @@ func promoteOneObject(
 	disposition := contentDispositionInline(filename)
 
 	if isImage {
+		if err := validateImagePixelSize(data); err != nil {
+			return "", &ValidationError{
+				Message: fmt.Sprintf("画像 %q のピクセル数検証に失敗しました: %v", key, err),
+			}
+		}
 		// EXIF/GPS 除去: 再エンコード（geofuzzing ルール準拠）
 		clean, err := stripEXIFAndReencode(data, ct)
 		if err != nil {

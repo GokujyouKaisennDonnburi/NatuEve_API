@@ -4,10 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -385,5 +389,83 @@ func TestNewRouterRelayGuard(t *testing.T) {
 	}
 	if disabled.TrustedPlatform != "" {
 		t.Errorf("TrustedPlatform = %q, want empty", disabled.TrustedPlatform)
+	}
+}
+
+// failingDriver は接続を常に失敗させる database/sql のドライバ。
+// DB に届いたリクエストはハンドラで 500 になる。
+type failingDriver struct{}
+
+func (failingDriver) Open(string) (driver.Conn, error) {
+	return nil, errors.New("failingDriver: 接続できません")
+}
+
+var registerFailingDriver sync.Once
+
+// newFailingDB は failingDriver を使う *sql.DB を返すヘルパー。
+func newFailingDB(t *testing.T) *sql.DB {
+	t.Helper()
+	registerFailingDriver.Do(func() { sql.Register("failing", failingDriver{}) })
+	db, err := sql.Open("failing", "")
+	if err != nil {
+		t.Fatalf("sql.Open() returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+// TestEventListRateLimit は、GET /api/v1/events に IP レートリミットが掛かり、
+// 他の公開 GET には掛からないことを検証する（ADR-0050）。
+// 1つのルーターに対して順に送り、上の手順で消費した枠を下の手順に引き継ぐ。
+func TestEventListRateLimit(t *testing.T) {
+	r, _, err := NewRouter(context.Background(), testConfig(), newFailingDB(t))
+	if err != nil {
+		t.Fatalf("NewRouter() returned error: %v", err)
+	}
+
+	const (
+		ipA = "203.0.113.1:1111"
+		ipB = "203.0.113.2:1111"
+	)
+	detailPath := "/api/v1/events/" + uuid.NewString()
+
+	steps := []struct {
+		name       string
+		remoteAddr string
+		path       string
+		times      int
+		want429    bool
+	}{
+		{name: "同一IPはバースト分まで429にならない", remoteAddr: ipA, path: "/api/v1/events", times: eventListRateBurst},
+		{name: "同一IPはバースト分を超えると429", remoteAddr: ipA, path: "/api/v1/events", times: 1, want429: true},
+		{name: "別IPは独立してカウントされる", remoteAddr: ipB, path: "/api/v1/events", times: 1},
+		{name: "イベント詳細には掛からない", remoteAddr: ipA, path: detailPath, times: eventListRateBurst + 1},
+	}
+
+	for _, st := range steps {
+		for i := range st.times {
+			req := httptest.NewRequest(http.MethodGet, st.path, nil)
+			req.RemoteAddr = st.remoteAddr
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if got429 := w.Code == http.StatusTooManyRequests; got429 != st.want429 {
+				t.Fatalf("%s: request[%d] status = %d, want429 = %v", st.name, i, w.Code, st.want429)
+			}
+			if !st.want429 {
+				continue
+			}
+			var body struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatalf("%s: failed to parse response body %q: %v", st.name, w.Body.String(), err)
+			}
+			if body.Error.Code != "rate_limited" {
+				t.Errorf("%s: error.code = %q, want %q", st.name, body.Error.Code, "rate_limited")
+			}
+		}
 	}
 }
