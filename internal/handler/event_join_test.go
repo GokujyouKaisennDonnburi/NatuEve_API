@@ -326,3 +326,142 @@ func TestEventHandler_ConfirmJoin(t *testing.T) {
 		})
 	}
 }
+
+func TestEventHandler_PreviewJoin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	tests := []struct {
+		name             string
+		eventID          string
+		query            string
+		stub             *stubEventJoinService
+		wantStatus       int
+		wantErrorCode    string
+		wantParticipants []model.ParticipantResponse
+		wantPartySize    int
+		wantToken        string
+	}{
+		{
+			name:    "正常: 200 と申込内容を返す",
+			eventID: eventID.String(),
+			query:   "token=token-abc",
+			stub: &stubEventJoinService{previewResp: model.PreviewJoinResponse{
+				Participants: []model.ParticipantResponse{
+					{Category: "大人", HeadCount: 2},
+					{Category: "子ども", HeadCount: 1},
+				},
+				PartySize: 3,
+			}},
+			wantStatus: http.StatusOK,
+			wantParticipants: []model.ParticipantResponse{
+				{Category: "大人", HeadCount: 2},
+				{Category: "子ども", HeadCount: 1},
+			},
+			wantPartySize: 3,
+			wantToken:     "token-abc",
+		},
+		{
+			name:       "異常: イベントIDが不正",
+			eventID:    "not-a-uuid",
+			query:      "token=token-abc",
+			stub:       &stubEventJoinService{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:          "異常: トークンが無効",
+			eventID:       eventID.String(),
+			query:         "token=invalid",
+			stub:          &stubEventJoinService{previewErr: &service.ValidationError{Message: "確認リンクが無効か、有効期限が切れています"}},
+			wantStatus:    http.StatusBadRequest,
+			wantErrorCode: "invalid_request",
+		},
+		{
+			name:          "異常: トークン未指定",
+			eventID:       eventID.String(),
+			stub:          &stubEventJoinService{previewErr: &service.ValidationError{Message: "確認リンクが無効か、有効期限が切れています"}},
+			wantStatus:    http.StatusBadRequest,
+			wantErrorCode: "invalid_request",
+		},
+		{
+			name:          "異常: イベントが存在しない",
+			eventID:       eventID.String(),
+			query:         "token=token-abc",
+			stub:          &stubEventJoinService{previewErr: &service.NotFoundError{Message: "イベントが見つかりません"}},
+			wantStatus:    http.StatusNotFound,
+			wantErrorCode: "not_found",
+		},
+		{
+			name:       "異常: 想定外のエラー",
+			eventID:    eventID.String(),
+			query:      "token=token-abc",
+			stub:       &stubEventJoinService{previewErr: errors.New("db error")},
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewEventHandler(nil, nil, nil, tt.stub)
+			r := gin.New()
+			r.GET("/api/v1/events/:id/join/preview", h.PreviewJoin)
+
+			url := "/api/v1/events/" + tt.eventID + "/join/preview"
+			if tt.query != "" {
+				url += "?" + tt.query
+			}
+			// 認証不要の確認のため Authorization ヘッダは付けない（ADR-0049）。
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body: %s)", w.Code, tt.wantStatus, w.Body.String())
+			}
+
+			if tt.wantErrorCode != "" {
+				var resp model.ErrorResponse
+				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("failed to parse error response: %v", err)
+				}
+				if resp.Error.Code != tt.wantErrorCode {
+					t.Errorf("error code = %q, want %q", resp.Error.Code, tt.wantErrorCode)
+				}
+			}
+
+			if tt.wantStatus == http.StatusOK {
+				var resp model.PreviewJoinResponse
+				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("failed to parse response: %v", err)
+				}
+				if !reflect.DeepEqual(resp.Participants, tt.wantParticipants) {
+					t.Errorf("Participants = %#v, want %#v", resp.Participants, tt.wantParticipants)
+				}
+				if resp.PartySize != tt.wantPartySize {
+					t.Errorf("PartySize = %d, want %d", resp.PartySize, tt.wantPartySize)
+				}
+
+				var raw map[string]json.RawMessage
+				if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+					t.Fatalf("failed to parse raw response: %v", err)
+				}
+				if string(raw["participants"]) == "null" {
+					t.Error("participants が null です")
+				}
+				if _, ok := raw["username"]; ok {
+					t.Error("username がレスポンスに含まれています")
+				}
+				if _, ok := raw["mailAddress"]; ok {
+					t.Error("mailAddress がレスポンスに含まれています")
+				}
+
+				if tt.stub.gotPreviewEventID != eventID {
+					t.Errorf("service に渡した EventID = %v, want %v", tt.stub.gotPreviewEventID, eventID)
+				}
+				if tt.stub.gotPreviewToken != tt.wantToken {
+					t.Errorf("service に渡した token = %q, want %q", tt.stub.gotPreviewToken, tt.wantToken)
+				}
+			}
+		})
+	}
+}
