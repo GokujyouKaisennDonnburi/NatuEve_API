@@ -65,3 +65,4 @@
 | [0046](./0046-strip-pdf-metadata-on-promotion.md) | PDF 昇格時に文書情報と XMP メタデータを除去して保存する | Accepted |
 | [0047](./0047-image-pixel-dimension-limit.md) | 画像の幅と高さを各8000pxに制限し超過は400で拒否する | Accepted |
 | [0048](./0048-govulncheck-in-ci.md) | CI で govulncheck を実行し、週1回の定期実行でも検査する | Accepted |
+| [0050](./0050-event-list-ip-rate-limit.md) | イベント一覧 API に API 側で IP レートリミットを掛け、他の公開 GET には今は掛けない | Accepted |

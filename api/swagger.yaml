@@ -1271,6 +1271,7 @@ paths:
         推奨: 階層UIで親（都道府県）を全選択した場合は親のみを送るとよい。部分一致のため
         "兵庫県"1件で配下の市区町村をすべてカバーできる。全選択の場合は location 自体を
         省略する方が速い。これは推奨であり必須ではない。
+        同一 IP から平均 2回/秒・バースト30回を超えると 429 を返す。
       parameters:
       - collectionFormat: multi
         description: 検索キーワード(反復指定でAND検索。各語を5項目横断・部分一致・大小無視。最大10件)
@@ -1327,6 +1328,10 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse'
         "500":
           description: Internal Server Error
           schema:
