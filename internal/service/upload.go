@@ -128,7 +128,7 @@ func validateKindContentType(kind, contentType string) error {
 	return nil
 }
 
-// validateKindContentType は kind に対応したアップロードサイズ上限を検証する
+// validateUploadSize は kind に対応したアップロードサイズ上限を検証する
 func validateUploadSize(kind string, size int64) error {
 	if size <= 0 {
 		return &ValidationError{
