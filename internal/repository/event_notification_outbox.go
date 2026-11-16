@@ -68,7 +68,7 @@ const outboxClaimTimeout = 2 * time.Minute
 // outboxClaimTimeout の期限付きで開始するため、ctx のキャンセルでは巻き戻されない（ADR-0035）。
 func (r *eventNotificationOutboxPostgres) ClaimNextDue(ctx context.Context, now time.Time, excludeIDs []uuid.UUID) (OutboxClaim, error) {
 	const query = `
-		SELECT id, event_id, recipient_kind, subject, body, status, attempts, next_attempt_at,
+		SELECT id, event_id, recipient_kind, recipient_email, subject, body, status, attempts, next_attempt_at,
 		       last_error, sent_at, created_at, updated_at
 		FROM event_notification_outbox
 		WHERE status = $1 AND next_attempt_at <= $2
@@ -98,6 +98,7 @@ func (r *eventNotificationOutboxPostgres) ClaimNextDue(ctx context.Context, now 
 
 	var (
 		item      model.EventNotificationOutbox
+		recipient sql.NullString
 		lastError sql.NullString
 		sentAt    sql.NullTime
 	)
@@ -105,6 +106,7 @@ func (r *eventNotificationOutboxPostgres) ClaimNextDue(ctx context.Context, now 
 		&item.ID,
 		&item.EventID,
 		&item.RecipientKind,
+		&recipient,
 		&item.Subject,
 		&item.Body,
 		&item.Status,
@@ -124,6 +126,7 @@ func (r *eventNotificationOutboxPostgres) ClaimNextDue(ctx context.Context, now 
 		return nil, fmt.Errorf("claim notification outbox: %w", err)
 	}
 	item.LastError = lastError.String
+	item.RecipientEmail = recipient.String
 	if sentAt.Valid {
 		item.SentAt = &sentAt.Time
 	}

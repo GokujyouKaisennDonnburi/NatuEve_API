@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -23,9 +25,13 @@ type stubEventJoinRepo struct {
 	joinCalls int
 }
 
-func (s *stubEventJoinRepo) Join(context.Context, *model.EventMember) error {
+func (s *stubEventJoinRepo) Join(
+	context.Context,
+	*model.EventMember,
+	model.JoinNotification,
+) (repository.JoinOutcome, error) {
 	s.joinCalls++
-	return nil
+	return repository.JoinOutcomeConfirmed, nil
 }
 
 func TestEventHandler_Join_ValidationErrorCode(t *testing.T) {
@@ -58,7 +64,7 @@ func TestEventHandler_Join_ValidationErrorCode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &stubEventJoinRepo{}
-			svc := service.NewEventJoinService(repo, nil)
+			svc := service.NewEventJoinService(repo, nil, "https://web.example.com")
 			h := NewEventHandler(nil, nil, nil, svc)
 			r := gin.New()
 			r.POST("/api/v1/events/:id/join", h.Join)
@@ -94,6 +100,176 @@ func TestEventHandler_Join_ValidationErrorCode(t *testing.T) {
 			}
 			if repo.joinCalls != 0 {
 				t.Errorf("repository.Join 呼び出し回数 = %d, want 0", repo.joinCalls)
+			}
+		})
+	}
+}
+
+// stubEventJoinService は eventJoinService のテスト用スタブ。
+type stubEventJoinService struct {
+	confirmResp model.ConfirmJoinResponse
+	confirmErr  error
+
+	joinResp     model.JoinEventResponse
+	joinErr      error
+	gotProfileID uuid.NullUUID
+
+	gotConfirmEventID uuid.UUID
+	gotConfirmToken   string
+}
+
+func (s *stubEventJoinService) Join(
+	_ context.Context,
+	_ uuid.UUID,
+	profileID uuid.NullUUID,
+	_ model.JoinEventRequest,
+) (model.JoinEventResponse, error) {
+	s.gotProfileID = profileID
+	return s.joinResp, s.joinErr
+}
+
+func (s *stubEventJoinService) ConfirmJoin(
+	_ context.Context,
+	eventID uuid.UUID,
+	token string,
+) (model.ConfirmJoinResponse, error) {
+	s.gotConfirmEventID = eventID
+	s.gotConfirmToken = token
+	return s.confirmResp, s.confirmErr
+}
+
+func (s *stubEventJoinService) Leave(context.Context, uuid.UUID, uuid.UUID) (model.LeaveEventResponse, error) {
+	panic("not implemented in handler test stub")
+}
+
+func (s *stubEventJoinService) Absence(
+	context.Context,
+	uuid.UUID,
+	uuid.UUID,
+	model.AbsenceEventRequest,
+) (model.AbsenceEventResponse, error) {
+	panic("not implemented in handler test stub")
+}
+
+func (s *stubEventJoinService) GetMyApplication(
+	context.Context,
+	uuid.UUID,
+	uuid.UUID,
+) (model.MyEventApplicationResponse, error) {
+	panic("not implemented in handler test stub")
+}
+
+func (s *stubEventJoinService) ListMembers(context.Context, string, string) (model.EventMemberListResponse, error) {
+	panic("not implemented in handler test stub")
+}
+
+func TestEventHandler_ConfirmJoin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	tests := []struct {
+		name          string
+		eventID       string
+		body          string
+		stub          *stubEventJoinService
+		wantStatus    int
+		wantErrorCode string
+	}{
+		{
+			name:       "正常: 200 と確定結果を返す",
+			eventID:    eventID.String(),
+			body:       `{"token":"token-abc"}`,
+			stub:       &stubEventJoinService{confirmResp: model.ConfirmJoinResponse{EventID: eventID}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "異常: イベントIDが不正",
+			eventID:    "not-a-uuid",
+			body:       `{"token":"token-abc"}`,
+			stub:       &stubEventJoinService{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "異常: リクエストボディが不正",
+			eventID:    eventID.String(),
+			body:       `{`,
+			stub:       &stubEventJoinService{},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "異常: 確認リンクが無効",
+			eventID:    eventID.String(),
+			body:       `{"token":"token-abc"}`,
+			stub:       &stubEventJoinService{confirmErr: &service.ValidationError{Message: "確認リンクが無効か、有効期限が切れています"}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "異常: イベントが存在しない",
+			eventID:    eventID.String(),
+			body:       `{"token":"token-abc"}`,
+			stub:       &stubEventJoinService{confirmErr: &service.NotFoundError{Message: "イベントが見つかりません"}},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:          "異常: 定員超過",
+			eventID:       eventID.String(),
+			body:          `{"token":"token-abc"}`,
+			stub:          &stubEventJoinService{confirmErr: &service.ConflictError{Code: "capacity_full", Message: "定員に達しています"}},
+			wantStatus:    http.StatusConflict,
+			wantErrorCode: "capacity_full",
+		},
+		{
+			name:       "異常: 想定外のエラー",
+			eventID:    eventID.String(),
+			body:       `{"token":"token-abc"}`,
+			stub:       &stubEventJoinService{confirmErr: errors.New("db error")},
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewEventHandler(nil, nil, nil, tt.stub)
+			r := gin.New()
+			r.POST("/api/v1/events/:id/join/confirm", h.ConfirmJoin)
+
+			req := httptest.NewRequest(
+				http.MethodPost,
+				"/api/v1/events/"+tt.eventID+"/join/confirm",
+				strings.NewReader(tt.body),
+			)
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body: %s)", w.Code, tt.wantStatus, w.Body.String())
+			}
+
+			if tt.wantErrorCode != "" {
+				var resp model.ErrorResponse
+				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("failed to parse error response: %v", err)
+				}
+				if resp.Error.Code != tt.wantErrorCode {
+					t.Errorf("error code = %q, want %q", resp.Error.Code, tt.wantErrorCode)
+				}
+			}
+
+			if tt.wantStatus == http.StatusOK {
+				var resp model.ConfirmJoinResponse
+				if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+					t.Fatalf("failed to parse response: %v", err)
+				}
+				if resp.EventID != eventID {
+					t.Errorf("EventID = %v, want %v", resp.EventID, eventID)
+				}
+				if tt.stub.gotConfirmEventID != eventID {
+					t.Errorf("service に渡した EventID = %v, want %v", tt.stub.gotConfirmEventID, eventID)
+				}
+				if tt.stub.gotConfirmToken != "token-abc" {
+					t.Errorf("service に渡した token = %q, want %q", tt.stub.gotConfirmToken, "token-abc")
+				}
 			}
 		})
 	}

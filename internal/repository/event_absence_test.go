@@ -73,8 +73,9 @@ func joinTestMember(t *testing.T, repo EventJoinRepository, eventID, profileID u
 		Categories: []model.MemberCategory{
 			{Category: "大人", HeadCount: 1},
 		},
+		Status: model.EventMemberStatusConfirmed,
 	}
-	if err := repo.Join(context.Background(), member); err != nil {
+	if _, err := repo.Join(context.Background(), member, model.JoinNotification{}); err != nil {
 		t.Fatalf("Join() returned error: %v", err)
 	}
 }
