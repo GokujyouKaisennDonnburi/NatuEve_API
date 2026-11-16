@@ -28,7 +28,7 @@ func (f *fakeMailer) SendBatch(_ context.Context, emails []Email) error {
 // stubNotificationSendLogRepository は EventNotificationSendLogRepository のテスト用スタブ。
 type stubNotificationSendLogRepository struct {
 	// Reserve 返却値。reserveErr が nil のとき reserveID を返す。
-	reserveID int64
+	reserveID  int64
 	reserveErr error
 	// Reserve 呼び出し時に渡された引数を記録する。
 	gotReserveEventID uuid.UUID
@@ -37,8 +37,8 @@ type stubNotificationSendLogRepository struct {
 	gotReserveLimit   int
 	reserveCalls      int
 	// MarkSent 返却値・引数記録。
-	markSentErr  error
-	gotMarkSentID int64
+	markSentErr    error
+	gotMarkSentID  int64
 	gotMarkSentNow time.Time
 	markSentCalls  int
 	// Delete 返却値・引数記録。
@@ -161,11 +161,11 @@ func TestEventNotificationServiceSendBulk(t *testing.T) {
 				if s.reserveCalls != 1 {
 					t.Fatalf("Reserve の呼び出し回数: got %d, want 1", s.reserveCalls)
 				}
-				if s.gotReserveWindow != notificationSendWindow {
-					t.Errorf("Reserve への window: got %v, want %v", s.gotReserveWindow, notificationSendWindow)
+				if s.gotReserveWindow != NotificationSendWindow {
+					t.Errorf("Reserve への window: got %v, want %v", s.gotReserveWindow, NotificationSendWindow)
 				}
-				if s.gotReserveLimit != maxNotificationSendsPerEvent {
-					t.Errorf("Reserve への limit: got %d, want %d", s.gotReserveLimit, maxNotificationSendsPerEvent)
+				if s.gotReserveLimit != MaxNotificationSendsPerEvent {
+					t.Errorf("Reserve への limit: got %d, want %d", s.gotReserveLimit, MaxNotificationSendsPerEvent)
 				}
 				wantEventID, _ := uuid.Parse(eventID)
 				if s.gotReserveEventID != wantEventID {
@@ -183,15 +183,50 @@ func TestEventNotificationServiceSendBulk(t *testing.T) {
 			},
 		},
 		{
+			name:      "異常: 送信ログ更新に失敗しても送信成功として応答する",
+			profileID: ownerID,
+			req:       validSendEventNotificationRequest(),
+			eventRepoStub: &stubEventRepository{
+				ownerProfileID: ownerID,
+			},
+			joinRepoStub: &stubEventJoinRepository{recipients: recipients},
+			sendLogStub: &stubNotificationSendLogRepository{
+				reserveID:   42,
+				markSentErr: errors.New("mark sent failed"),
+			},
+			mailer: &fakeMailer{},
+			checkResp: func(t *testing.T, resp model.SendEventNotificationResponse) {
+				t.Helper()
+				if resp.SentCount != 2 || resp.FailedCount != 0 {
+					t.Errorf("送信結果: SentCount=%d, FailedCount=%d, want 2, 0", resp.SentCount, resp.FailedCount)
+				}
+			},
+			checkMailer: func(t *testing.T, m *fakeMailer) {
+				t.Helper()
+				if len(m.gotEmails) != 2 {
+					t.Errorf("送信された Email 数: got %d, want 2", len(m.gotEmails))
+				}
+			},
+			checkSendLog: func(t *testing.T, s *stubNotificationSendLogRepository) {
+				t.Helper()
+				if s.markSentCalls != 1 {
+					t.Errorf("MarkSent の呼び出し回数: got %d, want 1", s.markSentCalls)
+				}
+				if s.deleteCalls != 0 {
+					t.Errorf("予約の取り消しは行われないはず: got %d 回", s.deleteCalls)
+				}
+			},
+		},
+		{
 			name:      "異常: 主催者以外が送信すると ForbiddenError",
 			profileID: otherUser,
 			req:       validSendEventNotificationRequest(),
 			eventRepoStub: &stubEventRepository{
 				ownerProfileID: ownerID,
 			},
-			joinRepoStub: &stubEventJoinRepository{recipients: recipients},
-			sendLogStub:  &stubNotificationSendLogRepository{},
-			mailer:       &fakeMailer{},
+			joinRepoStub:  &stubEventJoinRepository{recipients: recipients},
+			sendLogStub:   &stubNotificationSendLogRepository{},
+			mailer:        &fakeMailer{},
 			wantForbidden: true,
 		},
 		{
@@ -345,6 +380,12 @@ func TestEventNotificationServiceSendBulk(t *testing.T) {
 			case tt.wantLimitErr:
 				if !errors.Is(err, ErrNotificationSendLimitExceeded) {
 					t.Fatalf("ErrNotificationSendLimitExceeded を期待したが: %v", err)
+				}
+				if tt.checkMailer != nil {
+					tt.checkMailer(t, tt.mailer)
+				}
+				if tt.checkSendLog != nil {
+					tt.checkSendLog(t, tt.sendLogStub)
 				}
 				return
 			case tt.wantErr:

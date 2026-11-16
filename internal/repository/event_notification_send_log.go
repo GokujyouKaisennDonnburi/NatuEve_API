@@ -18,7 +18,7 @@ import (
 var ErrNotificationSendLimitReached = errors.New("notification send limit reached")
 
 // EventNotificationSendLogRepository は event_notification_send_log テーブルへの
-// アクセスを抽象化する（ADR-0046）。
+// アクセスを抽象化する（ADR-0047）。
 //
 // 一斉送信 1 回につき予約行 1 行を用い、直近のウィンドウ内の行数で送信回数を数える。
 // 行の追加は Reserve だけが行う。Reserve は同一イベントへの同時実行を
@@ -50,7 +50,7 @@ func NewEventNotificationSendLogRepository(db *sql.DB) EventNotificationSendLogR
 	return &eventNotificationSendLogPostgres{db: db}
 }
 
-// Reserve は送信回数上限の枠を確保する（ADR-0046）。
+// Reserve は送信回数上限の枠を確保する（ADR-0047）。
 //
 // トランザクション内で pg_advisory_xact_lock により同一イベントの予約を直列化してから
 // 期間内の行数を数え、上限未満のときだけ INSERT する。数える（SELECT）と確保する

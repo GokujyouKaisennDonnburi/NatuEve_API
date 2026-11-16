@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -35,7 +36,7 @@ type Mailer interface {
 // handler 層は errors.Is で判定し HTTP 429 を返す。
 var ErrMailRateLimited = errors.New("mail rate limited")
 
-// ErrNotificationSendLimitExceeded は一斉送信の回数上限に達したことを表す（ADR-0046）。
+// ErrNotificationSendLimitExceeded は一斉送信の回数上限に達したことを表す（ADR-0047）。
 //
 // repository.ErrNotificationSendLimitReached の別名。handler 層は errors.Is で判定し、
 // HTTP 429 を返す。
@@ -53,11 +54,11 @@ var ErrNotificationSendLimitExceeded = repository.ErrNotificationSendLimitReache
 // 引き上げる際は SendBatch 側のチャンク単位の成否集計もあわせて見直すこと。
 const maxNotificationRecipients = 100
 
-// maxNotificationSendsPerEvent はイベントごと・通知ウィンドウ期間内に許す一斉送信の回数上限（ADR-0046）。
-const maxNotificationSendsPerEvent = 5
+// MaxNotificationSendsPerEvent はイベントごと・通知ウィンドウ期間内に許す一斉送信の回数上限（ADR-0047）。
+const MaxNotificationSendsPerEvent = 5
 
-// notificationSendWindow は送信回数上限を数える期間（スライディングウィンドウ）（ADR-0046）。
-const notificationSendWindow = 24 * time.Hour
+// NotificationSendWindow は送信回数上限を数える期間（スライディングウィンドウ）（ADR-0047）。
+const NotificationSendWindow = 24 * time.Hour
 
 // notificationSubjectMaxLen はメール件名の最大文字数。
 const notificationSubjectMaxLen = 255
@@ -91,7 +92,7 @@ func NewEventNotificationService(
 // SendBulk はイベント主催者からの依頼で、参加者全員へ一斉送信する。
 //
 // 送信できるのはイベント主催者のみ（events.profile_id == profileID）。
-// 送信回数上限（イベントごと・24時間あたり 5 回、ADR-0046）に達している場合は
+// 送信回数上限（イベントごと・24時間あたり 5 回、ADR-0047）に達している場合は
 // ErrNotificationSendLimitExceeded を返し、メールは送信しない。
 // 検証エラーは *ValidationError、認可エラーは *ForbiddenError として返す。
 // handler 層で errors.As により判定する。
@@ -123,10 +124,10 @@ func (s *EventNotificationService) SendBulk(
 		}
 	}
 
-	// 送信回数上限の枠を確保する（ADR-0046）。送信前に予約し、送信失敗時は枠を返す。
+	// 送信回数上限の枠を確保する（ADR-0047）。送信前に予約し、送信失敗時は枠を返す。
 	// 枠は DB で数えるため、複数インスタンスから同時に送信しても上限を超えない。
 	now := time.Now()
-	reservationID, err := s.sendLogRepo.Reserve(ctx, parsedEventID, now, notificationSendWindow, maxNotificationSendsPerEvent)
+	reservationID, err := s.sendLogRepo.Reserve(ctx, parsedEventID, now, NotificationSendWindow, MaxNotificationSendsPerEvent)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotificationSendLimitReached) {
 			return model.SendEventNotificationResponse{}, repository.ErrNotificationSendLimitReached
@@ -156,7 +157,11 @@ func (s *EventNotificationService) SendBulk(
 	}
 
 	if err := s.sendLogRepo.MarkSent(ctx, reservationID, time.Now()); err != nil {
-		return model.SendEventNotificationResponse{}, fmt.Errorf("mark notification send sent: %w", err)
+		slog.Error("一斉送信後の送信ログ更新に失敗しました",
+			slog.String("event_id", parsedEventID.String()),
+			slog.Int64("reservation_id", reservationID),
+			slog.Any("error", err),
+		)
 	}
 
 	return model.SendEventNotificationResponse{
