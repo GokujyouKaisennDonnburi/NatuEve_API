@@ -30,6 +30,11 @@ type stubEventJoinRepository struct {
 	confirmErr          error
 	gotConfirmEventID   uuid.UUID
 	gotConfirmTokenHash string
+	// PreviewJoin 返却値・引数記録。
+	previewResult       repository.PreviewJoinResult
+	previewErr          error
+	gotPreviewEventID   uuid.UUID
+	gotPreviewTokenHash string
 	// Leave 返却値・引数記録。
 	leaveCreatedAt    time.Time
 	leaveErr          error
@@ -89,6 +94,19 @@ func (s *stubEventJoinRepository) ConfirmJoin(
 		return repository.ConfirmJoinResult{}, s.confirmErr
 	}
 	return s.confirmResult, nil
+}
+
+func (s *stubEventJoinRepository) PreviewJoin(
+	_ context.Context,
+	eventID uuid.UUID,
+	tokenHash string,
+) (repository.PreviewJoinResult, error) {
+	s.gotPreviewEventID = eventID
+	s.gotPreviewTokenHash = tokenHash
+	if s.previewErr != nil {
+		return repository.PreviewJoinResult{}, s.previewErr
+	}
+	return s.previewResult, nil
 }
 
 func (s *stubEventJoinRepository) Leave(_ context.Context, eventID, profileID uuid.UUID) (time.Time, error) {
@@ -932,6 +950,121 @@ func TestEventJoinServiceConfirmJoin(t *testing.T) {
 			wantHash := hashJoinConfirmationToken(token)
 			if tt.stub.gotConfirmTokenHash != wantHash {
 				t.Errorf("repository に渡した token hash: got %q, want %q", tt.stub.gotConfirmTokenHash, wantHash)
+			}
+		})
+	}
+}
+
+func TestEventJoinServicePreviewJoin(t *testing.T) {
+	eventID := uuid.MustParse("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+	const token = "confirmation-token"
+
+	tests := []struct {
+		name              string
+		stub              *stubEventJoinRepository
+		token             string
+		wantValErr        bool
+		wantNotFound      bool
+		wantErr           bool
+		wantRepoNotCalled bool
+		wantParticipants  []model.ParticipantResponse
+		wantPartySize     int
+	}{
+		{
+			name: "正常: トークンをハッシュ化して申込内容を返す",
+			stub: &stubEventJoinRepository{
+				previewResult: repository.PreviewJoinResult{
+					PartySize: 3,
+					Categories: []model.MemberCategory{
+						{Category: "子ども", HeadCount: 1},
+						{Category: "大人", HeadCount: 2},
+					},
+				},
+			},
+			token: token,
+			wantParticipants: []model.ParticipantResponse{
+				{Category: "大人", HeadCount: 2},
+				{Category: "子ども", HeadCount: 1},
+			},
+			wantPartySize: 3,
+		},
+		{
+			name:              "異常: トークンが空",
+			stub:              &stubEventJoinRepository{},
+			token:             "",
+			wantValErr:        true,
+			wantRepoNotCalled: true,
+		},
+		{
+			name:              "異常: トークンが長すぎる",
+			stub:              &stubEventJoinRepository{},
+			token:             strings.Repeat("a", joinConfirmationTokenMaxLen+1),
+			wantValErr:        true,
+			wantRepoNotCalled: true,
+		},
+		{
+			name:       "異常: 不正・期限切れ・使用済みのトークン",
+			stub:       &stubEventJoinRepository{previewErr: repository.ErrConfirmationTokenInvalid},
+			token:      token,
+			wantValErr: true,
+		},
+		{
+			name:         "異常: イベントが存在しない",
+			stub:         &stubEventJoinRepository{previewErr: repository.ErrEventNotFound},
+			token:        token,
+			wantNotFound: true,
+		},
+		{
+			name:    "異常: repository が想定外のエラーを返す",
+			stub:    &stubEventJoinRepository{previewErr: errors.New("db error")},
+			token:   token,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, "https://web.example.com")
+			resp, err := svc.PreviewJoin(context.Background(), eventID, tt.token)
+
+			if tt.wantRepoNotCalled && tt.stub.gotPreviewEventID != uuid.Nil {
+				t.Error("repository.PreviewJoin を呼ぶべきではないが呼ばれた")
+			}
+
+			switch {
+			case tt.wantValErr:
+				_ = assertValidationError(t, err)
+				return
+			case tt.wantNotFound:
+				_ = assertNotFoundError(t, err)
+				return
+			case tt.wantErr:
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				return
+			}
+
+			assertNoErr(t, err)
+			if !reflect.DeepEqual(resp.Participants, tt.wantParticipants) {
+				t.Errorf("Participants: got %#v, want %#v", resp.Participants, tt.wantParticipants)
+			}
+			if resp.PartySize != tt.wantPartySize {
+				t.Errorf("PartySize: got %d, want %d", resp.PartySize, tt.wantPartySize)
+			}
+			sum := 0
+			for _, p := range resp.Participants {
+				sum += p.HeadCount
+			}
+			if sum != resp.PartySize {
+				t.Errorf("participants の headCount 合計: got %d, want PartySize %d", sum, resp.PartySize)
+			}
+			if tt.stub.gotPreviewEventID != eventID {
+				t.Errorf("repository に渡した EventID: got %v, want %v", tt.stub.gotPreviewEventID, eventID)
+			}
+			wantHash := hashJoinConfirmationToken(token)
+			if tt.stub.gotPreviewTokenHash != wantHash {
+				t.Errorf("repository に渡した token hash: got %q, want %q", tt.stub.gotPreviewTokenHash, wantHash)
 			}
 		})
 	}

@@ -1194,6 +1194,106 @@ func TestEventJoinPostgres_ConfirmJoin_Errors(t *testing.T) {
 	})
 }
 
+// TestEventJoinPostgres_PreviewJoin は確認トークンで未確定申込の内容を読み取り専用で返し、
+// プレビュー後も同じトークンで確定できることを検証する（ADR-0049）。
+func TestEventJoinPostgres_PreviewJoin(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventJoinRepository(db)
+	ownerID := insertTestProfile(t, db)
+
+	joinPending := func(
+		t *testing.T,
+		eventID uuid.UUID,
+		tokenHash string,
+		expiresAt time.Time,
+		partySize int,
+		categories []model.MemberCategory,
+	) {
+		t.Helper()
+		member := &model.EventMember{
+			EventID:                    eventID,
+			Username:                   "ゲスト花子",
+			MailAddress:                uuid.NewString() + "@example.com",
+			PartySize:                  partySize,
+			Categories:                 categories,
+			Status:                     model.EventMemberStatusPending,
+			ConfirmationTokenHash:      tokenHash,
+			ConfirmationTokenExpiresAt: expiresAt,
+		}
+		outcome, err := repo.Join(context.Background(), member, model.JoinNotification{
+			ConfirmationSubject: "確認",
+			ConfirmationBody:    "確認本文",
+		})
+		if err != nil || outcome != JoinOutcomePending {
+			t.Fatalf("pending Join() = (%q, %v), want (%q, nil)", outcome, err, JoinOutcomePending)
+		}
+	}
+
+	t.Run("正常: 申込時の内訳を返し、トークンは消費しない", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		adultCostID := insertTestCost(t, db, eventID, "大人", 500)
+		childCostID := insertTestCost(t, db, eventID, "子ども", 300)
+
+		tokenHash := uuid.NewString()
+		joinPending(t, eventID, tokenHash, time.Now().Add(time.Hour), 3, []model.MemberCategory{
+			{Category: "大人", HeadCount: 2},
+			{Category: "子ども", HeadCount: 1},
+		})
+
+		result, err := repo.PreviewJoin(context.Background(), eventID, tokenHash)
+		if err != nil {
+			t.Fatalf("PreviewJoin() returned error: %v", err)
+		}
+		wantCategories := []model.MemberCategory{
+			{CostID: adultCostID, Category: "大人", HeadCount: 2},
+			{CostID: childCostID, Category: "子ども", HeadCount: 1},
+		}
+		if !reflect.DeepEqual(result.Categories, wantCategories) {
+			t.Errorf("Categories = %#v, want %#v", result.Categories, wantCategories)
+		}
+		if result.PartySize != 3 {
+			t.Errorf("PartySize = %d, want 3", result.PartySize)
+		}
+		sum := 0
+		for _, c := range result.Categories {
+			sum += c.HeadCount
+		}
+		if sum != result.PartySize {
+			t.Errorf("Categories の headCount 合計 = %d, want PartySize %d", sum, result.PartySize)
+		}
+
+		// プレビュー後もトークンは消費されておらず、確定できる。
+		if _, err := repo.ConfirmJoin(context.Background(), eventID, tokenHash); err != nil {
+			t.Fatalf("プレビュー後の ConfirmJoin() returned error: %v", err)
+		}
+
+		// 使用済みトークンはプレビューできない。
+		if _, err := repo.PreviewJoin(context.Background(), eventID, tokenHash); !errors.Is(err, ErrConfirmationTokenInvalid) {
+			t.Fatalf("使用済みトークンの PreviewJoin() error = %v, want ErrConfirmationTokenInvalid", err)
+		}
+	})
+
+	t.Run("期限切れのトークンは ErrConfirmationTokenInvalid", func(t *testing.T) {
+		eventID := insertTestEvent(t, db, ownerID)
+		insertTestCost(t, db, eventID, "大人", 500)
+		tokenHash := uuid.NewString()
+		joinPending(
+			t, eventID, tokenHash, time.Now().Add(-time.Minute), 1,
+			[]model.MemberCategory{{Category: "大人", HeadCount: 1}},
+		)
+
+		if _, err := repo.PreviewJoin(context.Background(), eventID, tokenHash); !errors.Is(err, ErrConfirmationTokenInvalid) {
+			t.Fatalf("PreviewJoin() error = %v, want ErrConfirmationTokenInvalid", err)
+		}
+	})
+
+	t.Run("存在しないイベントは ErrEventNotFound", func(t *testing.T) {
+		if _, err := repo.PreviewJoin(context.Background(), uuid.New(), uuid.NewString()); !errors.Is(err, ErrEventNotFound) {
+			t.Fatalf("PreviewJoin() error = %v, want ErrEventNotFound", err)
+		}
+	})
+}
+
 // TestEventJoinPostgres_Join_ResolvesCategories は Join がカテゴリ名を event_costs へ解決して
 // 内訳を保存すること、解決できない・重複するカテゴリを sentinel エラーで弾くことを検証する。
 func TestEventJoinPostgres_Join_ResolvesCategories(t *testing.T) {
