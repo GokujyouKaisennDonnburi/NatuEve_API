@@ -44,8 +44,8 @@ func NewR2Client(accountID, accessKeyID, secretAccessKey, bucket string) *R2Clie
 
 // PresignPut は指定キー・Content-Type での PUT を署名付き URL として発行する。
 //
-// 有効期限は 5 分。Content-Type が署名に含まれるため、アップロード時に
-// 同じ Content-Type を指定しないと署名検証エラーになる。
+// 有効期限は 5 分。Content-Type と Content-Length（size）が署名に含まれるため、
+// アップロード時に同じ Content-Type・同じ大きさの本体で送らないと署名検証エラー（403）になる（ADR-0051）。
 func (r *R2Client) PresignPut(ctx context.Context, key, contentType string, size int64) (url string, expiresAt time.Time, err error) {
 	const ttl = 5 * time.Minute
 
