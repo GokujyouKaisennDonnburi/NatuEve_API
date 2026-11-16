@@ -718,7 +718,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "イベント主催者が、参加者全員へ運用通知メールを一斉送信する。送信できるのはイベント主催者のみ。",
+                "description": "イベント主催者が、参加者全員へ運用通知メールを一斉送信する。送信できるのはイベント主催者のみ。\n同一イベントからの送信は24時間あたり上限5回（ADR-0051）。上限超過時は429を返し、メールは1通も送信されない。\n上限以内の送信は、これまでどおり全参加者へ送信される。",
                 "consumes": [
                     "application/json"
                 ],
@@ -773,9 +773,9 @@
                         }
                     },
                     "429": {
-                        "description": "Too Many Requests",
+                        "description": "送信回数上限超過（notification_limit_exceeded）または送信基盤のレート制限（rate_limited）",
                         "schema": {
-                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse"
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotificationRateLimitedErrorResponse"
                         }
                     },
                     "500": {
@@ -2660,6 +2660,33 @@
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorBody"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotificationRateLimitedErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は機械可読なエラーコード。\nnotification_limit_exceeded = 送信回数上限超過 / rate_limited = 送信基盤のレート制限。",
+                    "type": "string",
+                    "enum": [
+                        "notification_limit_exceeded",
+                        "rate_limited"
+                    ],
+                    "example": "notification_limit_exceeded"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "このイベントの送信回数が上限（24時間あたり5回）に達しました。しばらく待ってから再度お試しください"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotificationRateLimitedErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotificationRateLimitedErrorBody"
                 }
             }
         },
