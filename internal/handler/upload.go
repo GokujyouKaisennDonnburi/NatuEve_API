@@ -52,7 +52,7 @@ func (h *UploadHandler) PresignPut(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.uploadSvc.PresignPut(c.Request.Context(), authUser.ID, req.Kind, req.ContentType)
+	resp, err := h.uploadSvc.PresignPut(c.Request.Context(), authUser.ID, req.Kind, req.ContentType, req.Size)
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {

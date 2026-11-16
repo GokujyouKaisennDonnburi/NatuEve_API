@@ -15,6 +15,8 @@ type fakeObjectStore struct {
 	presignURL       string
 	presignExpiresAt time.Time
 	presignErr       error
+	presignSize      int64
+	presignCalls     int
 
 	// Head で返すデータ
 	headSize        int64
@@ -41,7 +43,10 @@ type fakeObjectStore struct {
 	deleteErr  error
 }
 
-func (f *fakeObjectStore) PresignPut(_ context.Context, key, _ string) (string, time.Time, error) {
+func (f *fakeObjectStore) PresignPut(_ context.Context, key, _ string, size int64) (string, time.Time, error) {
+	f.presignSize = size
+	f.presignCalls++
+
 	if f.presignErr != nil {
 		return "", time.Time{}, f.presignErr
 	}
@@ -92,17 +97,18 @@ func TestUploadServicePresignPut_Allowlist(t *testing.T) {
 		name        string
 		kind        string
 		contentType string
+		size        int64
 		wantValErr  bool
 	}{
-		{name: "正常: image/jpeg", kind: "image", contentType: "image/jpeg"},
-		{name: "正常: image/png", kind: "image", contentType: "image/png"},
-		{name: "正常: application/pdf", kind: "pdf", contentType: "application/pdf"},
-		{name: "異常: kind=image で application/pdf", kind: "image", contentType: "application/pdf", wantValErr: true},
-		{name: "異常: kind=pdf で image/jpeg", kind: "pdf", contentType: "image/jpeg", wantValErr: true},
-		{name: "異常: kind=image で image/webp（MVP非対応）", kind: "image", contentType: "image/webp", wantValErr: true},
-		{name: "異常: kind が不正値", kind: "video", contentType: "video/mp4", wantValErr: true},
-		{name: "異常: kind が空", kind: "", contentType: "image/jpeg", wantValErr: true},
-		{name: "異常: contentType が空", kind: "image", contentType: "", wantValErr: true},
+		{name: "正常: image/jpeg", kind: "image", contentType: "image/jpeg", size: 1024},
+		{name: "正常: image/png", kind: "image", contentType: "image/png", size: 1024},
+		{name: "正常: application/pdf", kind: "pdf", contentType: "application/pdf", size: 1024},
+		{name: "異常: kind=image で application/pdf", kind: "image", contentType: "application/pdf", size: 1024, wantValErr: true},
+		{name: "異常: kind=pdf で image/jpeg", kind: "pdf", contentType: "image/jpeg", size: 1024, wantValErr: true},
+		{name: "異常: kind=image で image/webp（MVP非対応）", kind: "image", contentType: "image/webp", size: 1024, wantValErr: true},
+		{name: "異常: kind が不正値", kind: "video", contentType: "video/mp4", size: 1024, wantValErr: true},
+		{name: "異常: kind が空", kind: "", contentType: "image/jpeg", size: 1024, wantValErr: true},
+		{name: "異常: contentType が空", kind: "image", contentType: "", size: 1024, wantValErr: true},
 	}
 
 	for _, tt := range tests {
@@ -113,7 +119,7 @@ func TestUploadServicePresignPut_Allowlist(t *testing.T) {
 			}
 			svc := NewUploadService(store)
 
-			resp, err := svc.PresignPut(context.Background(), "profile-001", tt.kind, tt.contentType)
+			resp, err := svc.PresignPut(context.Background(), "profile-001", tt.kind, tt.contentType, tt.size)
 
 			if tt.wantValErr {
 				_ = assertValidationError(t, err)
@@ -140,6 +146,7 @@ func TestUploadServicePresignPut_KeyFormat(t *testing.T) {
 		kind        string
 		contentType string
 		wantExt     string
+		size        int64
 	}{
 		{
 			name:        "JPEG: natueve/tmp/{profileID}/{uuid}.jpg 形式",
@@ -147,6 +154,7 @@ func TestUploadServicePresignPut_KeyFormat(t *testing.T) {
 			kind:        "image",
 			contentType: "image/jpeg",
 			wantExt:     ".jpg",
+			size:        1024,
 		},
 		{
 			name:        "PNG: natueve/tmp/{profileID}/{uuid}.png 形式",
@@ -154,6 +162,7 @@ func TestUploadServicePresignPut_KeyFormat(t *testing.T) {
 			kind:        "image",
 			contentType: "image/png",
 			wantExt:     ".png",
+			size:        1024,
 		},
 		{
 			name:        "PDF: natueve/tmp/{profileID}/{uuid}.pdf 形式",
@@ -161,6 +170,7 @@ func TestUploadServicePresignPut_KeyFormat(t *testing.T) {
 			kind:        "pdf",
 			contentType: "application/pdf",
 			wantExt:     ".pdf",
+			size:        1024,
 		},
 	}
 
@@ -169,7 +179,7 @@ func TestUploadServicePresignPut_KeyFormat(t *testing.T) {
 			store := &fakeObjectStore{}
 			svc := NewUploadService(store)
 
-			resp, err := svc.PresignPut(context.Background(), tt.profileID, tt.kind, tt.contentType)
+			resp, err := svc.PresignPut(context.Background(), tt.profileID, tt.kind, tt.contentType, tt.size)
 			assertNoErr(t, err)
 
 			// prefix チェック
@@ -180,6 +190,117 @@ func TestUploadServicePresignPut_KeyFormat(t *testing.T) {
 			// 拡張子チェック
 			if !strings.HasSuffix(resp.ObjectKey, tt.wantExt) {
 				t.Errorf("ObjectKey suffix: got %q, want suffix %q", resp.ObjectKey, tt.wantExt)
+			}
+		})
+	}
+}
+
+func TestIploadServicePresignPut_SizeLimit(t *testing.T) {
+	tests := []struct {
+		name        string
+		kind        string
+		contentType string
+		size        int64
+		wantValErr  bool
+	}{
+		{
+			name:        "画像：上限ちょうど",
+			kind:        "image",
+			contentType: "image/jpeg",
+			size:        maxImageBytes,
+		},
+		{
+			name:        "画像：上限超過",
+			kind:        "image",
+			contentType: "image/jpeg",
+			size:        maxImageBytes + 1,
+			wantValErr:  true,
+		},
+		{
+			name:        "画像：1 byte",
+			kind:        "image",
+			contentType: "image/png",
+			size:        1,
+		},
+		{
+			name:        "画像：0 byte",
+			kind:        "image",
+			contentType: "image/jpeg",
+			size:        0,
+			wantValErr:  true,
+		},
+		{
+			name:        "画像：負数",
+			kind:        "image",
+			contentType: "image/jpeg",
+			size:        -1,
+			wantValErr:  true,
+		},
+		{
+			name:        "PDF：上限ちょうど",
+			kind:        "pdf",
+			contentType: "application/pdf",
+			size:        maxPDFBytes,
+		},
+		{
+			name:        "PDF：上限超過",
+			kind:        "pdf",
+			contentType: "application/pdf",
+			size:        maxPDFBytes + 1,
+			wantValErr:  true,
+		},
+		{
+			name:        "PDF：1 byte",
+			kind:        "pdf",
+			contentType: "application/pdf",
+			size:        1,
+		},
+		{
+			name:        "PDF：0 byte",
+			kind:        "pdf",
+			contentType: "application/pdf",
+			size:        0,
+			wantValErr:  true,
+		},
+		{
+			name:        "PDF：負数",
+			kind:        "pdf",
+			contentType: "application/pdf",
+			size:        -1,
+			wantValErr:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeObjectStore{}
+			svc := NewUploadService(store)
+
+			_, err := svc.PresignPut(
+				context.Background(),
+				"profile-001",
+				tt.kind,
+				tt.contentType,
+				tt.size,
+			)
+
+			if tt.wantValErr {
+				_ = assertValidationError(t, err)
+
+				if store.presignCalls != 0 {
+					t.Errorf("不正なサイズなのにPresignPutが呼ばれています: %d回", store.presignCalls)
+				}
+				return
+			}
+
+			assertNoErr(t, err)
+
+			if store.presignCalls != 1 {
+				t.Errorf("PresignPutの呼び出し回数: got %d, want 1", store.presignCalls)
+			}
+
+			if store.presignSize != tt.size {
+				t.Errorf("PresignPutに渡されたサイズ: got %d, want %d", store.presignSize, tt.size)
 			}
 		})
 	}

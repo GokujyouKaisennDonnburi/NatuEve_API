@@ -20,7 +20,7 @@ import (
 // service 層はこのインターフェイス経由でストレージを操作する。
 type ObjectStore interface {
 	// PresignPut は PUT 用署名付き URL を発行する。
-	PresignPut(ctx context.Context, key, contentType string) (url string, expiresAt time.Time, err error)
+	PresignPut(ctx context.Context, key, contentType string, size int64) (url string, expiresAt time.Time, err error)
 	// Head はオブジェクトのメタデータ（サイズ・Content-Type）を返す。
 	Head(ctx context.Context, key string) (size int64, contentType string, err error)
 	// Get はオブジェクトの全バイトを返す。maxBytes を超えるオブジェクトはエラー。
@@ -77,7 +77,7 @@ func NewUploadService(store ObjectStore) *UploadService {
 // PresignPut は kind/contentType を検証し、tmp 領域への署名付き PUT URL を発行する。
 //
 // 生成されるキー形式: natueve/tmp/{profileID}/{uuid}{ext}
-func (s *UploadService) PresignPut(ctx context.Context, profileID, kind, contentType string) (model.PresignResponse, error) {
+func (s *UploadService) PresignPut(ctx context.Context, profileID, kind, contentType string, size int64) (model.PresignResponse, error) {
 	if err := validateProfileID(profileID); err != nil {
 		return model.PresignResponse{}, err
 	}
@@ -86,10 +86,14 @@ func (s *UploadService) PresignPut(ctx context.Context, profileID, kind, content
 		return model.PresignResponse{}, err
 	}
 
+	if err := validateUploadSize(kind, size); err != nil {
+		return model.PresignResponse{}, err
+	}
+
 	ext := contentTypeToExt[contentType]
 	key := fmt.Sprintf("natueve/tmp/%s/%s%s", profileID, uuid.New().String(), ext)
 
-	uploadURL, expiresAt, err := s.store.PresignPut(ctx, key, contentType)
+	uploadURL, expiresAt, err := s.store.PresignPut(ctx, key, contentType, size)
 	if err != nil {
 		return model.PresignResponse{}, fmt.Errorf("presign put: %w", err)
 	}
@@ -121,6 +125,41 @@ func validateKindContentType(kind, contentType string) error {
 			Message: fmt.Sprintf("kind は image または pdf のみ指定できます（指定値: %q）", kind),
 		}
 	}
+	return nil
+}
+
+// validateKindContentType は kind に大じたアップロードサイズ上限を検証する
+func validateUploadSize(kind string, size int64) error {
+	if size <= 0 {
+		return &ValidationError{
+			Message: "ファイルサイズは1 byte以上を指定してください",
+		}
+	}
+
+	var maxBytes int64
+
+	switch kind {
+	case "image":
+		maxBytes = maxImageBytes
+	case "pdf":
+		maxBytes = maxPDFBytes
+	default:
+		return &ValidationError{
+			Message: fmt.Sprintf("未対応の kind です（指定値: %q）", kind),
+		}
+	}
+
+	// 上限を超えている場合はエラーにする
+	if size > maxBytes {
+		return &ValidationError{
+			Message: fmt.Sprintf(
+				"ファイルサイズが上限を超えています（最大 %d bytes、指定値 %d bytes）",
+				maxBytes,
+				size,
+			),
+		}
+	}
+
 	return nil
 }
 

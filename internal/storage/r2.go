@@ -46,13 +46,14 @@ func NewR2Client(accountID, accessKeyID, secretAccessKey, bucket string) *R2Clie
 //
 // 有効期限は 5 分。Content-Type が署名に含まれるため、アップロード時に
 // 同じ Content-Type を指定しないと署名検証エラーになる。
-func (r *R2Client) PresignPut(ctx context.Context, key, contentType string) (url string, expiresAt time.Time, err error) {
+func (r *R2Client) PresignPut(ctx context.Context, key, contentType string, size int64) (url string, expiresAt time.Time, err error) {
 	const ttl = 5 * time.Minute
 
 	req, err := r.presign.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(r.bucket),
-		Key:         aws.String(key),
-		ContentType: aws.String(contentType),
+		Bucket:        aws.String(r.bucket),
+		Key:           aws.String(key),
+		ContentType:   aws.String(contentType),
+		ContentLength: aws.Int64(size),
 	}, func(o *s3.PresignOptions) {
 		o.Expires = ttl
 	})
