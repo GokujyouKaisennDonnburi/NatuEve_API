@@ -392,6 +392,12 @@ func TestEventNotificationServiceSendBulk(t *testing.T) {
 				if err == nil {
 					t.Fatal("エラーを期待したが nil だった")
 				}
+				if tt.checkMailer != nil {
+					tt.checkMailer(t, tt.mailer)
+				}
+				if tt.checkSendLog != nil {
+					tt.checkSendLog(t, tt.sendLogStub)
+				}
 				return
 			}
 

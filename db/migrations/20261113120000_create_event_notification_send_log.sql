@@ -1,6 +1,6 @@
 -- +goose Up
 -- event_notification_send_log は一斉送信（POST /events/{id}/notifications）の
--- 送信回数上限のカウント用テーブル（ADR-0046）。1 回の送信につき 1 行を送信前に
+-- 送信回数上限のカウント用テーブル（ADR-0051）。1 回の送信につき 1 行を送信前に
 -- 予約（INSERT）し、直近 24 時間分の行数で回数を数える。送信成功時は sent_at を
 -- 記録し、送信失敗時は行を削除して枠を返す。
 -- 複数インスタンスからの同時予約はリポジトリが pg_advisory_xact_lock で
