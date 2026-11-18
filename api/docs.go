@@ -1562,6 +1562,64 @@ const docTemplate = `{
                 }
             }
         },
+        "/contact": {
+            "post": {
+                "description": "認証不要。categoryは必須、messageは任意（trim後2000文字以内）。\n202はoutboxへの受付完了であり、メール配信完了ではない。IPごとに平均5回/分・burst 5。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "contact"
+                ],
+                "summary": "運営へのお問い合わせを受け付ける",
+                "parameters": [
+                    {
+                        "description": "お問い合わせ内容",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "サーバーが正常に稼働しているか確認する",
@@ -1813,6 +1871,71 @@ const docTemplate = `{
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactCategory": {
+            "type": "string",
+            "enum": [
+                "request",
+                "bug",
+                "other"
+            ],
+            "x-enum-varnames": [
+                "ContactCategoryRequest",
+                "ContactCategoryBug",
+                "ContactCategoryOther"
+            ]
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactRequest": {
+            "description": "categoryは必須。messageは任意で、前後の空白を除いて2000文字以内。",
+            "type": "object",
+            "required": [
+                "category"
+            ],
+            "properties": {
+                "category": {
+                    "enum": [
+                        "request",
+                        "bug",
+                        "other"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactCategory"
+                        }
+                    ],
+                    "example": "request"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "検索機能を追加してほしいです"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactResponse": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "enum": [
+                        "request",
+                        "bug",
+                        "other"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactCategory"
+                        }
+                    ],
+                    "example": "request"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "検索機能を追加してほしいです"
+                },
+                "receivedAt": {
+                    "type": "string",
+                    "example": "2026-11-18T03:00:00Z"
                 }
             }
         },

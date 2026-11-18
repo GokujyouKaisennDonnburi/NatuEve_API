@@ -158,3 +158,18 @@ func TestLoadDBMaxOpenConns(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadContactTo(t *testing.T) {
+	for _, value := range []string{"", "admin@example.com", " admin@example.com\n"} {
+		t.Run(value, func(t *testing.T) {
+			t.Setenv("CONTACT_TO", value)
+			want := "admin@example.com"
+			if value == "" {
+				want = ""
+			}
+			if got := Load().ContactTo; got != want {
+				t.Errorf("ContactTo=%q want=%q", got, want)
+			}
+		})
+	}
+}

@@ -247,6 +247,7 @@ API が返す画像の URL がこれに合わないと、フロントで画像�
 | `R2_PUBLIC_BASE_URL` | `https://assets.natuportal.org`（変えるときは[フロントの画像の許可リスト](#フロントの画像の許可リスト)も変える） | |
 | `RESEND_API_KEY` | Resend の API キー | ○ |
 | `MAIL_FROM` | 送信元アドレス | |
+| `CONTACT_TO` | 運営のお問い合わせ受信先（単一メールアドレス）。未設定なら `POST /api/v1/contact` は404。確認メールにも掲載する（ADR-0052） | |
 | `SCHEDULER_OIDC_AUDIENCE` | Scheduler のジョブに設定した OIDC の audience（API の run.app の URL） | |
 | `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | Scheduler のジョブが使うサービスアカウントのメールアドレス | |
 | `OUTBOX_WORKER_ENABLED` | 設定しない（常駐ワーカーは本番では使わない） | |
@@ -315,6 +316,7 @@ GitHub Environments（`staging`・`production`）の変数:
 | `R2_ACCOUNT_ID`・`CLOUDFLARE_ACCOUNT_ID` | Cloudflare のアカウント ID |
 | `R2_BUCKET` | 本番: 本番用のバケット名。検証環境: ローカル開発用のバケット名（ADR-0039） |
 | `MAIL_FROM` | 送信元アドレス。本番は `mail.natuportal.org`、検証環境は `dev-mail.natuportal.org` のアドレス（ADR-0041） |
+| `CONTACT_TO` | 各環境の管理者が受信できるお問い合わせ用アドレス。参加申込の確認メールにも表示される |
 | `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | `scheduler@<プロジェクト ID>.iam.gserviceaccount.com` |
 | `RELAY_SECRET_PREVIOUS_VERSION` | 中継元の秘密値の差し替え中だけ、`RELAY_SECRET` の古いバージョン番号 |
 

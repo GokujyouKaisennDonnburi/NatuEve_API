@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	netmail "net/mail"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -51,6 +53,13 @@ func NewRouter(ctx context.Context, cfg config.Config, sqlDB *sql.DB) (*gin.Engi
 	}
 	if err := validateWebBaseURL(cfg.WebBaseURL); err != nil {
 		return nil, nil, fmt.Errorf("WEB_BASE_URL: %w", err)
+	}
+	cfg.ContactTo = strings.TrimSpace(cfg.ContactTo)
+	if cfg.ContactTo != "" {
+		address, err := netmail.ParseAddress(cfg.ContactTo)
+		if err != nil || address.Address != cfg.ContactTo || strings.ContainsAny(cfg.ContactTo, "\r\n") {
+			return nil, nil, errors.New("CONTACT_TO: 単一のメールアドレスを指定してください（表示名・改行は不可）")
+		}
 	}
 
 	// gin.Default() の代わりに slog 連携のロガー/リカバリを使う。
@@ -156,6 +165,12 @@ const (
 	joinRateBurst    = 5
 )
 
+// お問い合わせのIP制限はjoinと別バケットで、平均5回/分・burst 5（ADR-0052）。
+const (
+	contactRateInterval = 12 * time.Second
+	contactRateBurst    = 5
+)
+
 // sitemap のレートリミット設定。同一 IP から平均 1回/分・バースト5回に絞る（ADR-0043）。
 const (
 	sitemapRateInterval = time.Minute
@@ -209,7 +224,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 			"イベントキャンセル時の通知は outbox に蓄積されますが送信されません")
 	}
 
-	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo, cfg.WebBaseURL)
+	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo, cfg.WebBaseURL, cfg.ContactTo)
 	eventCmdSvc := service.NewEventCommandService(eventRepo, store)
 
 	eventParticipationLogRepo := repository.NewEventParticipationLogRepository(sqlDB)
@@ -246,6 +261,13 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	eventListLimiter := middleware.NewIPRateLimiter(rate.Every(eventListRateInterval), eventListRateBurst).Middleware()
 
 	v1Public := r.Group("/api/v1")
+	// DB・送信設定・固定の宛先が揃ったときだけ、認証不要で受付する（ADR-0052）。
+	if mailer != nil && cfg.ContactTo != "" {
+		contactSvc := service.NewContactService(repository.NewContactRepository(sqlDB), cfg.ContactTo)
+		contactHandler := handler.NewContactHandler(contactSvc)
+		contactLimiter := middleware.NewIPRateLimiter(rate.Every(contactRateInterval), contactRateBurst).Middleware()
+		v1Public.POST("/contact", contactLimiter, contactHandler.Submit)
+	}
 	v1Public.GET("/events", eventListLimiter, eventHandler.List)
 	v1Public.GET("/tags", tagHandler.List)
 

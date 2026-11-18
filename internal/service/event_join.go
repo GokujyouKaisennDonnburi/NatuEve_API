@@ -67,6 +67,8 @@ type EventJoinService struct {
 	eventRepo repository.EventRepository
 	// webBaseURL は確認メールのリンク先となる Web のベースURL（ADR-0049）。
 	webBaseURL string
+	// contactTo が空の場合は確認・案内メールにお問い合わせ先を付けない。
+	contactTo string
 }
 
 // NewEventJoinService は Service を生成する。
@@ -74,11 +76,13 @@ func NewEventJoinService(
 	joinRepo repository.EventJoinRepository,
 	eventRepo repository.EventRepository,
 	webBaseURL string,
+	contactTo string,
 ) *EventJoinService {
 	return &EventJoinService{
 		joinRepo:   joinRepo,
 		eventRepo:  eventRepo,
 		webBaseURL: strings.TrimRight(webBaseURL, "/"),
+		contactTo:  strings.TrimSpace(contactTo),
 	}
 }
 
@@ -140,7 +144,7 @@ func (s *EventJoinService) Join(
 	}
 
 	notification := model.JoinNotification{}
-	notification.NoticeSubject, notification.NoticeBody = buildAlreadyJoinedEmail(title)
+	notification.NoticeSubject, notification.NoticeBody = buildAlreadyJoinedEmail(title, s.contactTo)
 	if status == model.EventMemberStatusPending {
 		token, err := newJoinConfirmationToken()
 		if err != nil {
@@ -151,6 +155,7 @@ func (s *EventJoinService) Join(
 		notification.ConfirmationSubject, notification.ConfirmationBody = buildJoinConfirmationEmail(
 			title,
 			buildJoinConfirmationURL(s.webBaseURL, eventID, token),
+			s.contactTo,
 		)
 	}
 
@@ -306,7 +311,7 @@ func buildJoinConfirmationURL(baseURL string, eventID uuid.UUID, token string) s
 }
 
 // buildJoinConfirmationEmail は確認メールの件名・本文を組み立てる（ADR-0049）。
-func buildJoinConfirmationEmail(title, confirmURL string) (subject, body string) {
+func buildJoinConfirmationEmail(title, confirmURL, contactTo string) (subject, body string) {
 	subject = joinConfirmationSubjectPrefix +
 		truncateSubjectTitle(title, joinConfirmationSubjectPrefix, joinConfirmationSubjectSuffix) +
 		joinConfirmationSubjectSuffix
@@ -318,12 +323,13 @@ func buildJoinConfirmationEmail(title, confirmURL string) (subject, body string)
 	b.WriteString("下のリンクを開いて申込を確定してください。\n\n")
 	b.WriteString(confirmURL)
 	b.WriteString("\n\nこのリンクは24時間有効です。心当たりがない場合は、このメールを破棄してください。")
+	appendContactFooter(&b, contactTo)
 	body = b.String()
 	return subject, body
 }
 
 // buildAlreadyJoinedEmail は申込済みアドレスへの案内メールの件名・本文を組み立てる（ADR-0049）。
-func buildAlreadyJoinedEmail(title string) (subject, body string) {
+func buildAlreadyJoinedEmail(title, contactTo string) (subject, body string) {
 	subject = alreadyJoinedSubjectPrefix +
 		truncateSubjectTitle(title, alreadyJoinedSubjectPrefix, alreadyJoinedSubjectSuffix) +
 		alreadyJoinedSubjectSuffix
@@ -335,8 +341,17 @@ func buildAlreadyJoinedEmail(title string) (subject, body string) {
 	b.WriteString("申込を確定していない場合は、確認メールのリンクから確定してください。\n")
 	b.WriteString("確認メールが見当たらない場合は、確認メールの有効期限（24時間）が切れた後に、あらためてお申し込みください。\n")
 	b.WriteString("心当たりがない場合は、このメールを破棄してください。")
+	appendContactFooter(&b, contactTo)
 	body = b.String()
 	return subject, body
+}
+
+// appendContactFooter は設定されたお問い合わせ先をメール末尾に付ける（ADR-0052）。
+func appendContactFooter(b *strings.Builder, contactTo string) {
+	if contactTo != "" {
+		b.WriteString("\n\nお問い合わせ先: ")
+		b.WriteString(contactTo)
+	}
 }
 
 // truncateSubjectTitle は件名全体を notificationSubjectMaxLen 文字以内に収めるため、

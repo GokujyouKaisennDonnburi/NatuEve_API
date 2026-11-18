@@ -768,7 +768,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com", "")
 
 			resp, err := svc.Join(context.Background(), eventID, tt.profileID, tt.req)
 
@@ -901,7 +901,7 @@ func TestEventJoinServiceConfirmJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, "https://web.example.com")
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, "https://web.example.com", "")
 			resp, err := svc.ConfirmJoin(context.Background(), eventID, tt.token)
 
 			switch {
@@ -1024,7 +1024,7 @@ func TestEventJoinServicePreviewJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, "https://web.example.com")
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, "https://web.example.com", "")
 			resp, err := svc.PreviewJoin(context.Background(), eventID, tt.token)
 
 			if tt.wantRepoNotCalled && tt.stub.gotPreviewEventID != uuid.Nil {
@@ -1111,7 +1111,7 @@ func TestBuildJoinEmails(t *testing.T) {
 		t.Errorf("confirmURL = %q, want %q", confirmURL, wantURL)
 	}
 
-	subject, body := buildJoinConfirmationEmail("テストイベント", confirmURL)
+	subject, body := buildJoinConfirmationEmail("テストイベント", confirmURL, "")
 	if !strings.Contains(subject, "テストイベント") {
 		t.Errorf("subject = %q, want イベント名を含む", subject)
 	}
@@ -1125,7 +1125,7 @@ func TestBuildJoinEmails(t *testing.T) {
 		t.Errorf("body = %q, want 有効期限の案内を含む", body)
 	}
 
-	subject, body = buildAlreadyJoinedEmail("テストイベント")
+	subject, body = buildAlreadyJoinedEmail("テストイベント", "")
 	if !strings.Contains(subject, "すでに申し込まれています") {
 		t.Errorf("subject = %q, want 申込済みの案内を含む", subject)
 	}
@@ -1144,7 +1144,7 @@ func TestBuildJoinEmails(t *testing.T) {
 
 	// 長いタイトルでも件名が 255 文字を超えない。
 	longTitle := strings.Repeat("あ", 300)
-	subject, _ = buildJoinConfirmationEmail(longTitle, confirmURL)
+	subject, _ = buildJoinConfirmationEmail(longTitle, confirmURL, "")
 	if len([]rune(subject)) > notificationSubjectMaxLen {
 		t.Errorf("long subject length = %d, want <= %d", len([]rune(subject)), notificationSubjectMaxLen)
 	}
@@ -1213,7 +1213,7 @@ func TestEventJoinServiceLeave(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com", "")
 
 			resp, err := svc.Leave(context.Background(), eventID, profileID)
 
@@ -1333,7 +1333,7 @@ func TestEventJoinServiceGetMyApplication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com", "")
 
 			resp, err := svc.GetMyApplication(context.Background(), eventID, profileID)
 
@@ -1673,7 +1673,7 @@ func TestEventJoinServiceAbsence(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.joinStub, tt.eventStub, "https://web.example.com")
+			svc := NewEventJoinService(tt.joinStub, tt.eventStub, "https://web.example.com", "")
 
 			resp, err := svc.Absence(context.Background(), eventID, profileID, tt.req)
 
@@ -1979,7 +1979,7 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.joinStub, tt.eventStub, "https://web.example.com")
+			svc := NewEventJoinService(tt.joinStub, tt.eventStub, "https://web.example.com", "")
 
 			resp, err := svc.ListMembers(context.Background(), tt.profileID, tt.eventID)
 

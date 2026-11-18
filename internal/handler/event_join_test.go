@@ -65,7 +65,7 @@ func TestEventHandler_Join_ValidationErrorCode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			repo := &stubEventJoinRepo{}
-			svc := service.NewEventJoinService(repo, nil, "https://web.example.com")
+			svc := service.NewEventJoinService(repo, nil, "https://web.example.com", "")
 			h := NewEventHandler(nil, nil, nil, svc)
 			r := gin.New()
 			r.POST("/api/v1/events/:id/join", h.Join)

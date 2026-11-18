@@ -96,6 +96,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
+          CONTACT_TO: ${{ vars.CONTACT_TO }}
           SCHEDULER_OIDC_AUDIENCE: ${{ secrets.SCHEDULER_OIDC_AUDIENCE }}
           SCHEDULER_SERVICE_ACCOUNT_EMAIL: ${{ vars.SCHEDULER_SERVICE_ACCOUNT_EMAIL }}
           RELAY_SECRET_PREVIOUS_VERSION: ${{ vars.RELAY_SECRET_PREVIOUS_VERSION }}
@@ -184,6 +185,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ vars.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ vars.R2_BUCKET }}
           MAIL_FROM: ${{ vars.MAIL_FROM }}
+          CONTACT_TO: ${{ vars.CONTACT_TO }}
           SCHEDULER_OIDC_AUDIENCE: ${{ secrets.SCHEDULER_OIDC_AUDIENCE }}
           SCHEDULER_SERVICE_ACCOUNT_EMAIL: ${{ vars.SCHEDULER_SERVICE_ACCOUNT_EMAIL }}
           RELAY_SECRET_PREVIOUS_VERSION: ${{ vars.RELAY_SECRET_PREVIOUS_VERSION }}

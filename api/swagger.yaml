@@ -190,6 +190,50 @@ definitions:
       error:
         $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody'
     type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactCategory:
+    enum:
+    - request
+    - bug
+    - other
+    type: string
+    x-enum-varnames:
+    - ContactCategoryRequest
+    - ContactCategoryBug
+    - ContactCategoryOther
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactRequest:
+    description: categoryは必須。messageは任意で、前後の空白を除いて2000文字以内。
+    properties:
+      category:
+        allOf:
+        - $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactCategory'
+        enum:
+        - request
+        - bug
+        - other
+        example: request
+      message:
+        example: 検索機能を追加してほしいです
+        type: string
+    required:
+    - category
+    type: object
+  github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactResponse:
+    properties:
+      category:
+        allOf:
+        - $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactCategory'
+        enum:
+        - request
+        - bug
+        - other
+        example: request
+      message:
+        example: 検索機能を追加してほしいです
+        type: string
+      receivedAt:
+        example: "2026-11-18T03:00:00Z"
+        type: string
+    type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.CreateEventRequest:
     description: イベント投稿に必要な情報。
     properties:
@@ -2493,6 +2537,46 @@ paths:
       summary: アップロード用署名付き URL 発行
       tags:
       - upload
+  /contact:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        認証不要。categoryは必須、messageは任意（trim後2000文字以内）。
+        202はoutboxへの受付完了であり、メール配信完了ではない。IPごとに平均5回/分・burst 5。
+      parameters:
+      - description: お問い合わせ内容
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse'
+        "429":
+          description: Too Many Requests
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse'
+      summary: 運営へのお問い合わせを受け付ける
+      tags:
+      - contact
   /health:
     get:
       description: サーバーが正常に稼働しているか確認する
