@@ -13,6 +13,17 @@ import (
 
 const contactMessageMaxLength = 2000
 
+// お問い合わせ全体の受付上限（ADR-0052）。送信済み・失敗を含む受付件数で数える。
+const (
+	contactAdmissionLimit  = 10
+	contactAdmissionWindow = 24 * time.Hour
+)
+
+// ErrContactLimitExceeded はお問い合わせの受付上限超過。handlerはHTTP 429を返す。
+var ErrContactLimitExceeded = repository.ErrContactLimitReached
+
+var contactMailLocation = time.FixedZone("JST", 9*60*60)
+
 // ContactService は入力を検証し、固定の管理者宛メールを予約する（ADR-0052）。
 type ContactService struct {
 	repo      repository.ContactRepository
@@ -34,17 +45,12 @@ func (s *ContactService) Submit(ctx context.Context, req model.ContactRequest) (
 		return model.ContactResponse{}, &ValidationError{Message: "お問い合わせの本文は2000文字以内で入力してください"}
 	}
 
-	categoryNames := map[model.ContactCategory]string{
-		model.ContactCategoryRequest: "要望",
-		model.ContactCategoryBug:     "不具合報告",
-		model.ContactCategoryOther:   "その他",
-	}
-	categoryName := categoryNames[req.Category]
+	categoryName := req.Category.Label()
 	receivedAt := time.Now().UTC().Truncate(time.Microsecond)
 	subject := "【お問い合わせ】" + categoryName
 	body := fmt.Sprintf("カテゴリ: %s\n受付日時: %s\n\nお問い合わせ内容:\n%s",
-		categoryName, receivedAt.Format(time.RFC3339Nano), message)
-	if err := s.repo.Enqueue(ctx, s.contactTo, subject, body, receivedAt); err != nil {
+		categoryName, receivedAt.In(contactMailLocation).Format("2006-01-02 15:04:05 MST"), message)
+	if err := s.repo.Enqueue(ctx, s.contactTo, subject, body, receivedAt, contactAdmissionWindow, contactAdmissionLimit); err != nil {
 		return model.ContactResponse{}, fmt.Errorf("submit contact: %w", err)
 	}
 	return model.ContactResponse{Category: req.Category, Message: message, ReceivedAt: receivedAt}, nil

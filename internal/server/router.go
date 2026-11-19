@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	netmail "net/mail"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -54,12 +53,8 @@ func NewRouter(ctx context.Context, cfg config.Config, sqlDB *sql.DB) (*gin.Engi
 	if err := validateWebBaseURL(cfg.WebBaseURL); err != nil {
 		return nil, nil, fmt.Errorf("WEB_BASE_URL: %w", err)
 	}
-	cfg.ContactTo = strings.TrimSpace(cfg.ContactTo)
-	if cfg.ContactTo != "" {
-		address, err := netmail.ParseAddress(cfg.ContactTo)
-		if err != nil || address.Address != cfg.ContactTo || strings.ContainsAny(cfg.ContactTo, "\r\n") {
-			return nil, nil, errors.New("CONTACT_TO: 単一のメールアドレスを指定してください（表示名・改行は不可）")
-		}
+	if err := validateContactTo(cfg.ContactTo); err != nil {
+		return nil, nil, fmt.Errorf("CONTACT_TO: %w", err)
 	}
 
 	// gin.Default() の代わりに slog 連携のロガー/リカバリを使う。
@@ -130,6 +125,18 @@ func newRelayGuard(cfg config.Config) (gin.HandlerFunc, error) {
 		return nil, fmt.Errorf("RELAY_SECRET / RELAY_CLIENT_IP_HEADER: %w", err)
 	}
 	return guard, nil
+}
+
+// validateContactTo はconfig.Loadで正規化済みの単一メールアドレスを検証する。未設定は許可する。
+func validateContactTo(value string) error {
+	if value == "" {
+		return nil
+	}
+	address, err := netmail.ParseAddress(value)
+	if err != nil || address.Address != value {
+		return errors.New("単一のメールアドレスを指定してください（表示名・改行は不可）")
+	}
+	return nil
 }
 
 // validateWebBaseURL は確認メールのリンク先となる Web のベースURLを検証する（ADR-0049）。
@@ -224,7 +231,7 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 			"イベントキャンセル時の通知は outbox に蓄積されますが送信されません")
 	}
 
-	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo, cfg.WebBaseURL, cfg.ContactTo)
+	eventJoinSvc := service.NewEventJoinService(eventJoinRepo, eventRepo, cfg.WebBaseURL)
 	eventCmdSvc := service.NewEventCommandService(eventRepo, store)
 
 	eventParticipationLogRepo := repository.NewEventParticipationLogRepository(sqlDB)
@@ -261,8 +268,8 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	eventListLimiter := middleware.NewIPRateLimiter(rate.Every(eventListRateInterval), eventListRateBurst).Middleware()
 
 	v1Public := r.Group("/api/v1")
-	// DB・送信設定・固定の宛先が揃ったときだけ、認証不要で受付する（ADR-0052）。
-	if mailer != nil && cfg.ContactTo != "" {
+	// 受付はDBと固定の宛先だけで有効にする。配信ワーカーの設定とは独立（ADR-0052）。
+	if cfg.ContactTo != "" {
 		contactSvc := service.NewContactService(repository.NewContactRepository(sqlDB), cfg.ContactTo)
 		contactHandler := handler.NewContactHandler(contactSvc)
 		contactLimiter := middleware.NewIPRateLimiter(rate.Every(contactRateInterval), contactRateBurst).Middleware()

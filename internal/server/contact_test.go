@@ -19,9 +19,9 @@ func TestContactRouteGating(t *testing.T) {
 	}{
 		{"設定済み・JWKSなし", "test-key", "from@example.com", "admin@example.com", false, 400},
 		{"CONTACT_TOなし", "test-key", "from@example.com", "", false, 404},
-		{"CONTACT_TO空白", "test-key", "from@example.com", "  ", false, 404},
-		{"RESEND_API_KEYなし", "", "from@example.com", "admin@example.com", false, 404},
-		{"MAIL_FROMなし", "test-key", "", "admin@example.com", false, 404},
+		{"RESEND_API_KEYなしでも受付", "", "from@example.com", "admin@example.com", false, 400},
+		{"MAIL_FROMなしでも受付", "test-key", "", "admin@example.com", false, 400},
+		{"配信設定なしでも受付", "", "", "admin@example.com", false, 400},
 		{"DBなし", "test-key", "from@example.com", "admin@example.com", true, 404},
 	}
 	for _, tt := range tests {
@@ -54,6 +54,27 @@ func TestContactToValidation(t *testing.T) {
 			_, _, err := NewRouter(context.Background(), cfg, nil)
 			if err == nil || !strings.Contains(err.Error(), "CONTACT_TO") {
 				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestValidateContactTo(t *testing.T) {
+	for _, tt := range []struct {
+		name, value string
+		valid       bool
+	}{
+		{"未設定", "", true},
+		{"単一アドレス", "admin@example.com", true},
+		{"形式不正", "invalid", false},
+		{"複数アドレス", "a@example.com,b@example.com", false},
+		{"表示名", "Admin <admin@example.com>", false},
+		{"未正規化", " admin@example.com ", false},
+		{"改行", "a@example.com\r\nBcc: b@example.com", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateContactTo(tt.value); (err == nil) != tt.valid {
+				t.Fatalf("err=%v valid=%t", err, tt.valid)
 			}
 		})
 	}

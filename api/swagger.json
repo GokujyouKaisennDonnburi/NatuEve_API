@@ -1557,7 +1557,7 @@
         },
         "/contact": {
             "post": {
-                "description": "認証不要。categoryは必須、messageは任意（trim後2000文字以内）。\n202はoutboxへの受付完了であり、メール配信完了ではない。IPごとに平均5回/分・burst 5。",
+                "description": "認証不要。categoryは必須、messageは任意（trim後2000文字以内）。\n202はoutboxへの受付完了であり、メール配信完了ではない。IPごとに平均5回/分・burst 5。\nお問い合わせ全体で直近24時間に10件まで受付。上限超過は429 / rate_limitedで、保存・送信されない。",
                 "consumes": [
                     "application/json"
                 ],

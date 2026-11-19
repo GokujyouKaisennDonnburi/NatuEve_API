@@ -43,8 +43,8 @@ cp .env.example .env
 | `RELAY_SECRET_PREVIOUS` | 値の差し替え中だけ設定する古い秘密値。`RELAY_SECRET` と同じく受け付ける | （未設定） |
 | `RELAY_CLIENT_IP_HEADER` | 中継用 Worker が利用者 IP を入れるヘッダー名。確認に通ったリクエストに限り、IP レート制限とログの IP をこの値から読む。`RELAY_SECRET` と片方だけ設定すると起動しない | （未設定） |
 | `CORS_ALLOW_ORIGINS` | CORS で許可するオリジン（カンマ区切り、`scheme://host[:port]` の形）。末尾スラッシュ・パス・`*` を含む値があると起動しない（ADR-0033） | `http://localhost:3000,http://localhost:8787` |
-| `WEB_BASE_URL` | 参加申込の確認メールのリンク先となる Web のベースURL（`http` / `https` の絶対URL。query・fragment 不可。ADR-0049） | `http://localhost:3000` |
-| `CONTACT_TO` | 管理者のお問い合わせ受信先（表示名なしの単一メールアドレス）。DB・`RESEND_API_KEY`・`MAIL_FROM` と共に設定すると公開 `POST /api/v1/contact` を登録する。ゲスト申込メールの末尾にも掲載。不正な形式は起動エラー（ADR-0052） | （未設定＝ルート未登録・メール掲載なし） |
+| `WEB_BASE_URL` | 参加申込の確認画面とお問い合わせフォーム（`/contact`）のリンク先となる Web のベースURL（`http` / `https` の絶対URL。query・fragment 不可。ADR-0049 / ADR-0052） | `http://localhost:3000` |
+| `CONTACT_TO` | 管理者のお問い合わせ受信先（表示名なしの単一メールアドレス）。DBと共に設定すると公開 `POST /api/v1/contact` を登録する。配信にはResend設定とワーカーの起動が別途必要。受信先は申込メールには掲載しない。不正な形式は起動エラー（ADR-0052） | （未設定＝ルート未登録） |
 | `OUTBOX_WORKER_ENABLED` | `true` で、API プロセス内に通知メールの outbox を 30 秒間隔で処理する常駐ワーカーを起動する（ローカル開発用。本番は設定しない。ADR-0035） | `false` |
 | `SCHEDULER_OIDC_AUDIENCE` | Cloud Scheduler の OIDC トークンの audience。`SCHEDULER_SERVICE_ACCOUNT_EMAIL` と両方設定すると `POST /internal/outbox/process` が有効になる（ADR-0035） | （未設定） |
 | `SCHEDULER_SERVICE_ACCOUNT_EMAIL` | Cloud Scheduler のジョブが使うサービスアカウントのメールアドレス | （未設定） |

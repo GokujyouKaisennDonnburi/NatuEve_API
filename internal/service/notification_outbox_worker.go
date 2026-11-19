@@ -171,6 +171,14 @@ func (w *NotificationOutboxWorker) processOne(ctx context.Context, claim reposit
 	workCtx, cancelWork := context.WithDeadline(ctx, claim.Deadline().Add(-w.markReserve))
 	defer cancelWork()
 
+	// イベントが必須の宛先を、IDなしで空の参加者一覧・送信済みとして扱わない。
+	if item.RecipientKind != model.NotificationOutboxRecipientKindEmail && (!item.EventID.Valid || item.EventID.UUID == uuid.Nil) {
+		if err := claim.MarkFailed(markCtx, "event_id is required"); err != nil {
+			slog.Error("outbox の failed 更新に失敗しました", slog.String("outbox_id", item.ID.String()), slog.Any("error", err))
+		}
+		return
+	}
+
 	if item.RecipientKind == model.NotificationOutboxRecipientKindOrganizer {
 		w.processOrganizer(workCtx, markCtx, claim)
 		return
@@ -180,7 +188,7 @@ func (w *NotificationOutboxWorker) processOne(ctx context.Context, claim reposit
 		return
 	}
 
-	recipients, err := w.joinRepo.ListRecipients(workCtx, item.EventID)
+	recipients, err := w.joinRepo.ListRecipients(workCtx, item.EventID.UUID)
 	if err != nil {
 		slog.Error("outbox の宛先取得に失敗しました",
 			slog.String("outbox_id", item.ID.String()),
@@ -227,7 +235,7 @@ func (w *NotificationOutboxWorker) processOne(ctx context.Context, claim reposit
 func (w *NotificationOutboxWorker) processOrganizer(ctx context.Context, markCtx context.Context, claim repository.OutboxClaim) {
 	item := claim.Item()
 
-	to, err := w.eventRepo.GetOrganizerEmail(ctx, item.EventID)
+	to, err := w.eventRepo.GetOrganizerEmail(ctx, item.EventID.UUID)
 	if err != nil {
 		slog.Error("outbox の宛先取得に失敗しました",
 			slog.String("outbox_id", item.ID.String()),

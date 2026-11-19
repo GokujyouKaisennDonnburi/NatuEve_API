@@ -22,7 +22,7 @@ type stubContactRepository struct {
 	err   error
 }
 
-func (r *stubContactRepository) Enqueue(context.Context, string, string, string, time.Time) error {
+func (r *stubContactRepository) Enqueue(context.Context, string, string, string, time.Time, time.Duration, int) error {
 	r.calls++
 	return r.err
 }
@@ -33,27 +33,25 @@ func TestContactHandlerSubmit(t *testing.T) {
 		name, body string
 		status     int
 		code       string
-		dbError    bool
+		repoError  error
 	}{
-		{"認証なしで受付", `{"category":"request","message":" デモ用の要望です "}`, 202, "", false},
-		{"本文省略", `{"category":"bug"}`, 202, "", false},
-		{"本文null", `{"category":"other","message":null}`, 202, "", false},
-		{"カテゴリなし", `{"message":"要望"}`, 400, "invalid_request", false},
-		{"カテゴリ空", `{"category":""}`, 400, "invalid_request", false},
-		{"カテゴリ不正", `{"category":"unknown"}`, 400, "invalid_request", false},
-		{"カテゴリnull", `{"category":null}`, 400, "invalid_request", false},
-		{"本文の型不正", `{"category":"request","message":5}`, 400, "invalid_request", false},
-		{"JSON不正", `{"category":`, 400, "invalid_request", false},
-		{"本文超過", `{"category":"request","message":"` + strings.Repeat("あ", 2001) + `"}`, 400, "invalid_request", false},
-		{"BodyLimit超過", `{"category":"request","message":"` + strings.Repeat("x", 1<<20) + `"}`, 413, "request_too_large", false},
-		{"DB失敗", `{"category":"request"}`, 500, "internal_error", true},
+		{"認証なしで受付", `{"category":"request","message":" デモ用の要望です "}`, 202, "", nil},
+		{"本文省略", `{"category":"bug"}`, 202, "", nil},
+		{"本文null", `{"category":"other","message":null}`, 202, "", nil},
+		{"カテゴリなし", `{"message":"要望"}`, 400, "invalid_request", nil},
+		{"カテゴリ空", `{"category":""}`, 400, "invalid_request", nil},
+		{"カテゴリ不正", `{"category":"unknown"}`, 400, "invalid_request", nil},
+		{"カテゴリnull", `{"category":null}`, 400, "invalid_request", nil},
+		{"本文の型不正", `{"category":"request","message":5}`, 400, "invalid_request", nil},
+		{"JSON不正", `{"category":`, 400, "invalid_request", nil},
+		{"本文超過", `{"category":"request","message":"` + strings.Repeat("あ", 2001) + `"}`, 400, "invalid_request", nil},
+		{"BodyLimit超過", `{"category":"request","message":"` + strings.Repeat("x", 1<<20) + `"}`, 413, "request_too_large", nil},
+		{"DB失敗", `{"category":"request"}`, 500, "internal_error", errors.New("private database error")},
+		{"全体上限超過", `{"category":"request"}`, 429, "rate_limited", service.ErrContactLimitExceeded},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := &stubContactRepository{}
-			if tt.dbError {
-				repo.err = errors.New("private database error")
-			}
+			repo := &stubContactRepository{err: tt.repoError}
 			h := NewContactHandler(service.NewContactService(repo, "admin@example.com"))
 			r := gin.New()
 			r.Use(middleware.BodyLimit())
@@ -76,7 +74,7 @@ func TestContactHandlerSubmit(t *testing.T) {
 				if strings.Contains(w.Body.String(), "private database") {
 					t.Fatal("内部エラー詳細が公開された")
 				}
-				if !tt.dbError && repo.calls != 0 {
+				if tt.repoError == nil && repo.calls != 0 {
 					t.Fatal("不正な入力でoutboxを呼んだ")
 				}
 				return

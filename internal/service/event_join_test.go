@@ -768,7 +768,7 @@ func TestEventJoinServiceJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com", "")
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
 
 			resp, err := svc.Join(context.Background(), eventID, tt.profileID, tt.req)
 
@@ -901,7 +901,7 @@ func TestEventJoinServiceConfirmJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, "https://web.example.com", "")
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, "https://web.example.com")
 			resp, err := svc.ConfirmJoin(context.Background(), eventID, tt.token)
 
 			switch {
@@ -1024,7 +1024,7 @@ func TestEventJoinServicePreviewJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, "https://web.example.com", "")
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{}, "https://web.example.com")
 			resp, err := svc.PreviewJoin(context.Background(), eventID, tt.token)
 
 			if tt.wantRepoNotCalled && tt.stub.gotPreviewEventID != uuid.Nil {
@@ -1213,7 +1213,7 @@ func TestEventJoinServiceLeave(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com", "")
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
 
 			resp, err := svc.Leave(context.Background(), eventID, profileID)
 
@@ -1333,7 +1333,7 @@ func TestEventJoinServiceGetMyApplication(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com", "")
+			svc := NewEventJoinService(tt.stub, &stubEventRepository{title: "テストイベント"}, "https://web.example.com")
 
 			resp, err := svc.GetMyApplication(context.Background(), eventID, profileID)
 
@@ -1673,7 +1673,7 @@ func TestEventJoinServiceAbsence(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.joinStub, tt.eventStub, "https://web.example.com", "")
+			svc := NewEventJoinService(tt.joinStub, tt.eventStub, "https://web.example.com")
 
 			resp, err := svc.Absence(context.Background(), eventID, profileID, tt.req)
 
@@ -1979,7 +1979,7 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := NewEventJoinService(tt.joinStub, tt.eventStub, "https://web.example.com", "")
+			svc := NewEventJoinService(tt.joinStub, tt.eventStub, "https://web.example.com")
 
 			resp, err := svc.ListMembers(context.Background(), tt.profileID, tt.eventID)
 
@@ -2013,6 +2013,80 @@ func TestEventJoinServiceListMembers(t *testing.T) {
 			}
 			if tt.checkListMembersCalled != nil {
 				tt.checkListMembersCalled(t, tt.joinStub)
+			}
+		})
+	}
+}
+
+func TestBuildContactURL(t *testing.T) {
+	for _, tt := range []struct{ name, baseURL, want string }{
+		{"通常", "https://web.example.com", "https://web.example.com/contact"},
+		{"末尾スラッシュ", "https://web.example.com/", "https://web.example.com/contact"},
+		{"パス付き", "https://web.example.com/natueve/", "https://web.example.com/natueve/contact"},
+		{"ローカル", "http://localhost:3000", "http://localhost:3000/contact"},
+		{"未設定", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := buildContactURL(tt.baseURL); got != tt.want {
+				t.Fatalf("URL=%q want=%q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestJoinEmailsContactFooter(t *testing.T) {
+	for _, tt := range []struct{ name, contactURL, suffix string }{
+		{"フォームURL", "https://web.example.com/contact", "\n\nお問い合わせ先: https://web.example.com/contact"},
+		{"未設定", "", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, confirmation := buildJoinConfirmationEmail("観察会", "https://web.example.com/confirm", tt.contactURL)
+			_, notice := buildAlreadyJoinedEmail("観察会", tt.contactURL)
+			for _, mail := range []struct{ name, body string }{
+				{"確認メール", confirmation},
+				{"申込済み案内", notice},
+			} {
+				if tt.contactURL == "" {
+					if strings.Contains(mail.body, "お問い合わせ先:") {
+						t.Errorf("%s: 未設定の窓口が表示された", mail.name)
+					}
+				} else if !strings.HasSuffix(mail.body, tt.suffix) {
+					t.Errorf("%s: フォームURLが末尾にない", mail.name)
+				}
+			}
+		})
+	}
+}
+
+func TestGuestJoinIncludesContactURLWithoutAdminAddress(t *testing.T) {
+	const privateAddress = "private-admin@example.com"
+	t.Setenv("CONTACT_TO", privateAddress)
+	for _, tt := range []struct {
+		name    string
+		outcome repository.JoinOutcome
+		baseURL string
+	}{
+		{"新規申込", repository.JoinOutcomePending, "https://web.example.com"},
+		{"末尾スラッシュ", repository.JoinOutcomePending, "https://web.example.com/"},
+		{"申込済み", repository.JoinOutcomeAlreadyJoined, "https://web.example.com"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &stubEventJoinRepository{joinOutcome: tt.outcome}
+			svc := NewEventJoinService(repo, &stubEventRepository{title: "観察会"}, tt.baseURL)
+			_, err := svc.Join(context.Background(), uuid.New(), uuid.NullUUID{}, model.JoinEventRequest{
+				Username: "デモ太郎", MailAddress: "guest@example.com",
+				Participants: []model.ParticipantInput{{Category: "大人", HeadCount: 1}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, body := range []string{repo.gotNotification.ConfirmationBody, repo.gotNotification.NoticeBody} {
+				if !strings.HasSuffix(body, "\n\nお問い合わせ先: https://web.example.com/contact") {
+					t.Error("フォームURLがメール予約へ渡されていない")
+				}
+				if strings.Contains(body, privateAddress) || strings.Contains(body, "mailto:") {
+					t.Error("管理者の受信先アドレスがメール本文に含まれている")
+				}
 			}
 		})
 	}

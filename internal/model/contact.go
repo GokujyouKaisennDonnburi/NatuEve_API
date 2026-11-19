@@ -14,11 +14,20 @@ const (
 
 // IsValid は定義された3種類のカテゴリかを返す。
 func (c ContactCategory) IsValid() bool {
+	return c.Label() != ""
+}
+
+// Label はメールに表示するカテゴリ名を返す。未定義のカテゴリは空文字を返す。
+func (c ContactCategory) Label() string {
 	switch c {
-	case ContactCategoryRequest, ContactCategoryBug, ContactCategoryOther:
-		return true
+	case ContactCategoryRequest:
+		return "要望"
+	case ContactCategoryBug:
+		return "不具合報告"
+	case ContactCategoryOther:
+		return "その他"
 	default:
-		return false
+		return ""
 	}
 }
 

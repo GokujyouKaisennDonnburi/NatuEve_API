@@ -160,15 +160,16 @@ func TestLoadDBMaxOpenConns(t *testing.T) {
 }
 
 func TestLoadContactTo(t *testing.T) {
-	for _, value := range []string{"", "admin@example.com", " admin@example.com\n"} {
-		t.Run(value, func(t *testing.T) {
-			t.Setenv("CONTACT_TO", value)
-			want := "admin@example.com"
-			if value == "" {
-				want = ""
-			}
-			if got := Load().ContactTo; got != want {
-				t.Errorf("ContactTo=%q want=%q", got, want)
+	for _, tt := range []struct{ name, in, want string }{
+		{"未設定", "", ""},
+		{"アドレス", "admin@example.com", "admin@example.com"},
+		{"前後の空白", " admin@example.com\n", "admin@example.com"},
+		{"空白のみ", " \t\n", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("CONTACT_TO", tt.in)
+			if got := Load().ContactTo; got != tt.want {
+				t.Errorf("ContactTo=%q want=%q", got, tt.want)
 			}
 		})
 	}

@@ -26,6 +26,7 @@ func NewContactHandler(svc *service.ContactService) *ContactHandler {
 //	@Summary		運営へのお問い合わせを受け付ける
 //	@Description	認証不要。categoryは必須、messageは任意（trim後2000文字以内）。
 //	@Description	202はoutboxへの受付完了であり、メール配信完了ではない。IPごとに平均5回/分・burst 5。
+//	@Description	お問い合わせ全体で直近24時間に10件まで受付。上限超過は429 / rate_limitedで、保存・送信されない。
 //	@Tags			contact
 //	@Accept			json
 //	@Produce		json
@@ -43,6 +44,10 @@ func (h *ContactHandler) Submit(c *gin.Context) {
 	}
 	resp, err := h.svc.Submit(c.Request.Context(), req)
 	if err != nil {
+		if errors.Is(err, service.ErrContactLimitExceeded) {
+			c.JSON(http.StatusTooManyRequests, model.NewErrorResponse("rate_limited", "お問い合わせの受付上限に達しました。時間をおいて再度お試しください"))
+			return
+		}
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {
 			c.JSON(http.StatusBadRequest, model.NewErrorResponse(validationCode(ve), ve.Message))

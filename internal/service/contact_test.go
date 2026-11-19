@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
@@ -17,11 +15,14 @@ type stubContactRepo struct {
 	calls             int
 	to, subject, body string
 	receivedAt        time.Time
+	window            time.Duration
+	limit             int
 	err               error
 }
 
-func (r *stubContactRepo) Enqueue(_ context.Context, to, subject, body string, receivedAt time.Time) error {
+func (r *stubContactRepo) Enqueue(_ context.Context, to, subject, body string, receivedAt time.Time, window time.Duration, limit int) error {
 	r.calls++
+	r.window, r.limit = window, limit
 	r.to, r.subject, r.body, r.receivedAt = to, subject, body, receivedAt
 	return r.err
 }
@@ -66,10 +67,13 @@ func TestContactServiceSubmit(t *testing.T) {
 			if resp.ReceivedAt.Before(start) || resp.ReceivedAt.After(time.Now()) || resp.ReceivedAt != repo.receivedAt {
 				t.Errorf("receivedAt=%s, outbox time=%s", resp.ReceivedAt, repo.receivedAt)
 			}
+			if repo.window != 24*time.Hour || repo.limit != 10 {
+				t.Fatalf("window=%s limit=%d", repo.window, repo.limit)
+			}
 			if repo.calls != 1 || repo.to != "admin@example.com" || repo.subject != "【お問い合わせ】"+tt.label {
 				t.Fatalf("unexpected enqueue: %+v", repo)
 			}
-			for _, text := range []string{"カテゴリ: " + tt.label, resp.Message, resp.ReceivedAt.Format(time.RFC3339Nano)} {
+			for _, text := range []string{"カテゴリ: " + tt.label, resp.Message, resp.ReceivedAt.In(time.FixedZone("JST", 9*60*60)).Format("2006-01-02 15:04:05 MST")} {
 				if !strings.Contains(repo.body, text) {
 					t.Errorf("mail body missing %q", text)
 				}
@@ -79,78 +83,18 @@ func TestContactServiceSubmit(t *testing.T) {
 }
 
 func TestContactServiceEnqueueFailure(t *testing.T) {
-	cause := errors.New("database unavailable")
-	svc := NewContactService(&stubContactRepo{err: cause}, "admin@example.com")
-	resp, err := svc.Submit(context.Background(), model.ContactRequest{Category: model.ContactCategoryBug})
-	if !errors.Is(err, cause) || !resp.ReceivedAt.IsZero() {
-		t.Fatalf("resp=%+v err=%v", resp, err)
-	}
-}
-
-func TestJoinEmailsContactFooter(t *testing.T) {
-	for _, contactTo := range []string{"", "admin@example.com"} {
-		t.Run(contactTo, func(t *testing.T) {
-			_, confirmation := buildJoinConfirmationEmail("観察会", "https://web.example.com/confirm", contactTo)
-			_, notice := buildAlreadyJoinedEmail("観察会", contactTo)
-			for _, body := range []string{confirmation, notice} {
-				if contactTo == "" {
-					if strings.Contains(body, "お問い合わせ先:") {
-						t.Fatal("未設定の窓口が表示された")
-					}
-				} else if !strings.HasSuffix(body, "\n\nお問い合わせ先: "+contactTo) {
-					t.Fatalf("お問い合わせ先が末尾にない: %s", body)
-				}
-			}
-		})
-	}
-}
-
-func TestContactOutboxWorkerWithoutEvent(t *testing.T) {
-	for _, failure := range []bool{false, true} {
-		t.Run(map[bool]string{false: "送信成功", true: "送信失敗を再試行"}[failure], func(t *testing.T) {
-			item := model.EventNotificationOutbox{
-				ID: uuid.New(), RecipientKind: model.NotificationOutboxRecipientKindEmail,
-				RecipientEmail: "admin@example.com", Subject: "【お問い合わせ】要望", Body: "要望です",
-			}
-			repo := &fakeOutboxRepo{dueItems: []model.EventNotificationOutbox{item}}
-			mailer := &workerFakeMailer{}
-			if failure {
-				mailer.sendErr = ErrMailRateLimited
-			}
-			// お問い合わせはイベント・参加者Repositoryに依存せず送信できる。
-			worker := NewNotificationOutboxWorker(repo, nil, nil, mailer)
-			worker.processOne(context.Background(), repo.claim(item))
-			if mailer.callCount != 1 || len(mailer.gotEmails) != 1 || mailer.gotEmails[0].To != item.RecipientEmail ||
-				mailer.gotEmails[0].Subject != item.Subject || mailer.gotEmails[0].Text != item.Body {
-				t.Fatalf("unexpected send: %+v", mailer)
-			}
-			if failure {
-				if len(repo.retryCalls) != 1 || len(repo.sentIDs) != 0 {
-					t.Fatal("失敗が再試行に回らない")
-				}
-			} else if len(repo.sentIDs) != 1 {
-				t.Fatal("送信済みに更新されない")
-			}
-		})
-	}
-}
-
-func TestGuestJoinIncludesContactFooter(t *testing.T) {
-	for _, outcome := range []repository.JoinOutcome{repository.JoinOutcomePending, repository.JoinOutcomeAlreadyJoined} {
-		t.Run(string(outcome), func(t *testing.T) {
-			repo := &stubEventJoinRepository{joinOutcome: outcome}
-			svc := NewEventJoinService(repo, &stubEventRepository{title: "観察会"}, "https://web.example.com", "admin@example.com")
-			_, err := svc.Join(context.Background(), uuid.New(), uuid.NullUUID{}, model.JoinEventRequest{
-				Username: "デモ太郎", MailAddress: "guest@example.com",
-				Participants: []model.ParticipantInput{{Category: "大人", HeadCount: 1}},
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, body := range []string{repo.gotNotification.ConfirmationBody, repo.gotNotification.NoticeBody} {
-				if !strings.HasSuffix(body, "\n\nお問い合わせ先: admin@example.com") {
-					t.Fatal("窓口がメール予約へ渡されていない")
-				}
+	for _, tt := range []struct {
+		name  string
+		cause error
+	}{
+		{"保存失敗", errors.New("database unavailable")},
+		{"全体上限超過", repository.ErrContactLimitReached},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewContactService(&stubContactRepo{err: tt.cause}, "admin@example.com")
+			resp, err := svc.Submit(context.Background(), model.ContactRequest{Category: model.ContactCategoryBug})
+			if !errors.Is(err, tt.cause) || !resp.ReceivedAt.IsZero() {
+				t.Fatalf("resp=%+v err=%v", resp, err)
 			}
 		})
 	}
