@@ -19,7 +19,8 @@ import (
 // 同じ行を同時に確保することはない（ADR-0035）。
 type EventNotificationOutboxRepository interface {
 	// ClaimNextDue は status='pending' かつ next_attempt_at <= now の行のうち、
-	// next_attempt_at が最も古い 1 件を確保して返す。他の処理が確保中の行は飛ばす。
+	// イベント通知をお問い合わせより先にし、同じ用途ではnext_attempt_atが最も古い1件を返す。
+	// 他の処理が確保中の行は飛ばす。
 	// excludeIDs に含まれる行は対象外にする（同じ呼び出し内で処理済みの行を取り直さないため）。
 	// 対象の行が無いときは (nil, nil) を返す。
 	//
@@ -68,12 +69,12 @@ const outboxClaimTimeout = 2 * time.Minute
 // outboxClaimTimeout の期限付きで開始するため、ctx のキャンセルでは巻き戻されない（ADR-0035）。
 func (r *eventNotificationOutboxPostgres) ClaimNextDue(ctx context.Context, now time.Time, excludeIDs []uuid.UUID) (OutboxClaim, error) {
 	const query = `
-		SELECT id, event_id, recipient_kind, recipient_email, subject, body, status, attempts, next_attempt_at,
+		SELECT id, event_id, purpose, recipient_kind, recipient_email, subject, body, status, attempts, next_attempt_at,
 		       last_error, sent_at, created_at, updated_at
 		FROM event_notification_outbox
 		WHERE status = $1 AND next_attempt_at <= $2
 		  AND NOT (id::text = ANY(coalesce($3::text[], '{}')))
-		ORDER BY next_attempt_at ASC
+		ORDER BY (purpose = 'contact') ASC, next_attempt_at ASC
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED`
 
@@ -105,6 +106,7 @@ func (r *eventNotificationOutboxPostgres) ClaimNextDue(ctx context.Context, now 
 	err = tx.QueryRowContext(ctx, query, model.NotificationOutboxStatusPending, now, exclude).Scan(
 		&item.ID,
 		&item.EventID,
+		&item.Purpose,
 		&item.RecipientKind,
 		&recipient,
 		&item.Subject,

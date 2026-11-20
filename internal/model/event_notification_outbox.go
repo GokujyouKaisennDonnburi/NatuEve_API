@@ -20,11 +20,17 @@ const (
 //
 // members: 従来の参加者全員宛（event_members から宛先を解決）/
 // organizer: 主催者1人宛（events JOIN profiles の email から宛先を解決）/
-// email: recipient_email の1人宛（参加申込の確認メール・案内メール。ADR-0049）。
+// email: recipient_email の1人宛（参加申込の確認・案内メール、お問い合わせ。ADR-0049 / ADR-0052）。
 const (
 	NotificationOutboxRecipientKindMembers   = "members"
 	NotificationOutboxRecipientKindOrganizer = "organizer"
 	NotificationOutboxRecipientKindEmail     = "email"
+)
+
+// outbox の通知用途。宛先の解決方法（recipient_kind）とは別に保持する（ADR-0052）。
+const (
+	NotificationOutboxPurposeEvent   = "event"
+	NotificationOutboxPurposeContact = "contact"
 )
 
 // EventNotificationOutbox は event_notification_outbox テーブルと対応するドメインモデル。
@@ -34,8 +40,11 @@ const (
 // members / organizer の宛先はスナップショットせず、NotificationOutboxWorker が送信直前に
 // event_members または events から解決する。email は RecipientEmail を使う（ADR-0049）。
 type EventNotificationOutbox struct {
-	ID      uuid.UUID
-	EventID uuid.UUID
+	ID uuid.UUID
+	// EventID はお問い合わせでは無効（DBはNULL）、イベント通知では有効（ADR-0052）。
+	EventID uuid.NullUUID
+	// Purpose は通知用途。NotificationOutboxPurposeEvent / Contact のいずれか。
+	Purpose string
 	// RecipientKind は宛先種別。NotificationOutboxRecipientKindMembers /
 	// NotificationOutboxRecipientKindOrganizer / NotificationOutboxRecipientKindEmail のいずれか。
 	RecipientKind string
