@@ -1,0 +1,47 @@
+package model
+
+import "time"
+
+// ContactCategory はお問い合わせ内容の分類（ADR-0052）。
+type ContactCategory string
+
+// お問い合わせカテゴリとして受け付ける値。
+const (
+	ContactCategoryRequest ContactCategory = "request"
+	ContactCategoryBug     ContactCategory = "bug"
+	ContactCategoryOther   ContactCategory = "other"
+)
+
+// IsValid は定義された3種類のカテゴリかを返す。
+func (c ContactCategory) IsValid() bool {
+	return c.Label() != ""
+}
+
+// Label はメールに表示するカテゴリ名を返す。未定義のカテゴリは空文字を返す。
+func (c ContactCategory) Label() string {
+	switch c {
+	case ContactCategoryRequest:
+		return "要望"
+	case ContactCategoryBug:
+		return "不具合報告"
+	case ContactCategoryOther:
+		return "その他"
+	default:
+		return ""
+	}
+}
+
+// ContactRequest は認証不要のお問い合わせ受付リクエスト。
+//
+//	@Description	categoryは必須。messageは任意で、前後の空白を除いて2000文字以内。
+type ContactRequest struct {
+	Category ContactCategory `json:"category" binding:"required" enums:"request,bug,other" example:"request"`
+	Message  string          `json:"message" example:"検索機能を追加してほしいです"`
+}
+
+// ContactResponse はメール配信ではなく受付完了を表す。
+type ContactResponse struct {
+	Category   ContactCategory `json:"category" enums:"request,bug,other" example:"request"`
+	Message    string          `json:"message" example:"検索機能を追加してほしいです"`
+	ReceivedAt time.Time       `json:"receivedAt" example:"2026-11-18T03:00:00Z"`
+}

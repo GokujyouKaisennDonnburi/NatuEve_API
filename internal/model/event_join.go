@@ -100,6 +100,19 @@ type ConfirmJoinResponse struct {
 	PartySize int `json:"partySize" example:"3" validate:"required"`
 }
 
+// PreviewJoinResponse は参加申込内容プレビュー時に返すレスポンス（ADR-0049）。
+// participants / partySize は申込時に保存した内容のスナップショットで、
+// mailAddress / username は含まない。
+type PreviewJoinResponse struct {
+	// Participants は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。
+	// API 経由の申込では必ず1件以上入る。DB は内訳0件を禁じていないため、
+	// 直接 INSERT された行では空配列になりうる（ADR-0026）。
+	Participants []ParticipantResponse `json:"participants" validate:"required"`
+	// PartySize は申込時に保存した参加人数。
+	// API 経由の申込では participants の headCount 合計と一致する。
+	PartySize int `json:"partySize" example:"3" validate:"required"`
+}
+
 // MyEventApplicationResponse はログイン中ユーザー自身の申込内容取得エンドポイントのレスポンス DTO。
 // 金額は含まない（ADR-0026）。参加費はイベント詳細（costs）を参照する。
 type MyEventApplicationResponse struct {

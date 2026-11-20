@@ -68,4 +68,5 @@
 | [0049](./0049-guest-join-confirmation.md) | ゲストの参加申込は確認メールのトークンで確定する | Accepted |
 | [0050](./0050-event-list-ip-rate-limit.md) | イベント一覧 API に API 側で IP レートリミットを掛け、他の公開 GET には今は掛けない | Accepted |
 | [0051](./0051-notification-send-limit.md) | 一斉送信の回数上限をイベントごと・24時間あたり5回とし、DB で数える | Accepted |
-| [0052](./0052-r2-presigned-put-content-length-enforcement.md) | R2 の署名付き PUT で Content-Length を強制する | Accepted |
+| [0052](./0052-contact-outbox.md) | 公開お問い合わせAPIを管理者宛メールのoutbox受付として提供する | Accepted |
+| [0053](./0052-r2-presigned-put-content-length-enforcement.md) | R2 の署名付き PUT で Content-Length を強制する | Accepted |

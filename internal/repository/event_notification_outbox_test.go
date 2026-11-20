@@ -66,6 +66,58 @@ func pendingIDsExcept(t *testing.T, db *sql.DB, keep ...uuid.UUID) []uuid.UUID {
 	return ids
 }
 
+func TestEventNotificationOutboxPostgresPrioritizesEvents(t *testing.T) {
+	db := requireTestDB(t)
+	ctx := context.Background()
+	eventID := insertTestEvent(t, db, insertTestProfile(t, db))
+	now := time.Now()
+	eventOutboxID, oldContactID, newContactID := uuid.New(), uuid.New(), uuid.New()
+	for _, row := range []struct {
+		id      uuid.UUID
+		purpose string
+		eventID uuid.NullUUID
+		dueAt   time.Time
+	}{
+		{oldContactID, model.NotificationOutboxPurposeContact, uuid.NullUUID{}, now.Add(-2 * time.Hour)},
+		{newContactID, model.NotificationOutboxPurposeContact, uuid.NullUUID{}, now.Add(-time.Hour)},
+		{eventOutboxID, model.NotificationOutboxPurposeEvent, uuid.NullUUID{UUID: eventID, Valid: true}, now},
+	} {
+		t.Cleanup(func() {
+			if _, err := db.ExecContext(context.Background(), `DELETE FROM event_notification_outbox WHERE id = $1`, row.id); err != nil {
+				t.Error(err)
+			}
+		})
+		_, err := db.ExecContext(ctx, `INSERT INTO event_notification_outbox
+			(id, event_id, purpose, recipient_kind, recipient_email, subject, body, next_attempt_at)
+			VALUES($1, $2, $3, 'email', 'recipient@example.com', 'test', 'test', $4)`, row.id, row.eventID, row.purpose, row.dueAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	exclude := pendingIDsExcept(t, db, eventOutboxID, oldContactID, newContactID)
+	repo := NewEventNotificationOutboxRepository(db)
+	for _, want := range []uuid.UUID{eventOutboxID, oldContactID, newContactID} {
+		claim, err := repo.ClaimNextDue(ctx, now.Add(time.Second), exclude)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if claim == nil {
+			t.Fatal("送信対象が取得できない")
+		}
+		item := claim.Item()
+		if err := claim.Release(); err != nil {
+			t.Fatal(err)
+		}
+		if item.ID != want {
+			t.Fatalf("id=%s want=%s", item.ID, want)
+		}
+		if item.EventID.Valid != (want == eventOutboxID) {
+			t.Fatalf("EventID=%+v id=%s", item.EventID, item.ID)
+		}
+		exclude = append(exclude, item.ID)
+	}
+}
+
 // TestEventNotificationOutboxPostgres_Claim は ClaimNextDue と、返された OutboxClaim の
 // Mark* / Release を一連の流れで検証する。
 func TestEventNotificationOutboxPostgres_Claim(t *testing.T) {

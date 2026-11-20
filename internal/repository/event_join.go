@@ -76,6 +76,15 @@ type ConfirmJoinResult struct {
 	Categories []model.MemberCategory
 }
 
+// PreviewJoinResult はプレビューする未確定申込の内容（ADR-0049）。
+type PreviewJoinResult struct {
+	// PartySize は申込時に保存した参加人数。
+	PartySize int
+	// Categories は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。
+	// 内訳がない場合も nil ではなく空スライス。
+	Categories []model.MemberCategory
+}
+
 // pgUniqueViolationCode は PostgreSQL の unique_violation エラーコード。
 const pgUniqueViolationCode = "23505"
 
@@ -132,6 +141,17 @@ type EventJoinRepository interface {
 	//   - ErrEventCapacityFull: 定員超過
 	//   - ErrConfirmationTokenInvalid: トークンが不正・期限切れ・使用済み
 	ConfirmJoin(ctx context.Context, eventID uuid.UUID, tokenHash string) (ConfirmJoinResult, error)
+
+	// PreviewJoin は確認トークンに一致する未確定（pending）の申込内容を読み取り専用で返す（ADR-0049）。
+	//
+	// トークンは消費しない（confirmed への遷移は ConfirmJoin のみ）。期限切れの pending 行の
+	// 遅延削除も行わない。イベントの取消状態・終了日時・定員は検証しない（表示用のため）。
+	// 成功時は保存済みの party_size・カテゴリ別人数を返す。Categories はカテゴリ名の昇順で、
+	// 内訳がない場合も nil ではなく空スライスを返す。
+	// 失敗時は次の sentinel エラーを %w でラップして返す:
+	//   - ErrEventNotFound: イベントが存在しない
+	//   - ErrConfirmationTokenInvalid: トークンが不正・期限切れ・使用済み
+	PreviewJoin(ctx context.Context, eventID uuid.UUID, tokenHash string) (PreviewJoinResult, error)
 
 	// Leave はログイン参加者のイベント参加を1トランザクションで取り消す。
 	//
@@ -744,6 +764,76 @@ func (r *eventJoinPostgres) ConfirmJoin(
 		ConfirmedAt: confirmedAt,
 		PartySize:   partySize,
 		Categories:  categories,
+	}, nil
+}
+
+// PreviewJoin は確認トークンに一致する未確定（pending）の申込内容を読み取り専用で返す（ADR-0049）。
+// イベントの存在だけを確認し、取消状態・終了日時・定員は検証しない。
+func (r *eventJoinPostgres) PreviewJoin(
+	ctx context.Context,
+	eventID uuid.UUID,
+	tokenHash string,
+) (PreviewJoinResult, error) {
+
+	const existsEvent = `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)`
+	var exists bool
+	if err := r.db.QueryRowContext(ctx, existsEvent, eventID).Scan(&exists); err != nil {
+		return PreviewJoinResult{}, fmt.Errorf("exists event: %w", err)
+	}
+	if !exists {
+		return PreviewJoinResult{}, fmt.Errorf("event %s: %w", eventID, ErrEventNotFound)
+	}
+
+	const findPending = `
+	SELECT id, party_size
+	FROM event_members
+	WHERE event_id = $1
+	AND confirmation_token_hash = $2
+	AND status = 'pending'
+	AND confirmation_token_expires_at > now()
+	`
+
+	var (
+		memberID  uuid.UUID
+		partySize int
+	)
+	err := r.db.QueryRowContext(ctx, findPending, eventID, tokenHash).Scan(&memberID, &partySize)
+	if errors.Is(err, sql.ErrNoRows) {
+		return PreviewJoinResult{}, fmt.Errorf("event %s: %w", eventID, ErrConfirmationTokenInvalid)
+	}
+	if err != nil {
+		return PreviewJoinResult{}, fmt.Errorf("find pending member: %w", err)
+	}
+
+	const selectCategories = `
+	SELECT mc.cost_id, c.category, mc.head_count
+	FROM event_member_categories mc
+	JOIN event_costs c ON c.id = mc.cost_id
+	WHERE mc.member_id = $1
+	ORDER BY c.category
+	`
+
+	categories := []model.MemberCategory{}
+	rows, err := r.db.QueryContext(ctx, selectCategories, memberID)
+	if err != nil {
+		return PreviewJoinResult{}, fmt.Errorf("list preview member categories: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var category model.MemberCategory
+		if err := rows.Scan(&category.CostID, &category.Category, &category.HeadCount); err != nil {
+			return PreviewJoinResult{}, fmt.Errorf("scan preview member category: %w", err)
+		}
+		categories = append(categories, category)
+	}
+	if err := rows.Err(); err != nil {
+		return PreviewJoinResult{}, fmt.Errorf("iterate preview member categories: %w", err)
+	}
+
+	return PreviewJoinResult{
+		PartySize:  partySize,
+		Categories: categories,
 	}, nil
 }
 

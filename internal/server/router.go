@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	netmail "net/mail"
 	"net/url"
 	"time"
 
@@ -51,6 +52,9 @@ func NewRouter(ctx context.Context, cfg config.Config, sqlDB *sql.DB) (*gin.Engi
 	}
 	if err := validateWebBaseURL(cfg.WebBaseURL); err != nil {
 		return nil, nil, fmt.Errorf("WEB_BASE_URL: %w", err)
+	}
+	if err := validateContactTo(cfg.ContactTo); err != nil {
+		return nil, nil, fmt.Errorf("CONTACT_TO: %w", err)
 	}
 
 	// gin.Default() の代わりに slog 連携のロガー/リカバリを使う。
@@ -123,6 +127,18 @@ func newRelayGuard(cfg config.Config) (gin.HandlerFunc, error) {
 	return guard, nil
 }
 
+// validateContactTo はconfig.Loadで正規化済みの単一メールアドレスを検証する。未設定は許可する。
+func validateContactTo(value string) error {
+	if value == "" {
+		return nil
+	}
+	address, err := netmail.ParseAddress(value)
+	if err != nil || address.Address != value {
+		return errors.New("単一のメールアドレスを指定してください（表示名・改行は不可）")
+	}
+	return nil
+}
+
 // validateWebBaseURL は確認メールのリンク先となる Web のベースURLを検証する（ADR-0049）。
 // 空は許容する（config.Load が既定値を入れるため、テストなど直接 Config を組む場合だけ空になる）。
 func validateWebBaseURL(raw string) error {
@@ -154,6 +170,12 @@ func validateWebBaseURL(raw string) error {
 const (
 	joinRateInterval = 12 * time.Second
 	joinRateBurst    = 5
+)
+
+// お問い合わせのIP制限はjoinと別バケットで、平均5回/分・burst 5（ADR-0052）。
+const (
+	contactRateInterval = 12 * time.Second
+	contactRateBurst    = 5
 )
 
 // sitemap のレートリミット設定。同一 IP から平均 1回/分・バースト5回に絞る（ADR-0043）。
@@ -246,6 +268,13 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	eventListLimiter := middleware.NewIPRateLimiter(rate.Every(eventListRateInterval), eventListRateBurst).Middleware()
 
 	v1Public := r.Group("/api/v1")
+	// 受付はDBと固定の宛先だけで有効にする。配信ワーカーの設定とは独立（ADR-0052）。
+	if cfg.ContactTo != "" {
+		contactSvc := service.NewContactService(repository.NewContactRepository(sqlDB), cfg.ContactTo)
+		contactHandler := handler.NewContactHandler(contactSvc)
+		contactLimiter := middleware.NewIPRateLimiter(rate.Every(contactRateInterval), contactRateBurst).Middleware()
+		v1Public.POST("/contact", contactLimiter, contactHandler.Submit)
+	}
 	v1Public.GET("/events", eventListLimiter, eventHandler.List)
 	v1Public.GET("/tags", tagHandler.List)
 
@@ -270,6 +299,10 @@ func registerRoutes(ctx context.Context, r *gin.Engine, cfg config.Config, sqlDB
 	// join/confirm はメールのリンクから認証なしで呼ばれる（ADR-0049）。
 	// join と同じ IP レートリミットを掛ける。
 	v1Public.POST("/events/:id/join/confirm", joinLimiter, eventHandler.ConfirmJoin)
+
+	// join/preview は確認画面が確定前に申込内容を表示するために呼ぶ（ADR-0049）。
+	// confirm と同じく認証なし・join と同じ IP レートリミットを掛ける。
+	v1Public.POST("/events/:id/join/preview", joinLimiter, eventHandler.PreviewJoin)
 
 	// user 系は認証が必要。DB と JWKS の両方が揃っているときのみ登録する。
 	// JWKS 未設定の場合: join ルートのみ認証なし（常に匿名参加）で登録して終了する。

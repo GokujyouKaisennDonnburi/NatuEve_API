@@ -60,6 +60,8 @@ type Config struct {
 	ResendAPIKey string
 	// MailFrom は送信元メールアドレス。
 	MailFrom string
+	// ContactTo は管理者宛メールの送信先。未設定ならお問い合わせルートを登録しない（ADR-0052）。
+	ContactTo string
 	// WebBaseURL は確認メールのリンク先となる Web のベースURL（ADR-0049）。
 	// 未設定なら http://localhost:3000。
 	WebBaseURL string
@@ -120,6 +122,7 @@ func Load() Config {
 	cfg.R2PublicBaseURL = os.Getenv("R2_PUBLIC_BASE_URL")
 	cfg.ResendAPIKey = os.Getenv("RESEND_API_KEY")
 	cfg.MailFrom = os.Getenv("MAIL_FROM")
+	cfg.ContactTo = strings.TrimSpace(os.Getenv("CONTACT_TO"))
 	cfg.WebBaseURL = strings.TrimSpace(os.Getenv("WEB_BASE_URL"))
 	if cfg.WebBaseURL == "" {
 		cfg.WebBaseURL = "http://localhost:3000"

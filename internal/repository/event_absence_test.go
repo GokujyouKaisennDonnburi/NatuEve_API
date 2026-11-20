@@ -405,7 +405,7 @@ func TestEventNotificationOutboxPostgres_ClaimNextDue_ReturnsRecipientKind(t *te
 
 	gotKinds := make(map[uuid.UUID]string, len(due))
 	for _, item := range due {
-		gotKinds[item.EventID] = item.RecipientKind
+		gotKinds[item.EventID.UUID] = item.RecipientKind
 	}
 
 	if got := gotKinds[membersEventID]; got != model.NotificationOutboxRecipientKindMembers {

@@ -531,6 +531,77 @@
                 }
             }
         },
+        "/api/v1/events/{id}/join/preview": {
+            "post": {
+                "description": "確認メールのリンクから呼ぶ。認証は不要。\n確認トークンに対応する未確定申込の内容（カテゴリ別人数と合計）を返す。\nトークンはリクエストボディで受け取る（confirm と同じ。平文トークンを URL に載せない）。\nトークンは消費しないため、呼び出した後でも POST /api/v1/events/{id}/join/confirm で確定できる。\n無効・期限切れ・使用済みのトークンは 400 invalid_request を返す。\nイベントの取消・終了・定員は検証しない（表示用のため。検証は確定時に行う）。\nparticipants / partySize は申込時に保存した内容で、現在のイベント設定から再計算しない。\nmailAddress・username は返さない。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "event"
+                ],
+                "summary": "イベント参加申込内容のプレビュー",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "イベントID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "確認トークン",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConfirmJoinRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PreviewJoinResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "invalid_request: 確認リンクが無効か、有効期限が切れています",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/events/{id}/leave": {
             "post": {
                 "security": [
@@ -1484,6 +1555,64 @@
                 }
             }
         },
+        "/contact": {
+            "post": {
+                "description": "認証不要。categoryは必須、messageは任意（trim後2000文字以内）。\n202はoutboxへの受付完了であり、メール配信完了ではない。IPごとに平均5回/分・burst 5。\nお問い合わせ全体で直近24時間に10件まで受付。上限超過は429 / rate_limitedで、保存・送信されない。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "contact"
+                ],
+                "summary": "運営へのお問い合わせを受け付ける",
+                "parameters": [
+                    {
+                        "description": "お問い合わせ内容",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ValidationErrorResponse"
+                        }
+                    },
+                    "413": {
+                        "description": "Request Entity Too Large",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RequestTooLargeErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too Many Requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.RateLimitedErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.InternalErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "サーバーが正常に稼働しているか確認する",
@@ -1735,6 +1864,71 @@
             "properties": {
                 "error": {
                     "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ConflictErrorBody"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactCategory": {
+            "type": "string",
+            "enum": [
+                "request",
+                "bug",
+                "other"
+            ],
+            "x-enum-varnames": [
+                "ContactCategoryRequest",
+                "ContactCategoryBug",
+                "ContactCategoryOther"
+            ]
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactRequest": {
+            "description": "categoryは必須。messageは任意で、前後の空白を除いて2000文字以内。",
+            "type": "object",
+            "required": [
+                "category"
+            ],
+            "properties": {
+                "category": {
+                    "enum": [
+                        "request",
+                        "bug",
+                        "other"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactCategory"
+                        }
+                    ],
+                    "example": "request"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "検索機能を追加してほしいです"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactResponse": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "enum": [
+                        "request",
+                        "bug",
+                        "other"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ContactCategory"
+                        }
+                    ],
+                    "example": "request"
+                },
+                "message": {
+                    "type": "string",
+                    "example": "検索機能を追加してほしいです"
+                },
+                "receivedAt": {
+                    "type": "string",
+                    "example": "2026-11-18T03:00:00Z"
                 }
             }
         },
@@ -2797,6 +2991,27 @@
                     "description": "UploadURL はファイルを直接 PUT するための署名付き URL。",
                     "type": "string",
                     "example": "https://xxxxx.r2.cloudflarestorage.com/natuportal/natueve/tmp/profile-uuid/uuid.jpg?X-Amz-..."
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PreviewJoinResponse": {
+            "type": "object",
+            "required": [
+                "participants",
+                "partySize"
+            ],
+            "properties": {
+                "participants": {
+                    "description": "Participants は申込時に保存したカテゴリ別人数（カテゴリ名の昇順）。\nAPI 経由の申込では必ず1件以上入る。DB は内訳0件を禁じていないため、\n直接 INSERT された行では空配列になりうる（ADR-0026）。",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.ParticipantResponse"
+                    }
+                },
+                "partySize": {
+                    "description": "PartySize は申込時に保存した参加人数。\nAPI 経由の申込では participants の headCount 合計と一致する。",
+                    "type": "integer",
+                    "example": 3
                 }
             }
         },
