@@ -33,7 +33,6 @@ func NewUploadHandler(uploadSvc *service.UploadService) *UploadHandler {
 //	@Description	image は 10MiB、pdf は 20MiB まで指定できます。上限を超える場合は 400 を返します。
 //	@Description	uploadUrl への PUT は、size と同じサイズのリクエストボディと、contentType と同じ Content-Type で送信してください。
 //	@Description	どちらかが一致しない場合、R2 は 403 を返します。
-//
 //	@Tags			upload
 //	@Accept			json
 //	@Produce		json
