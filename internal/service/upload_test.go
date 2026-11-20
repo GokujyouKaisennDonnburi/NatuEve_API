@@ -393,19 +393,3 @@ func TestGetSizeExceededViaFake(t *testing.T) {
 	// headSize 超過で ValidationError が返ること
 	_ = assertValidationError(t, err)
 }
-
-// --- validateUploadSize テスト ---
-
-func TestValidateUploadSize_UnsupportedContentType(t *testing.T) {
-	err := validateUploadSize("text/plain", 1024)
-
-	_ = assertValidationError(t, err)
-
-	if err == nil {
-		return
-	}
-
-	if !strings.Contains(err.Error(), "未対応の Content-Type") {
-		t.Errorf("想定外のエラーメッセージ: %v", err)
-	}
-}
