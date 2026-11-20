@@ -12,6 +12,9 @@ type PresignRequest struct {
 	// 画像: "image/jpeg" / "image/png"
 	// PDF: "application/pdf"
 	ContentType string `json:"contentType" example:"image/jpeg" binding:"required"`
+	// Size はアップロードするファイルのサイズ（バイト）
+	// image は最大10MiB、pdf は最大20MiB
+	Size int64 `json:"size" example:"10485760" binding:"required,gt=0"`
 }
 
 // PresignResponse は presign エンドポイントのレスポンス DTO。

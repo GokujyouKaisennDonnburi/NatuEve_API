@@ -1031,9 +1031,16 @@ definitions:
         - pdf
         example: image
         type: string
+      size:
+        description: |-
+          Size はアップロードするファイルのサイズ（バイト）
+          image は最大10MiB、pdf は最大20MiB
+        example: 10485760
+        type: integer
     required:
     - contentType
     - kind
+    - size
     type: object
   github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.PresignResponse:
     description: アップロード用署名付き URL とオブジェクトキー。
@@ -2502,6 +2509,10 @@ paths:
         取得した objectKey をイベント作成時の imageObjectKeys/pdfObjectKeys に渡すこと。
         kind="image": image/jpeg, image/png のみ対応（WebP は MVP 非対応）。
         kind="pdf": application/pdf のみ対応。
+        size にはアップロードするファイルの実際のバイト数を指定します。
+        image は 10MiB、pdf は 20MiB まで指定できます。上限を超える場合は 400 を返します。
+        uploadUrl への PUT は、size と同じサイズのリクエストボディと、contentType と同じ Content-Type で送信してください。
+        どちらかが一致しない場合、R2 は 403 を返します。
       parameters:
       - description: presign リクエスト
         in: body

@@ -29,6 +29,10 @@ func NewUploadHandler(uploadSvc *service.UploadService) *UploadHandler {
 //	@Description	取得した objectKey をイベント作成時の imageObjectKeys/pdfObjectKeys に渡すこと。
 //	@Description	kind="image": image/jpeg, image/png のみ対応（WebP は MVP 非対応）。
 //	@Description	kind="pdf": application/pdf のみ対応。
+//	@Description	size にはアップロードするファイルの実際のバイト数を指定します。
+//	@Description	image は 10MiB、pdf は 20MiB まで指定できます。上限を超える場合は 400 を返します。
+//	@Description	uploadUrl への PUT は、size と同じサイズのリクエストボディと、contentType と同じ Content-Type で送信してください。
+//	@Description	どちらかが一致しない場合、R2 は 403 を返します。
 //	@Tags			upload
 //	@Accept			json
 //	@Produce		json
@@ -52,7 +56,7 @@ func (h *UploadHandler) PresignPut(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.uploadSvc.PresignPut(c.Request.Context(), authUser.ID, req.Kind, req.ContentType)
+	resp, err := h.uploadSvc.PresignPut(c.Request.Context(), authUser.ID, req.Kind, req.ContentType, req.Size)
 	if err != nil {
 		var ve *service.ValidationError
 		if errors.As(err, &ve) {

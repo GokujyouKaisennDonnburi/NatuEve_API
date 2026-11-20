@@ -1506,7 +1506,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "指定した kind/contentType に対応する R2 tmp 領域への PUT 署名付き URL を返す。\n返却された uploadUrl に直接 PUT することでクライアントがファイルをアップロードできる。\n取得した objectKey をイベント作成時の imageObjectKeys/pdfObjectKeys に渡すこと。\nkind=\"image\": image/jpeg, image/png のみ対応（WebP は MVP 非対応）。\nkind=\"pdf\": application/pdf のみ対応。",
+                "description": "指定した kind/contentType に対応する R2 tmp 領域への PUT 署名付き URL を返す。\n返却された uploadUrl に直接 PUT することでクライアントがファイルをアップロードできる。\n取得した objectKey をイベント作成時の imageObjectKeys/pdfObjectKeys に渡すこと。\nkind=\"image\": image/jpeg, image/png のみ対応（WebP は MVP 非対応）。\nkind=\"pdf\": application/pdf のみ対応。\nsize にはアップロードするファイルの実際のバイト数を指定します。\nimage は 10MiB、pdf は 20MiB まで指定できます。上限を超える場合は 400 を返します。\nuploadUrl への PUT は、size と同じサイズのリクエストボディと、contentType と同じ Content-Type で送信してください。\nどちらかが一致しない場合、R2 は 403 を返します。",
                 "consumes": [
                     "application/json"
                 ],
@@ -2955,7 +2955,8 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "contentType",
-                "kind"
+                "kind",
+                "size"
             ],
             "properties": {
                 "contentType": {
@@ -2971,6 +2972,11 @@ const docTemplate = `{
                         "pdf"
                     ],
                     "example": "image"
+                },
+                "size": {
+                    "description": "Size はアップロードするファイルのサイズ（バイト）\nimage は最大10MiB、pdf は最大20MiB",
+                    "type": "integer",
+                    "example": 10485760
                 }
             }
         },
