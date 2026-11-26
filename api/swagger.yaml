@@ -629,7 +629,9 @@ definitions:
         example: "2026-06-25T23:59:59Z"
         type: string
       cancelledAt:
-        description: CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。
+        description: |-
+          CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。
+          一覧系 API は取りやめ済みのイベントを返さないため、現在は常に省略される（ADR-0054）。
         example: "2026-06-25T10:00:00Z"
         type: string
       createdAt:
@@ -1396,6 +1398,7 @@ paths:
     get:
       description: |-
         公開イベントを指定ソート順で返す。認証不要。
+        取りやめ済みのイベントは返さず、totalCount にも数えない。取りやめ済みは GET /api/v1/events/{id} でのみ取得できる。
         sort は "created_at"(デフォルト) / "event_date" のみ許可。不正値はデフォルトに戻す。
         order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
         prifileはProfileSummaryを返す。
@@ -1409,9 +1412,7 @@ paths:
         値は upcoming(開催前: event_date > now())・ongoing(開催中: event_date <= now() かつ
         end_date >= now())・ended(開催後: end_date < now()) の3値で、排他かつ網羅（どのイベントも必ず1つに該当）。
         q・tagId と同時に指定した場合は AND で絞り込む。許可値以外（大文字表記等）は 400 を返す
-        （値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表し、
-        キャンセル済みイベントの判別は含まない（各 status の結果にキャンセル済みイベントも混在するため、
-        クライアントは cancelledAt で判別する）。
+        （値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表す。
         location は地域での絞り込み。反復指定は OR 検索になる（例: ?location=東京都&location=神奈川県）。
         q が5項目（タイトル/詳細/主催者名/地域名/持ち物）を横断するのに対し、location は地域名のみを
         対象に部分一致で判定する。q・tagId・status と同時に指定した場合は AND で絞り込む。
@@ -2229,7 +2230,8 @@ paths:
         認証済みユーザー自身のイベントを種別ごとに返す。
         type は必須。"hosted"(主催したイベント) / "applied"(申し込み中イベント) /
         "attended"(参加済みイベント) のいずれかで、未指定・不正値は 400 を返す。
-        hosted は自分が投稿したイベント全件（過去・キャンセル済みを含む）。
+        hosted は自分が投稿したイベント全件（過去を含む）。
+        取りやめ済みのイベントはどの種別にも含めず、counts と totalCount にも数えない。
         applied は申込済みでイベント終了日時(endDate)が未到来のもの、attended は終了日時を過ぎたもの。
         参加をキャンセル(leave)したイベントと、ログインせずに申し込んだイベントは applied / attended に含まれない。
         counts には3種別すべての件数を常に含める（タブのバッジ表示用）。totalCount は type に対応する件数。
@@ -2316,7 +2318,8 @@ paths:
         type は必須。"hosted"(主催したイベント) / "attended"(参加済みイベント) のいずれかで、
         未指定・不正値は 400 を返す。"applied"(申し込み中) は本人限定のため公開せず、
         本人が取得する場合は GET /api/v1/me/events を使う。
-        hosted はそのユーザーが投稿したイベント全件（過去・キャンセル済みを含む）。
+        hosted はそのユーザーが投稿したイベント全件（過去を含む）。
+        取りやめ済みのイベントはどの種別にも含めず、counts と totalCount にも数えない。
         attended は申込済みでイベント終了日時(endDate)を過ぎたもの。
         参加をキャンセル(leave)したイベントと、ログインせずに申し込んだイベントは attended に含まれない。
         counts には公開する2種別の件数を常に含める（タブのバッジ表示用）。totalCount は type に対応する件数。
@@ -2420,8 +2423,8 @@ paths:
     get:
       description: |-
         sitemap用に、イベントIDと最終更新日時を返す。認証不要。
-        キャンセル済みイベントも含む。上限は50,000件で、超過時は最終更新日時の新しいものを返す。
-        最終更新日時はキャンセルとレポート投稿でも更新される。
+        取りやめ済みのイベントは含まない。上限は50,000件で、超過時は最終更新日時の新しいものを返す。
+        最終更新日時はレポート投稿でも更新される。
         同一 IP から平均 1回/分・バースト5回を超えると 429 を返す。
       produces:
       - application/json

@@ -157,6 +157,7 @@ type EventSummary struct {
 	// ApplicationDeadline は申込期限(RFC3339)。nil の場合は期限なし（ADR-0029）。
 	ApplicationDeadline *time.Time `json:"applicationDeadline,omitempty" example:"2026-06-25T23:59:59Z"`
 	// CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。
+	// 一覧系 API は取りやめ済みのイベントを返さないため、現在は常に省略される（ADR-0054）。
 	CancelledAt *time.Time `json:"cancelledAt,omitempty" example:"2026-06-25T10:00:00Z"`
 	// CreatedAt はレコード作成日時(RFC3339)。
 	CreatedAt time.Time `json:"createdAt" example:"2026-06-22T12:00:00Z"`
@@ -258,7 +259,7 @@ type CancelEventResponse struct {
 type MyEventKind string
 
 const (
-	// MyEventKindHosted は自分が主催したイベント（過去・未来・キャンセル済みを含む）。
+	// MyEventKindHosted は自分が主催したイベント（過去・未来を含む）。
 	MyEventKindHosted MyEventKind = "hosted"
 	// MyEventKindApplied は申し込み済みで、終了日時(end_date)が未到来のイベント。
 	MyEventKindApplied MyEventKind = "applied"

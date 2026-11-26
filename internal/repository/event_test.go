@@ -624,6 +624,49 @@ func TestEventPostgres_GetByID_ApplicationDeadline(t *testing.T) {
 	}
 }
 
+// TestEventPostgres_GetByID_CancelledAt は GetByID が取りやめ済みのイベントも返し、
+// 取りやめ済みは CancelledAt を非nil、それ以外は nil にすることを検証する（ADR-0054）。
+func TestEventPostgres_GetByID_CancelledAt(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+
+	tests := []struct {
+		name          string
+		cancelled     bool
+		wantCancelled bool
+	}{
+		{
+			name:          "取りやめ済みのイベントも返し、CancelledAt は非nil",
+			cancelled:     true,
+			wantCancelled: true,
+		},
+		{
+			name:          "取りやめていないイベントの CancelledAt は nil",
+			cancelled:     false,
+			wantCancelled: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventID := insertTestEvent(t, db, profileID)
+			if tt.cancelled {
+				cancelTestEvent(t, db, eventID)
+			}
+
+			got, err := repo.GetByID(context.Background(), eventID.String())
+			if err != nil {
+				t.Fatalf("GetByID() returned error: %v", err)
+			}
+			if gotCancelled := got.CancelledAt != nil; gotCancelled != tt.wantCancelled {
+				t.Errorf("CancelledAt != nil = %v, want %v", gotCancelled, tt.wantCancelled)
+			}
+		})
+	}
+}
+
 // findSummaryByID は summaries から id に一致する要素を返す。
 // 見つかった場合は ok が true になる。
 func findSummaryByID(summaries []model.EventSummary, id string) (summary model.EventSummary, ok bool) {
@@ -1440,8 +1483,84 @@ func TestEventPostgres_SearchSummaries_CombinedFilters(t *testing.T) {
 	}
 }
 
+// TestEventPostgres_Summaries_ExcludeCancelled は一覧・検索とそれぞれの件数が、
+// 取りやめ済みのイベントを含めないことを検証する（ADR-0054）。
+// CountSummaries は共有 DB 全体の件数のため、取りやめの前後の差で判定する。
+func TestEventPostgres_Summaries_ExcludeCancelled(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+	ctx := context.Background()
+
+	profileID := insertTestProfile(t, db)
+	keyword := "取りやめ除外" + uuid.NewString()
+	filter := model.EventSearchFilter{Keywords: []string{keyword}}
+
+	activeEvent := insertTestEventWithTitle(t, db, profileID, keyword)
+	cancelledEvent := insertTestEventWithTitle(t, db, profileID, keyword)
+
+	totalBefore, err := repo.CountSummaries(ctx)
+	if err != nil {
+		t.Fatalf("CountSummaries() returned error: %v", err)
+	}
+	cancelTestEvent(t, db, cancelledEvent)
+
+	t.Run("CountSummaries は取りやめ済みを数えない", func(t *testing.T) {
+		got, err := repo.CountSummaries(ctx)
+		if err != nil {
+			t.Fatalf("CountSummaries() returned error: %v", err)
+		}
+		if got != totalBefore-1 {
+			t.Errorf("CountSummaries() = %d, want %d", got, totalBefore-1)
+		}
+	})
+
+	t.Run("CountSearchSummaries は取りやめ済みを数えない", func(t *testing.T) {
+		got, err := repo.CountSearchSummaries(ctx, filter)
+		if err != nil {
+			t.Fatalf("CountSearchSummaries() returned error: %v", err)
+		}
+		if got != 1 {
+			t.Errorf("CountSearchSummaries() = %d, want 1", got)
+		}
+	})
+
+	tests := []struct {
+		name string
+		list func() ([]model.EventSummary, error)
+	}{
+		{
+			name: "ListSummaries",
+			list: func() ([]model.EventSummary, error) {
+				return repo.ListSummaries(ctx, "created_at", "desc", totalBefore+10, 0)
+			},
+		},
+		{
+			name: "SearchSummaries",
+			list: func() ([]model.EventSummary, error) {
+				return repo.SearchSummaries(ctx, filter, "created_at", "desc", 100, 0)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name+" は取りやめ済みを返さない", func(t *testing.T) {
+			got, err := tt.list()
+			if err != nil {
+				t.Fatalf("%s() returned error: %v", tt.name, err)
+			}
+			if _, ok := findSummaryByID(got, activeEvent.String()); !ok {
+				t.Errorf("取りやめていないイベント %s が結果に含まれるべき", activeEvent)
+			}
+			if _, ok := findSummaryByID(got, cancelledEvent.String()); ok {
+				t.Errorf("取りやめ済みのイベント %s は結果に含まれるべきではない", cancelledEvent)
+			}
+		})
+	}
+}
+
 // TestEventPostgres_ListMySummaries_Hosted は hosted 種別が自分が主催したイベントのみを
-// 返すこと（他人のイベントは含まない）、キャンセル済み・終了済みのイベントも含むことを検証する。
+// 返すこと（他人のイベントは含まない）、終了済みのイベントは含み、取りやめ済みのイベントは
+// 含まないこと（ADR-0054）を検証する。
 //
 // 件数検証は共有 DB 上の既存データと干渉しないよう、このテストで作成したプロフィールに
 // 紐づくイベント ID が結果に含まれる/含まれないかで判定する。
@@ -1471,7 +1590,7 @@ func TestEventPostgres_ListMySummaries_Hosted(t *testing.T) {
 		t.Fatalf("ListMySummaries() returned error: %v", err)
 	}
 
-	for _, wantID := range []uuid.UUID{upcomingEvent, cancelledEvent, endedEvent} {
+	for _, wantID := range []uuid.UUID{upcomingEvent, endedEvent} {
 		if _, ok := findSummaryByID(got, wantID.String()); !ok {
 			t.Errorf("主催イベント %s が結果に含まれるべき", wantID)
 		}
@@ -1479,19 +1598,14 @@ func TestEventPostgres_ListMySummaries_Hosted(t *testing.T) {
 	if _, ok := findSummaryByID(got, otherEvent.String()); ok {
 		t.Errorf("他人が主催したイベントは結果に含まれるべきではない")
 	}
-
-	cancelledSummary, ok := findSummaryByID(got, cancelledEvent.String())
-	if !ok {
-		t.Fatalf("cancelledEvent が結果に含まれていない")
-	}
-	if cancelledSummary.CancelledAt == nil {
-		t.Error("キャンセル済みイベントの CancelledAt が nil, want non-nil")
+	if _, ok := findSummaryByID(got, cancelledEvent.String()); ok {
+		t.Errorf("取りやめ済みのイベントは結果に含まれるべきではない")
 	}
 }
 
 // TestEventPostgres_ListMySummaries_AppliedAttended は applied/attended 種別の境界
 // （end_date と now() の比較）、匿名申込（profile_id NULL）が誰の一覧にも出ないこと、
-// キャンセル済みイベントも end_date で振り分けられること（ADR-0024）、
+// 取りやめ済みのイベントは applied にも attended にも出ないこと（ADR-0054）、
 // 参加行削除（leave 相当）後は applied にも attended にも出ないことを検証する。
 func TestEventPostgres_ListMySummaries_AppliedAttended(t *testing.T) {
 	db := requireTestDB(t)
@@ -1563,7 +1677,7 @@ func TestEventPostgres_ListMySummaries_AppliedAttended(t *testing.T) {
 		}
 	})
 
-	t.Run("キャンセル済みイベントも end_date で applied/attended に振り分けられる", func(t *testing.T) {
+	t.Run("取りやめ済みのイベントは applied にも attended にも出ない", func(t *testing.T) {
 		cancelledFutureEvent := insertTestEventWithEndDate(t, db, ownerID, time.Now().Add(24*time.Hour))
 		cancelledPastEvent := insertTestEventWithEndDate(t, db, ownerID, time.Now().Add(-24*time.Hour))
 		insertTestMember(t, db, cancelledFutureEvent, uuid.NullUUID{UUID: meID, Valid: true})
@@ -1576,18 +1690,11 @@ func TestEventPostgres_ListMySummaries_AppliedAttended(t *testing.T) {
 			t.Fatalf("CancelWithNotification() returned error: %v", err)
 		}
 
-		appliedSummary, ok := findSummaryByID(listApplied(t, meID), cancelledFutureEvent.String())
-		if !ok {
-			t.Error("end_dateが未到来のキャンセル済みイベントは applied に含まれるべき")
-		} else if appliedSummary.CancelledAt == nil {
-			t.Error("CancelledAt が nil, want non-nil")
+		if _, ok := findSummaryByID(listApplied(t, meID), cancelledFutureEvent.String()); ok {
+			t.Error("end_dateが未到来の取りやめ済みイベントは applied に含まれるべきではない")
 		}
-
-		attendedSummary, ok := findSummaryByID(listAttended(t, meID), cancelledPastEvent.String())
-		if !ok {
-			t.Error("end_dateを過ぎたキャンセル済みイベントは attended に含まれるべき")
-		} else if attendedSummary.CancelledAt == nil {
-			t.Error("CancelledAt が nil, want non-nil")
+		if _, ok := findSummaryByID(listAttended(t, meID), cancelledPastEvent.String()); ok {
+			t.Error("end_dateを過ぎた取りやめ済みイベントは attended に含まれるべきではない")
 		}
 	})
 
@@ -1604,7 +1711,8 @@ func TestEventPostgres_ListMySummaries_AppliedAttended(t *testing.T) {
 }
 
 // TestEventPostgres_CountMyEventKinds は hosted/applied/attended の件数を1クエリで
-// 正しく返すことを検証する。新規プロフィールで隔離しているため、既存データの件数に左右されない。
+// 正しく返し、取りやめ済みのイベントはどの種別にも数えないこと（ADR-0054）を検証する。
+// 新規プロフィールで隔離しているため、既存データの件数に左右されない。
 func TestEventPostgres_CountMyEventKinds(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventRepository(db)
@@ -1622,6 +1730,15 @@ func TestEventPostgres_CountMyEventKinds(t *testing.T) {
 	attendedEvent2 := insertTestEventWithEndDate(t, db, otherProfileID, time.Now().Add(-48*time.Hour))
 	insertTestMember(t, db, attendedEvent1, uuid.NullUUID{UUID: profileID, Valid: true})
 	insertTestMember(t, db, attendedEvent2, uuid.NullUUID{UUID: profileID, Valid: true})
+
+	// 種別ごとに取りやめ済みのイベントを1件ずつ足す。どれも件数に入らない。
+	cancelTestEvent(t, db, insertTestEvent(t, db, profileID))
+	cancelledApplied := insertTestEventWithEndDate(t, db, otherProfileID, time.Now().Add(24*time.Hour))
+	insertTestMember(t, db, cancelledApplied, uuid.NullUUID{UUID: profileID, Valid: true})
+	cancelTestEvent(t, db, cancelledApplied)
+	cancelledAttended := insertTestEventWithEndDate(t, db, otherProfileID, time.Now().Add(-24*time.Hour))
+	insertTestMember(t, db, cancelledAttended, uuid.NullUUID{UUID: profileID, Valid: true})
+	cancelTestEvent(t, db, cancelledAttended)
 
 	got, err := repo.CountMyEventKinds(context.Background(), profileID)
 	if err != nil {
@@ -1732,8 +1849,8 @@ func TestEventPostgres_Create_ApplicationDeadline(t *testing.T) {
 // sitemapAllEvents は共有 DB の全イベントを取得する ListSitemapEvents の limit。
 const sitemapAllEvents = math.MaxInt32
 
-// TestEventPostgres_ListSitemapEvents は取りやめ済みを含むイベントが updated_at の降順、
-// 同時刻は id の昇順で返ることを検証する。共有 DB のため、作成した行だけを照合する。
+// TestEventPostgres_ListSitemapEvents はイベントが updated_at の降順、同時刻は id の昇順で返り、
+// 取りやめ済みのイベントは返らないこと（ADR-0054）を検証する。共有 DB のため、作成した行だけを照合する。
 func TestEventPostgres_ListSitemapEvents(t *testing.T) {
 	db := requireTestDB(t)
 	repo := NewEventRepository(db)
@@ -1752,12 +1869,12 @@ func TestEventPostgres_ListSitemapEvents(t *testing.T) {
 		events []testEvent
 	}{
 		{
-			name:   "取りやめ済みのイベントも返す",
-			events: []testEvent{{updatedAt: older, cancelled: true}},
+			name:   "取りやめ済みのイベントは返さない",
+			events: []testEvent{{updatedAt: older}, {updatedAt: newer, cancelled: true}},
 		},
 		{
 			name:   "updated_at の降順で返す",
-			events: []testEvent{{updatedAt: older}, {updatedAt: newer, cancelled: true}},
+			events: []testEvent{{updatedAt: older}, {updatedAt: newer}},
 		},
 		{
 			name:   "同時刻は id の昇順で返す",
@@ -1784,7 +1901,9 @@ func TestEventPostgres_ListSitemapEvents(t *testing.T) {
 					t.Fatalf("update test event: %v", err)
 				}
 				created[eventID.String()] = true
-				want = append(want, model.SitemapEvent{ID: eventID.String(), UpdatedAt: event.updatedAt})
+				if !event.cancelled {
+					want = append(want, model.SitemapEvent{ID: eventID.String(), UpdatedAt: event.updatedAt})
+				}
 			}
 			sort.Slice(want, func(i, j int) bool {
 				if !want[i].UpdatedAt.Equal(want[j].UpdatedAt) {

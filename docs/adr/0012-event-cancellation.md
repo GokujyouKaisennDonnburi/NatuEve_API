@@ -1,6 +1,6 @@
 # ADR-0012: イベントキャンセル（開催取りやめ）の状態管理と API 設計
 
-- ステータス: Accepted（決定事項 3・4 は [ADR-0016](./0016-event-cancel-notification-outbox.md) により Superseded）
+- ステータス: Accepted（決定事項 3・4 は [ADR-0016](./0016-event-cancel-notification-outbox.md)、決定事項 7 の一覧に関する部分は [ADR-0054](./0054-exclude-cancelled-events-from-lists.md) により Superseded）
 - 日付: 2026-07-10
 - 関連: #118
 
