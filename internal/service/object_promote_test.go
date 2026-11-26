@@ -729,6 +729,78 @@ func TestPromoteOneObject_DecodedBytesLimitCheckedBeforeFullDecode(t *testing.T)
 	}
 }
 
+func TestPNGIsInterlaced(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want bool
+	}{
+		{name: "インターレース無しの PNG", data: pngConfigData(t, 1, 1)},
+		{name: "インターレース付きの PNG", data: pngConfigDataInterlaced(t, 1, 1), want: true},
+		{name: "JPEG", data: encodePromotionTestImage(t, "image/jpeg", 1, 1)},
+		{name: "空のバイト列", data: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pngIsInterlaced(tt.data); got != tt.want {
+				t.Errorf("pngIsInterlaced: got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateImagePixelSize_InterlacedPNG(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr bool
+	}{
+		{
+			name: "正常: インターレース無しの 8ビット RGBA 8000x8000 は展開後 256MB で上限内",
+			data: pngConfigData(t, maxImagePixels, maxImagePixels),
+		},
+		{
+			name:    "異常: インターレース付き 8ビット RGBA 8000x8000 は最大パス込み 384MB で上限超過",
+			data:    pngConfigDataInterlaced(t, maxImagePixels, maxImagePixels),
+			wantErr: true,
+		},
+		{
+			name: "正常: インターレース付き 8ビット RGBA 6000x6000 は最大パス込み 216MB で上限内",
+			data: pngConfigDataInterlaced(t, 6000, 6000),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateImagePixelSize(tt.data)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				if !strings.Contains(err.Error(), "展開後サイズ") {
+					t.Errorf("エラーメッセージに展開後サイズ超過が含まれていません: %q", err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+		})
+	}
+}
+
+// pngConfigDataInterlaced は IHDR のインターレースを Adam7 に書き換えた PNG ヘッダを返す。
+// 本体（IDAT）を持たないため、DecodeConfig は読めるが全体の Decode は失敗する。
+func pngConfigDataInterlaced(t *testing.T, width, height uint32) []byte {
+	t.Helper()
+
+	data := pngConfigData(t, width, height)
+	data[28] = 1 // interlace: Adam7
+	binary.BigEndian.PutUint32(data[29:33], crc32.ChecksumIEEE(data[12:29]))
+	return data
+}
+
 func TestPNGHasTRNS(t *testing.T) {
 	tests := []struct {
 		name string

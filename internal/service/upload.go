@@ -262,7 +262,18 @@ func validateImagePixelSize(data []byte) error {
 			maxImagePixels,
 		)
 	}
-	return validateImageDecodedBytes(config, format, pngHasTRNS(data), jpegIsProgressive(data))
+	return validateImageDecodedBytes(config, format, pngHasTRNS(data), jpegIsProgressive(data), pngIsInterlaced(data))
+}
+
+// pngIsInterlaced は data の PNG が Adam7 インターレースかどうか返す。
+// PNG でない場合は false を返す。
+func pngIsInterlaced(data []byte) bool {
+	// IHDR: signature(8) + length(4) + type(4) + width(4) + height(4) +
+	// depth(1) + color(1) + compression(1) + filter(1) + interlace(1)。
+	if !bytes.HasPrefix(data, pngSignature) || len(data) < 29 {
+		return false
+	}
+	return data[28] == 1
 }
 
 // jpegSignature は JPEG の SOI。
@@ -316,8 +327,9 @@ func jpegIsProgressive(data []byte) bool {
 // 展開後サイズを推定し、上限を超える場合はエラーを返す。
 //
 // format は image.DecodeConfig の第 2 戻り値。hasTRNS は PNG が tRNS チャンクを
-// 含むかどうか、isProgressive は JPEG が SOF2 を含むかどうか。
-func validateImageDecodedBytes(config image.Config, format string, hasTRNS, isProgressive bool) error {
+// 含むかどうか、isProgressive は JPEG が SOF2 を含むかどうか、
+// isInterlaced は PNG が Adam7 インターレースかどうか。
+func validateImageDecodedBytes(config image.Config, format string, hasTRNS, isProgressive, isInterlaced bool) error {
 	bpp := decodeBytesPerPixel(config, format, isProgressive)
 	// tRNS 付きグレースケールは NRGBA/NRGBA64 として展開され、
 	// DecodeConfig の ColorModel より多くのメモリを使う。
@@ -330,6 +342,11 @@ func validateImageDecodedBytes(config image.Config, format string, hasTRNS, isPr
 		}
 	}
 	estimated := int64(config.Width) * int64(config.Height) * int64(bpp)
+	// Adam7 インターレースは全体の画像に加えて最大パス（面積 1/2）の画像を
+	// 同時に確保するため、ピークは推定値の約 1.5 倍になる。
+	if isInterlaced {
+		estimated += estimated / 2
+	}
 	if estimated > maxImageDecodedBytes {
 		return fmt.Errorf(
 			"画像の展開後サイズの見積もり(%d x %d x %d bytes = %d bytes)が上限(%d bytes)を超えています",
