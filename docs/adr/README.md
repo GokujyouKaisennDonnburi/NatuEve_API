@@ -63,7 +63,7 @@
 | [0044](./0044-party-size-limit.md) | 1回の参加申込の人数上限を10人とし、超過は400で拒否する | Accepted |
 | [0045](./0045-delete-tmp-objects-after-promotion.md) | メディア昇格後に一時領域の元オブジェクトを削除する | Accepted |
 | [0046](./0046-strip-pdf-metadata-on-promotion.md) | PDF 昇格時に文書情報と XMP メタデータを除去して保存する | Accepted |
-| [0047](./0047-image-pixel-dimension-limit.md) | 画像の幅と高さを各8000pxに制限し超過は400で拒否する | Accepted |
+| [0047](./0047-image-pixel-dimension-limit.md) | 画像の寸法・展開後サイズ・同時展開数を制限し超過は400で拒否する | Accepted |
 | [0048](./0048-govulncheck-in-ci.md) | CI で govulncheck を実行し、週1回の定期実行でも検査する | Accepted |
 | [0049](./0049-guest-join-confirmation.md) | ゲストの参加申込は確認メールのトークンで確定する | Accepted |
 | [0050](./0050-event-list-ip-rate-limit.md) | イベント一覧 API に API 側で IP レートリミットを掛け、他の公開 GET には今は掛けない | Accepted |
