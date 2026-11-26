@@ -624,6 +624,49 @@ func TestEventPostgres_GetByID_ApplicationDeadline(t *testing.T) {
 	}
 }
 
+// TestEventPostgres_GetByID_CancelledAt は GetByID が取りやめ済みのイベントも返し、
+// 取りやめ済みは CancelledAt を非nil、それ以外は nil にすることを検証する（ADR-0054）。
+func TestEventPostgres_GetByID_CancelledAt(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewEventRepository(db)
+
+	profileID := insertTestProfile(t, db)
+
+	tests := []struct {
+		name          string
+		cancelled     bool
+		wantCancelled bool
+	}{
+		{
+			name:          "取りやめ済みのイベントも返し、CancelledAt は非nil",
+			cancelled:     true,
+			wantCancelled: true,
+		},
+		{
+			name:          "取りやめていないイベントの CancelledAt は nil",
+			cancelled:     false,
+			wantCancelled: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventID := insertTestEvent(t, db, profileID)
+			if tt.cancelled {
+				cancelTestEvent(t, db, eventID)
+			}
+
+			got, err := repo.GetByID(context.Background(), eventID.String())
+			if err != nil {
+				t.Fatalf("GetByID() returned error: %v", err)
+			}
+			if gotCancelled := got.CancelledAt != nil; gotCancelled != tt.wantCancelled {
+				t.Errorf("CancelledAt != nil = %v, want %v", gotCancelled, tt.wantCancelled)
+			}
+		})
+	}
+}
+
 // findSummaryByID は summaries から id に一致する要素を返す。
 // 見つかった場合は ok が true になる。
 func findSummaryByID(summaries []model.EventSummary, id string) (summary model.EventSummary, ok bool) {
