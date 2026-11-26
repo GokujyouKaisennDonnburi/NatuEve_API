@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"image/png"
 	"net/http"
@@ -60,6 +61,12 @@ const (
 	maxImageBytes int64 = 10 * 1024 * 1024
 	// maxImagePixels は画像の幅・高さそれぞれの最大ピクセル数。Web 側の上限と揃える。
 	maxImagePixels = 8000
+	// maxImageDecodedBytes は画像の展開後サイズの推定値の上限（256MiB）。
+	// 8000×8000px の RGBA 展開（256,000,000 bytes）は上限内で受け付ける。
+	maxImageDecodedBytes int64 = 256 << 20
+	// maxConcurrentImageDecodes は画像の展開・再エンコードを同時に実行する数の上限。
+	// 上限の根拠は ADR-0047。
+	maxConcurrentImageDecodes = 1
 	// maxPDFBytes は PDF ファイルの最大サイズ（20MB）。
 	maxPDFBytes int64 = 20 * 1024 * 1024
 )
@@ -238,7 +245,8 @@ func stripEXIFAndReencode(data []byte, contentType string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// validateImagePixelSize は画像全体を復元せず、ヘッダから幅・高さを検証する。
+// validateImagePixelSize は画像全体を復元せず、ヘッダから幅・高さと
+// 展開後サイズの推定値を検証する。
 func validateImagePixelSize(data []byte) error {
 	config, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
@@ -253,7 +261,49 @@ func validateImagePixelSize(data []byte) error {
 			maxImagePixels,
 		)
 	}
+	return validateImageDecodedBytes(config)
+}
+
+// validateImageDecodedBytes は幅×高さ×1ピクセルあたりのバイト数から
+// 展開後サイズを推定し、上限を超える場合はエラーを返す。
+func validateImageDecodedBytes(config image.Config) error {
+	bpp := estimatedBytesPerPixel(config.ColorModel)
+	estimated := int64(config.Width) * int64(config.Height) * int64(bpp)
+	if estimated > maxImageDecodedBytes {
+		return fmt.Errorf(
+			"画像の展開後サイズの見積もり(%d x %d x %d bytes = %d bytes)が上限(%d bytes)を超えています",
+			config.Width,
+			config.Height,
+			bpp,
+			estimated,
+			maxImageDecodedBytes,
+		)
+	}
 	return nil
+}
+
+// estimatedBytesPerPixel は DecodeConfig の ColorModel から、標準パッケージでの
+// 展開後の 1 ピクセルあたりのバイト数の上限を返す。
+//
+// 16 ビット形式（RGBA64/NRGBA64/Gray16）はそれぞれ 8/8/2 バイトで展開される。
+// YCbCr はサブサンプリングにより最大 3 バイトだが、保守的に 4 を返す。
+// 未知の形式は保守的に 8 を返す。
+func estimatedBytesPerPixel(m color.Model) int {
+	switch m {
+	case color.GrayModel:
+		return 1
+	case color.Gray16Model:
+		return 2
+	case color.RGBAModel, color.NRGBAModel, color.YCbCrModel, color.NYCbCrAModel, color.CMYKModel:
+		return 4
+	case color.RGBA64Model, color.NRGBA64Model:
+		return 8
+	default:
+		if _, ok := m.(color.Palette); ok {
+			return 1
+		}
+		return 8
+	}
 }
 
 // buildFinalKey は最終キーを生成する。
