@@ -669,6 +669,17 @@ func TestPromoteOneObject_ConcurrentDecodeLimited(t *testing.T) {
 		getData:         data,
 	}
 
+	// 失敗時にスロットが残って後続のテストに影響しないよう、終了時に空にする。
+	t.Cleanup(func() {
+		for {
+			select {
+			case <-imageDecodeSlots:
+			default:
+				return
+			}
+		}
+	})
+
 	// セマフォを満杯にする。
 	for i := 0; i < maxConcurrentImageDecodes; i++ {
 		imageDecodeSlots <- struct{}{}
