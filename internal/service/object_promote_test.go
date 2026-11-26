@@ -217,9 +217,11 @@ func pngConfigData16bit(t *testing.T, width, height uint32) []byte {
 }
 
 // appendPNGChunk は dst に PNG チャンク（length + type + data + CRC）を追記する。
-func appendPNGChunk(dst []byte, chunkType string, chunkData []byte) []byte {
+// chunkLength は chunkData のバイト数。テストで使うチャンクは小さいため、
+// 長さは定数で渡す。
+func appendPNGChunk(dst []byte, chunkType string, chunkLength uint32, chunkData []byte) []byte {
 	var head [8]byte
-	binary.BigEndian.PutUint32(head[0:4], uint32(len(chunkData)))
+	binary.BigEndian.PutUint32(head[0:4], chunkLength)
 	copy(head[4:8], chunkType)
 	dst = append(dst, head[:]...)
 	dst = append(dst, chunkData...)
@@ -242,9 +244,9 @@ func pngGrayHeaderData(t *testing.T, width, height uint32, bitDepth byte, withTR
 	binary.BigEndian.PutUint32(ihdr[4:8], height)
 	ihdr[8] = bitDepth
 	ihdr[9] = 0 // color type: グレースケール
-	data = appendPNGChunk(data, "IHDR", ihdr)
+	data = appendPNGChunk(data, "IHDR", 13, ihdr)
 	if withTRNS {
-		data = appendPNGChunk(data, "tRNS", []byte{0, 0})
+		data = appendPNGChunk(data, "tRNS", 2, []byte{0, 0})
 	}
 	return data
 }
@@ -627,7 +629,7 @@ func TestPromoteOneObject_Grayscale16WithTRNSAccepted(t *testing.T) {
 		t.Fatalf("16ビット グレースケール PNG の生成に失敗: %v", err)
 	}
 	// PNG: 0:8 signature / 8:12 IHDR length / 12:16 type / 16:29 data / 29:33 CRC / 33: tRNS
-	data := appendPNGChunk(buf.Bytes()[:33:33], "tRNS", []byte{0, 0})
+	data := appendPNGChunk(buf.Bytes()[:33:33], "tRNS", 2, []byte{0, 0})
 	data = append(data, buf.Bytes()[33:]...)
 
 	// 実際に Decode しても NRGBA64 として展開される（ColorModel の見積もりより大きい）。
