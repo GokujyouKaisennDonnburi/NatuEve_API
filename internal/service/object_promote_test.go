@@ -403,7 +403,8 @@ func jpegHeaderData(t *testing.T, width, height uint16, progressive bool, nComp 
 	if adobeTransform != nil {
 		payload := append([]byte("Adobe"), 0, 0, 0, 0, 0, 0, *adobeTransform) // version 2 + flags 4 + transform 1
 		var app14 [2]byte
-		binary.BigEndian.PutUint16(app14[:], uint16(2+len(payload)))
+		// セグメント長は length 自身(2) + "Adobe"(5) + version(2) + flags(4) + transform(1) = 14。
+		binary.BigEndian.PutUint16(app14[:], 14)
 		data = append(data, 0xFF, 0xEE)
 		data = append(data, app14[:]...)
 		data = append(data, payload...)
