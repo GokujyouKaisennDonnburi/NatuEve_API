@@ -175,7 +175,7 @@
         },
         "/api/v1/events/{id}": {
             "get": {
-                "description": "指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。\nparticipantCount は現在申込中の参加人数の合計で、定員未設定（capacity=0）でも返す。\n未確定（pending）の申込は含まない。\n定員がある場合の残り人数は capacity - participantCount で算出する。",
+                "description": "指定されたイベントIDの詳細情報を取得する。\n取りやめ済みのイベントは 410 Gone（event_cancelled）を返す。主催者本人のリクエストでも同じ。\n410 の本文にはイベントのタイトルや取りやめ日時を含めない。\n200 の cancelledAt は常に省略される。\nparticipantCount は現在申込中の参加人数の合計で、定員未設定（capacity=0）でも返す。\n未確定（pending）の申込は含まない。\n定員がある場合の残り人数は capacity - participantCount で算出する。",
                 "produces": [
                     "application/json"
                 ],
@@ -203,6 +203,12 @@
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCancelledErrorResponse"
                         }
                     },
                     "500": {
@@ -373,7 +379,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → ゲスト参加。申込は未確定（pending）として保存され、\n申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで\n参加者一覧・参加人数・定員判定には含まれない。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → ログイン参加として即時確定する。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nparticipants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。\n定員判定は確定済みの申込だけを数える。\n未ログインで申込済みのメールアドレスから再申込した場合は、新規申込と同じ 201 と\n本文の形で応答し（既存申込の内容は返さない）、そのアドレスに\n「すでに申込まれています」の案内メールを送信する。\nログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある場合\n（自分以外の申込を含む）は 409 already_joined を返す（案内メールは送らない）。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。\n申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。\n確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。",
+                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → ゲスト参加。申込は未確定（pending）として保存され、\n申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで\n参加者一覧・参加人数・定員判定には含まれない。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → ログイン参加として即時確定する。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nparticipants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。\n定員判定は確定済みの申込だけを数える。\n未ログインで申込済みのメールアドレスから再申込した場合は、新規申込と同じ 201 と\n本文の形で応答し（既存申込の内容は返さない）、そのアドレスに\n「すでに申込まれています」の案内メールを送信する。\nログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある場合\n（自分以外の申込を含む）は 409 already_joined を返す（案内メールは送らない）。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。\n申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。\n取りやめ済みのイベントへの申込は 409 Conflict（event_cancelled）を返す。\n確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。",
                 "consumes": [
                     "application/json"
                 ],
@@ -428,7 +434,7 @@
                         }
                     },
                     "409": {
-                        "description": "already_joined: ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後",
+                        "description": "already_joined: ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後 / event_cancelled: イベント取消済み",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse"
                         }
@@ -963,7 +969,7 @@
         },
         "/api/v1/events/{id}/report": {
             "get": {
-                "description": "指定したイベントIDに紐づくレポートを取得する。1イベント1レポート。認証不要。",
+                "description": "指定したイベントIDに紐づくレポートを取得する。1イベント1レポート。認証不要。\nイベントが取りやめ済みなら、レポートの有無にかかわらず 410 Gone（event_cancelled）を返す。",
                 "produces": [
                     "application/json"
                 ],
@@ -991,6 +997,12 @@
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCancelledErrorResponse"
                         }
                     },
                     "500": {
@@ -2185,6 +2197,32 @@
                 }
             }
         },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCancelledErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は機械可読なエラーコード。常に event_cancelled。",
+                    "type": "string",
+                    "enum": [
+                        "event_cancelled"
+                    ],
+                    "example": "event_cancelled"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "このイベントは削除されました"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCancelledErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCancelledErrorBody"
+                }
+            }
+        },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCostInput": {
             "type": "object",
             "required": [
@@ -2341,7 +2379,7 @@
                     "type": "string"
                 },
                 "cancelledAt": {
-                    "description": "CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。",
+                    "description": "CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。\n詳細 API は取りやめ済みのイベントに 410 を返すため、現在は常に省略される（ADR-0055）。",
                     "type": "string"
                 },
                 "capacity": {
@@ -2591,18 +2629,19 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "description": "Code は競合の原因を表す機械可読なエラーコード。\nalready_joined = ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full = 定員到達 /\ndeadline_passed = 申込期限経過後 / event_ended = イベント終了後。\n申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0049）。",
+                    "description": "Code は競合の原因を表す機械可読なエラーコード。\nalready_joined = ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full = 定員到達 /\ndeadline_passed = 申込期限経過後 / event_ended = イベント終了後 / event_cancelled = イベント取消済み。\n申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0049）。",
                     "type": "string",
                     "enum": [
                         "already_joined",
                         "capacity_full",
                         "deadline_passed",
-                        "event_ended"
+                        "event_ended",
+                        "event_cancelled"
                     ],
                     "example": "already_joined"
                 },
                 "message": {
-                    "description": "Message は人間向けのエラーメッセージ。\nalready_joined なら「既に参加しています」、capacity_full なら「定員に達しています」、\ndeadline_passed なら「申込期限を過ぎているため申し込めません」、\nevent_ended なら「イベントは終了しているため申し込めません」。",
+                    "description": "Message は人間向けのエラーメッセージ。\nalready_joined なら「既に参加しています」、capacity_full なら「定員に達しています」、\ndeadline_passed なら「申込期限を過ぎているため申し込めません」、\nevent_ended なら「イベントは終了しているため申し込めません」、\nevent_cancelled なら「このイベントはキャンセルされているため参加できません」。",
                     "type": "string",
                     "example": "既に参加しています"
                 }
