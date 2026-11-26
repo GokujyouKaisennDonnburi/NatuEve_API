@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"image"
 	"image/color"
@@ -261,13 +262,46 @@ func validateImagePixelSize(data []byte) error {
 			maxImagePixels,
 		)
 	}
-	return validateImageDecodedBytes(config)
+	return validateImageDecodedBytes(config, pngHasTRNS(data))
+}
+
+// pngSignature は PNG のシグネチャ。
+var pngSignature = []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
+
+// pngHasTRNS は data が tRNS チャンクを含む PNG かどうか返す。PNG でない場合は false を返す。
+//
+// チャンク構造のなぞりだけを行い、内容の検証はしない。壊れた PNG は後続の Decode で拒否される。
+func pngHasTRNS(data []byte) bool {
+	if !bytes.HasPrefix(data, pngSignature) {
+		return false
+	}
+	// チャンクは length(4) + type(4) + data(length) + CRC(4)。
+	for off := int64(8); off+8 <= int64(len(data)); {
+		length := int64(binary.BigEndian.Uint32(data[off : off+4]))
+		if bytes.Equal(data[off+4:off+8], []byte("tRNS")) {
+			return true
+		}
+		off += 12 + length
+	}
+	return false
 }
 
 // validateImageDecodedBytes は幅×高さ×1ピクセルあたりのバイト数から
 // 展開後サイズを推定し、上限を超える場合はエラーを返す。
-func validateImageDecodedBytes(config image.Config) error {
+//
+// hasTRNS は PNG が tRNS チャンクを含むかどうか。
+func validateImageDecodedBytes(config image.Config, hasTRNS bool) error {
 	bpp := estimatedBytesPerPixel(config.ColorModel)
+	// tRNS 付きグレースケールは NRGBA/NRGBA64 として展開され、
+	// DecodeConfig の ColorModel より多くのメモリを使う。
+	if hasTRNS {
+		switch config.ColorModel {
+		case color.GrayModel:
+			bpp = 4
+		case color.Gray16Model:
+			bpp = 8
+		}
+	}
 	estimated := int64(config.Width) * int64(config.Height) * int64(bpp)
 	if estimated > maxImageDecodedBytes {
 		return fmt.Errorf(

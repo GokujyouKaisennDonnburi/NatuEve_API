@@ -216,6 +216,39 @@ func pngConfigData16bit(t *testing.T, width, height uint32) []byte {
 	return data
 }
 
+// appendPNGChunk は dst に PNG チャンク（length + type + data + CRC）を追記する。
+func appendPNGChunk(dst []byte, chunkType string, chunkData []byte) []byte {
+	var head [8]byte
+	binary.BigEndian.PutUint32(head[0:4], uint32(len(chunkData)))
+	copy(head[4:8], chunkType)
+	dst = append(dst, head[:]...)
+	dst = append(dst, chunkData...)
+
+	crcInput := append([]byte(chunkType), chunkData...)
+	var crc [4]byte
+	binary.BigEndian.PutUint32(crc[:], crc32.ChecksumIEEE(crcInput))
+	return append(dst, crc[:]...)
+}
+
+// pngGrayHeaderData は グレースケール（color type 0）の IHDR と、withTRNS が true なら
+// tRNS チャンクからなる PNG データを返す。本体（IDAT）を持たないため、DecodeConfig は
+// 読めるが全体の Decode は失敗する。
+func pngGrayHeaderData(t *testing.T, width, height uint32, bitDepth byte, withTRNS bool) []byte {
+	t.Helper()
+
+	data := append([]byte(nil), pngSignature...)
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], width)
+	binary.BigEndian.PutUint32(ihdr[4:8], height)
+	ihdr[8] = bitDepth
+	ihdr[9] = 0 // color type: グレースケール
+	data = appendPNGChunk(data, "IHDR", ihdr)
+	if withTRNS {
+		data = appendPNGChunk(data, "tRNS", []byte{0, 0})
+	}
+	return data
+}
+
 func TestValidateImagePixelSize_Boundary(t *testing.T) {
 	if err := validateImagePixelSize(pngConfigData(t, maxImagePixels, maxImagePixels)); err != nil {
 		t.Fatalf("上限ちょうどの画像でエラー: %v", err)
@@ -488,6 +521,143 @@ func TestPromoteOneObject_DecodedBytesLimitCheckedBeforeFullDecode(t *testing.T)
 	}
 	if store.putCalls != 0 {
 		t.Errorf("上限超過時に Put が呼ばれました: %d", store.putCalls)
+	}
+}
+
+func TestPNGHasTRNS(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want bool
+	}{
+		{name: "tRNS 付きグレースケール PNG", data: pngGrayHeaderData(t, 1, 1, 8, true), want: true},
+		{name: "tRNS 無しのグレースケール PNG", data: pngGrayHeaderData(t, 1, 1, 8, false)},
+		{name: "tRNS 無しの RGBA PNG", data: pngConfigData(t, 1, 1)},
+		{name: "PNG 以外", data: encodePromotionTestImage(t, "image/jpeg", 1, 1)},
+		{name: "空のバイト列", data: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pngHasTRNS(tt.data); got != tt.want {
+				t.Errorf("pngHasTRNS: got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateImagePixelSize_GrayscaleTRNS(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr bool
+	}{
+		{
+			name: "正常: tRNS 無しの 16ビット グレースケール 8000x8000 は展開後 128MB で上限内",
+			data: pngGrayHeaderData(t, maxImagePixels, maxImagePixels, 16, false),
+		},
+		{
+			name: "正常: tRNS 付き 8ビット グレースケール 8000x8000 は NRGBA 展開の 256MB で上限内",
+			data: pngGrayHeaderData(t, maxImagePixels, maxImagePixels, 8, true),
+		},
+		{
+			name: "正常: tRNS 付き 16ビット グレースケール 4000x4000 は NRGBA64 展開の 128MB で上限内",
+			data: pngGrayHeaderData(t, 4000, 4000, 16, true),
+		},
+		{
+			name:    "異常: tRNS 付き 16ビット グレースケール 8000x8000 は NRGBA64 展開の 512MB で上限超過",
+			data:    pngGrayHeaderData(t, maxImagePixels, maxImagePixels, 16, true),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateImagePixelSize(tt.data)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				if !strings.Contains(err.Error(), "展開後サイズ") {
+					t.Errorf("エラーメッセージに展開後サイズ超過が含まれていません: %q", err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+		})
+	}
+}
+
+func TestPromoteOneObject_GrayscaleTRNSLimitCheckedBeforeFullDecode(t *testing.T) {
+	// tRNS 付きグレースケールは DecodeConfig より多く展開されるため、
+	// 全体デコードより前に展開後サイズ超過を検出できることを確認する。
+	data := pngGrayHeaderData(t, maxImagePixels, maxImagePixels, 16, true)
+	store := &fakeObjectStore{
+		headSize:        int64(len(data)),
+		headContentType: "image/png",
+		getData:         data,
+	}
+
+	_, err := promoteOneObject(
+		context.Background(),
+		store,
+		"profile-001",
+		"natueve/tmp/profile-001/image.png",
+		true,
+		"image.png",
+		func(string) string { return "natueve/events/images/final.png" },
+	)
+
+	validationErr := assertValidationError(t, err)
+	if !strings.Contains(validationErr.Message, "展開後サイズ") {
+		t.Errorf("全体デコードより前に展開後サイズ超過を検出できていません: %q", validationErr.Message)
+	}
+	if store.putCalls != 0 {
+		t.Errorf("上限超過時に Put が呼ばれました: %d", store.putCalls)
+	}
+}
+
+func TestPromoteOneObject_Grayscale16WithTRNSAccepted(t *testing.T) {
+	// png.Encode の出力（gray16）の IHDR 直後に tRNS チャンクを挿入する。
+	img := image.NewGray16(image.Rect(0, 0, 64, 64))
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("16ビット グレースケール PNG の生成に失敗: %v", err)
+	}
+	// PNG: 0:8 signature / 8:12 IHDR length / 12:16 type / 16:29 data / 29:33 CRC / 33: tRNS
+	data := appendPNGChunk(buf.Bytes()[:33:33], "tRNS", []byte{0, 0})
+	data = append(data, buf.Bytes()[33:]...)
+
+	// 実際に Decode しても NRGBA64 として展開される（ColorModel の見積もりより大きい）。
+	m, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("テスト画像の Decode に失敗: %v", err)
+	}
+	if _, ok := m.(*image.NRGBA64); !ok {
+		t.Fatalf("tRNS 付き 16ビット グレースケールが NRGBA64 で展開されていません: %T", m)
+	}
+
+	store := &fakeObjectStore{
+		headSize:        int64(len(data)),
+		headContentType: "image/png",
+		getData:         data,
+	}
+
+	_, err = promoteOneObject(
+		context.Background(),
+		store,
+		"profile-001",
+		"natueve/tmp/profile-001/image.png",
+		true,
+		"image.png",
+		func(string) string { return "natueve/events/images/final.png" },
+	)
+
+	assertNoErr(t, err)
+	if store.putCalls != 1 {
+		t.Errorf("Put 呼び出し回数: got %d, want 1", store.putCalls)
 	}
 }
 
