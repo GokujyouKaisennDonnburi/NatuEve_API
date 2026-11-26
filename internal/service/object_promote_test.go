@@ -6,10 +6,12 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"image/png"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
@@ -202,6 +204,18 @@ func pngConfigData(t *testing.T, width, height uint32) []byte {
 	return data[:33]
 }
 
+// pngConfigData16bit は IHDR のビット深度を 16 に書き換えた PNG ヘッダを返す。
+// DecodeConfig は 16 ビット形式の ColorModel を報告するが、本体がないため全体の Decode は失敗する。
+func pngConfigData16bit(t *testing.T, width, height uint32) []byte {
+	t.Helper()
+
+	data := pngConfigData(t, width, height)
+	data[24] = 16 // bit depth
+	data[25] = 6  // color type: truecolor + alpha
+	binary.BigEndian.PutUint32(data[29:33], crc32.ChecksumIEEE(data[12:29]))
+	return data
+}
+
 func TestValidateImagePixelSize_Boundary(t *testing.T) {
 	if err := validateImagePixelSize(pngConfigData(t, maxImagePixels, maxImagePixels)); err != nil {
 		t.Fatalf("上限ちょうどの画像でエラー: %v", err)
@@ -339,5 +353,190 @@ func TestPromoteOneObject_ImageDecodeConfigError(t *testing.T) {
 	}
 	if store.putCalls != 0 {
 		t.Errorf("壊れた画像で Put が呼ばれました: %d", store.putCalls)
+	}
+}
+
+func TestEstimatedBytesPerPixel(t *testing.T) {
+	tests := []struct {
+		name  string
+		model color.Model
+		want  int
+	}{
+		{name: "8ビット グレースケールは 1 byte", model: color.GrayModel, want: 1},
+		{name: "16ビット グレースケールは 2 bytes", model: color.Gray16Model, want: 2},
+		{name: "8ビット RGBA は 4 bytes", model: color.RGBAModel, want: 4},
+		{name: "8ビット NRGBA は 4 bytes", model: color.NRGBAModel, want: 4},
+		{name: "YCbCr は 4 bytes", model: color.YCbCrModel, want: 4},
+		{name: "CMYK は 4 bytes", model: color.CMYKModel, want: 4},
+		{name: "16ビット RGBA64 は 8 bytes", model: color.RGBA64Model, want: 8},
+		{name: "16ビット NRGBA64 は 8 bytes", model: color.NRGBA64Model, want: 8},
+		{name: "パレットは 1 byte", model: color.Palette{}, want: 1},
+		{name: "未知の形式は保守的に 8 bytes", model: color.AlphaModel, want: 8},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := estimatedBytesPerPixel(tt.model); got != tt.want {
+				t.Errorf("estimatedBytesPerPixel: got %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateImagePixelSize_DecodedBytesLimit(t *testing.T) {
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr bool
+	}{
+		{
+			name: "正常: 8ビット RGBA の 8000x8000 は寸法上限内",
+			data: pngConfigData(t, maxImagePixels, maxImagePixels),
+		},
+		{
+			name: "正常: 16ビット PNG の 4000x4000 は展開後 128MB で上限内",
+			data: pngConfigData16bit(t, 4000, 4000),
+		},
+		{
+			name:    "異常: 16ビット PNG の 8000x8000 は展開後 512MB で上限超過",
+			data:    pngConfigData16bit(t, maxImagePixels, maxImagePixels),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateImagePixelSize(tt.data)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				if !strings.Contains(err.Error(), "展開後サイズ") {
+					t.Errorf("エラーメッセージに展開後サイズ超過が含まれていません: %q", err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+		})
+	}
+}
+
+func TestPromoteOneObject_16bitImageWithinLimitAccepted(t *testing.T) {
+	// png.Encode は RGBA64 を 16 ビット PNG として出力する。
+	img := image.NewRGBA64(image.Rect(0, 0, 64, 64))
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("16ビット PNG の生成に失敗: %v", err)
+	}
+	data := buf.Bytes()
+
+	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		t.Fatalf("テスト画像の DecodeConfig に失敗: %v", err)
+	}
+	if got := estimatedBytesPerPixel(config.ColorModel); got != 8 {
+		t.Fatalf("テスト画像が 16 ビットとして見積もられていません: %d bytes/pixel", got)
+	}
+
+	store := &fakeObjectStore{
+		headSize:        int64(len(data)),
+		headContentType: "image/png",
+		getData:         data,
+	}
+
+	_, err = promoteOneObject(
+		context.Background(),
+		store,
+		"profile-001",
+		"natueve/tmp/profile-001/image.png",
+		true,
+		"image.png",
+		func(string) string { return "natueve/events/images/final.png" },
+	)
+
+	assertNoErr(t, err)
+	if store.putCalls != 1 {
+		t.Errorf("Put 呼び出し回数: got %d, want 1", store.putCalls)
+	}
+}
+
+func TestPromoteOneObject_DecodedBytesLimitCheckedBeforeFullDecode(t *testing.T) {
+	// IHDR だけのため、DecodeConfig は寸法と色形式を読めるが、全体の Decode は失敗する。
+	// 展開後サイズの超過を全体デコードより前に検出できることを確認する。
+	data := pngConfigData16bit(t, maxImagePixels, maxImagePixels)
+	store := &fakeObjectStore{
+		headSize:        int64(len(data)),
+		headContentType: "image/png",
+		getData:         data,
+	}
+
+	_, err := promoteOneObject(
+		context.Background(),
+		store,
+		"profile-001",
+		"natueve/tmp/profile-001/image.png",
+		true,
+		"image.png",
+		func(string) string { return "natueve/events/images/final.png" },
+	)
+
+	validationErr := assertValidationError(t, err)
+	if !strings.Contains(validationErr.Message, "展開後サイズ") {
+		t.Errorf("全体デコードより前に展開後サイズ超過を検出できていません: %q", validationErr.Message)
+	}
+	if store.putCalls != 0 {
+		t.Errorf("上限超過時に Put が呼ばれました: %d", store.putCalls)
+	}
+}
+
+func TestPromoteOneObject_ConcurrentDecodeLimited(t *testing.T) {
+	data := encodePromotionTestImage(t, "image/png", 2, 2)
+	store := &fakeObjectStore{
+		headSize:        int64(len(data)),
+		headContentType: "image/png",
+		getData:         data,
+	}
+
+	// セマフォを満杯にする。
+	for i := 0; i < maxConcurrentImageDecodes; i++ {
+		imageDecodeSlots <- struct{}{}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := promoteOneObject(
+			context.Background(),
+			store,
+			"profile-001",
+			"natueve/tmp/profile-001/image.png",
+			true,
+			"image.png",
+			func(string) string { return "natueve/events/images/final.png" },
+		)
+		done <- err
+	}()
+
+	// スロットが満杯の間は展開が始まらず、処理も完了しない。
+	select {
+	case err := <-done:
+		t.Fatalf("セマフォが満杯でも処理が完了しました: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if store.putCalls != 0 {
+		t.Errorf("セマフォ待ちの間に Put が呼ばれました: %d", store.putCalls)
+	}
+
+	// スロットを解放すると処理が進行する。
+	<-imageDecodeSlots
+	select {
+	case err := <-done:
+		assertNoErr(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("スロット解放後も処理が完了しません")
+	}
+	if store.putCalls != 1 {
+		t.Errorf("Put 呼び出し回数: got %d, want 1", store.putCalls)
 	}
 }
