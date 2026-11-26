@@ -495,10 +495,10 @@ func TestValidateImagePixelSize_JPEGDecodedBytes(t *testing.T) {
 	}{
 		{
 			name: "正常: ベースライン YCbCr の 8000x8000 は展開後 256MB で上限内",
-			data: encodePromotionTestImage(t, "image/jpeg", maxImagePixels, maxImagePixels),
+			data: jpegHeaderData(t, maxImagePixels, maxImagePixels, false, 3, progComps, nil),
 		},
 		{
-			name:    "異常: プログレッシブ YCbCr の 8000x8000 は係数バッファ込み 915MB で上限超過",
+			name:    "異常: プログレッシブ YCbCr の 8000x8000 は係数バッファ込みの推定 1,024MB で上限超過",
 			data:    jpegHeaderData(t, maxImagePixels, maxImagePixels, true, 3, progComps, nil),
 			wantErr: true,
 		},
@@ -542,7 +542,7 @@ func TestValidateImagePixelSize_JPEGDecodedBytes(t *testing.T) {
 				if config.ColorModel != color.RGBAModel {
 					t.Fatalf("テストデータが RGB として解釈されていません: %v", config.ColorModel)
 				}
-			case strings.Contains(tt.name, "プログレッシブ"):
+			case strings.Contains(tt.name, "プログレッシブ"), strings.Contains(tt.name, "ベースライン"):
 				if config.ColorModel != color.YCbCrModel {
 					t.Fatalf("テストデータが YCbCr として解釈されていません: %v", config.ColorModel)
 				}
