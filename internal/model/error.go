@@ -82,6 +82,19 @@ type NotFoundErrorBody struct {
 	Message string `json:"message" example:"リソースが見つかりません"`
 }
 
+// EventCancelledErrorResponse は取りやめ済みのイベントを参照したときのエラー(HTTP 410)のドキュメント用レスポンス型（ADR-0055）。
+type EventCancelledErrorResponse struct {
+	Error EventCancelledErrorBody `json:"error"`
+}
+
+// EventCancelledErrorBody は EventCancelledErrorResponse のエラー本体。
+type EventCancelledErrorBody struct {
+	// Code は機械可読なエラーコード。常に event_cancelled。
+	Code string `json:"code" example:"event_cancelled" enums:"event_cancelled"`
+	// Message は人間向けのエラーメッセージ。
+	Message string `json:"message" example:"このイベントは削除されました"`
+}
+
 // ConflictErrorResponse はリソース競合エラー(HTTP 409)のドキュメント用レスポンス型。
 type ConflictErrorResponse struct {
 	Error ConflictErrorBody `json:"error"`
@@ -107,13 +120,14 @@ type JoinConflictErrorResponse struct {
 type JoinConflictErrorBody struct {
 	// Code は競合の原因を表す機械可読なエラーコード。
 	// already_joined = ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full = 定員到達 /
-	// deadline_passed = 申込期限経過後 / event_ended = イベント終了後。
+	// deadline_passed = 申込期限経過後 / event_ended = イベント終了後 / event_cancelled = イベント取消済み。
 	// 申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0049）。
-	Code string `json:"code" example:"already_joined" enums:"already_joined,capacity_full,deadline_passed,event_ended"`
+	Code string `json:"code" example:"already_joined" enums:"already_joined,capacity_full,deadline_passed,event_ended,event_cancelled"`
 	// Message は人間向けのエラーメッセージ。
 	// already_joined なら「既に参加しています」、capacity_full なら「定員に達しています」、
 	// deadline_passed なら「申込期限を過ぎているため申し込めません」、
-	// event_ended なら「イベントは終了しているため申し込めません」。
+	// event_ended なら「イベントは終了しているため申し込めません」、
+	// event_cancelled なら「このイベントはキャンセルされているため参加できません」。
 	Message string `json:"message" example:"既に参加しています"`
 }
 

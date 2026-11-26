@@ -19,7 +19,7 @@ var ErrEventNotFound = errors.New("event not found")
 // ErrEventCapacityFull は定員超過で参加できない場合に返されるエラー。
 var ErrEventCapacityFull = errors.New("event capacity full")
 
-// ErrEventCancelled は参加対象のイベントが取りやめになっている場合に返されるエラー。
+// ErrEventCancelled は対象のイベントが取りやめになっている場合に返されるエラー。
 var ErrEventCancelled = errors.New("event cancelled")
 
 // ErrNotJoined は参加キャンセル時に、そのイベントに参加していない場合に返されるエラー。

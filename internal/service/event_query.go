@@ -17,6 +17,9 @@ import (
 // ErrEventNotFound はイベントが見つからない場合のエラー。
 var ErrEventNotFound = errors.New("event not found")
 
+// ErrEventCancelled は参照しようとしたイベントが取りやめ済みの場合のエラー（ADR-0055）。
+var ErrEventCancelled = errors.New("event cancelled")
+
 const (
 	// defaultLimit はページネーションのデフォルト取得件数。
 	defaultLimit = 20
@@ -341,6 +344,8 @@ func normalizeOrder(order string) string {
 }
 
 // GetByID は指定されたイベント ID の詳細情報を取得する。
+//
+// イベントが存在しない場合は ErrEventNotFound、取りやめ済みの場合は ErrEventCancelled を返す（ADR-0055）。
 func (s *EventQueryService) GetByID(ctx context.Context, id string) (*model.EventResponse, error) {
 	event, err := s.repo.GetByID(ctx, id)
 	if err != nil {
@@ -348,6 +353,9 @@ func (s *EventQueryService) GetByID(ctx context.Context, id string) (*model.Even
 			return nil, ErrEventNotFound
 		}
 		return nil, err
+	}
+	if event.CancelledAt != nil {
+		return nil, ErrEventCancelled
 	}
 
 	// 公開バケットの完全URLを付与する（ベースURL未設定なら空配列）。

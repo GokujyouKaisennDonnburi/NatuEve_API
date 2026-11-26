@@ -82,7 +82,7 @@ type EventRepository interface {
 	// CountMyEventKinds は指定プロフィールの種別ごとの件数を1クエリで返す。取りやめ済みのイベントは数えない（ADR-0054）。
 	// profileID はパース済みの uuid.UUID を受け取り、正規化文字列でクエリする。
 	CountMyEventKinds(ctx context.Context, profileID uuid.UUID) (model.MyEventCounts, error)
-	// GetByID は指定されたイベント ID の詳細情報を取得する。
+	// GetByID は指定されたイベント ID の詳細情報を取得する。取りやめ済みのイベントも返す。
 	GetByID(ctx context.Context, id string) (*model.EventResponse, error)
 	// Create はイベントを関連テーブルとともにトランザクション内で一括登録する。
 	Create(ctx context.Context, e *model.NewEvent) (model.CreateEventResponse, error)

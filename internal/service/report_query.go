@@ -33,12 +33,16 @@ func NewReportQueryService(repo repository.ReportRepository, publicBaseURL strin
 // GetByEventID は指定されたイベント ID に紐づくレポート詳細を取得する。
 //
 // 1 イベント 1 レポート（reports.event_id は UNIQUE）のため、event_id 起点で取得する。
-// レポートが存在しない場合は ErrReportNotFound を返す。
+// イベントまたはレポートが存在しない場合は ErrReportNotFound、
+// イベントが取りやめ済みの場合は ErrEventCancelled を返す（ADR-0055）。
 func (s *ReportQueryService) GetByEventID(ctx context.Context, eventID string) (*model.ReportResponse, error) {
 	report, err := s.repo.GetByEventID(ctx, eventID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrReportNotFound
+		}
+		if errors.Is(err, repository.ErrEventCancelled) {
+			return nil, ErrEventCancelled
 		}
 		return nil, err
 	}

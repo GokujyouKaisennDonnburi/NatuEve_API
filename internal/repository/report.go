@@ -15,7 +15,8 @@ type ReportRepository interface {
 	Create(ctx context.Context, r *model.NewReport) (model.CreateReportResponse, error)
 	// GetByEventID は指定したイベント ID に紐づくレポート詳細を取得する。
 	// 1 イベント 1 レポート（reports.event_id は UNIQUE）を前提とする。
-	// レポートが存在しない場合は sql.ErrNoRows を %w でラップして返す。
+	// イベントまたはレポートが存在しない場合は sql.ErrNoRows を %w でラップして返す。
+	// イベントが取りやめ済みなら、レポートの有無にかかわらず ErrEventCancelled を %w でラップして返す（ADR-0055）。
 	GetByEventID(ctx context.Context, eventID string) (*model.ReportResponse, error)
 }
 
@@ -113,11 +114,15 @@ func (r *reportPostgres) Create(ctx context.Context, report *model.NewReport) (m
 
 // GetByEventID は event_id 起点でレポート本体と関連テーブル（画像・PDF）を取得する。
 // reports.event_id は UNIQUE のため、1 イベントにつき高々 1 件のレポートが返る。
+//
+// イベントが取りやめ済みなら、レポートの有無にかかわらず ErrEventCancelled を返す（ADR-0055）。
+// イベントが存在しない場合とレポートが無い場合は sql.ErrNoRows を返す。
 func (r *reportPostgres) GetByEventID(ctx context.Context, eventID string) (*model.ReportResponse, error) {
 	const query = `
-		SELECT	id, event_id, content, created_at, updated_at
-		FROM	reports
-		WHERE	event_id = $1`
+		SELECT	e.cancelled_at, r.id, r.event_id, r.content, r.created_at, r.updated_at
+		FROM	events e
+		LEFT JOIN reports r ON r.event_id = e.id
+		WHERE	e.id = $1`
 
 	var rep model.ReportResponse
 
@@ -128,15 +133,35 @@ func (r *reportPostgres) GetByEventID(ctx context.Context, eventID string) (*mod
 	rep.PdfFilenames = []string{}
 	rep.ExternalUrls = []string{}
 
+	var (
+		cancelledAt sql.NullTime
+		id          sql.NullString
+		repEventID  sql.NullString
+		content     sql.NullString
+		createdAt   sql.NullTime
+		updatedAt   sql.NullTime
+	)
 	if err := r.db.QueryRowContext(ctx, query, eventID).Scan(
-		&rep.ID,
-		&rep.EventID,
-		&rep.Content,
-		&rep.CreatedAt,
-		&rep.UpdatedAt,
+		&cancelledAt,
+		&id,
+		&repEventID,
+		&content,
+		&createdAt,
+		&updatedAt,
 	); err != nil {
 		return nil, fmt.Errorf("get report by event id: %w", err)
 	}
+	if cancelledAt.Valid {
+		return nil, fmt.Errorf("get report by event id %s: %w", eventID, ErrEventCancelled)
+	}
+	if !id.Valid {
+		return nil, fmt.Errorf("get report by event id: %w", sql.ErrNoRows)
+	}
+	rep.ID = id.String
+	rep.EventID = repEventID.String
+	rep.Content = content.String
+	rep.CreatedAt = createdAt.Time
+	rep.UpdatedAt = updatedAt.Time
 
 	// images（objectkey と filename を同順で取得する）
 	const imageQuery = `

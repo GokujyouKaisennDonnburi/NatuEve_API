@@ -218,6 +218,7 @@ type EventResponse struct {
 	CreatedAt time.Time     `json:"createdAt"`
 	UpdatedAt time.Time     `json:"updatedAt"`
 	// CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。
+	// 詳細 API は取りやめ済みのイベントに 410 を返すため、現在は常に省略される（ADR-0055）。
 	CancelledAt *time.Time `json:"cancelledAt,omitempty"`
 }
 
