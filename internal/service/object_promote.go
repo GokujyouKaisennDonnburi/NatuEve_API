@@ -93,6 +93,10 @@ func deleteObjectsBestEffort(ctx context.Context, store ObjectStore, keys []stri
 	}
 }
 
+// imageDecodeSlots は画像の展開・再エンコードの同時実行数をプロセス全体で
+// 制限するセマフォ。上限の根拠は ADR-0047。
+var imageDecodeSlots = make(chan struct{}, maxConcurrentImageDecodes)
+
 // promoteOneObject は tmp 領域のオブジェクトを検証・洗浄して最終キーに配置する。
 //
 // buildKey は contentType から最終キーを生成する関数。
@@ -166,6 +170,14 @@ func promoteOneObject(
 			return "", &ValidationError{
 				Message: fmt.Sprintf("画像 %q のピクセル数検証に失敗しました: %v", key, err),
 			}
+		}
+		// 展開後の画像データがメモリ上限を超えないよう、展開・再エンコードの
+		// 同時実行数を制限する（ADR-0047）。Put の完了までスロットを保持する。
+		select {
+		case imageDecodeSlots <- struct{}{}:
+			defer func() { <-imageDecodeSlots }()
+		case <-ctx.Done():
+			return "", fmt.Errorf("画像 %q の展開待ちが中断されました: %w", key, ctx.Err())
 		}
 		// EXIF/GPS 除去: 再エンコード（geofuzzing ルール準拠）
 		clean, err := stripEXIFAndReencode(data, ct)

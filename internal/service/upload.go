@@ -3,8 +3,10 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"image/png"
 	"net/http"
@@ -60,6 +62,12 @@ const (
 	maxImageBytes int64 = 10 * 1024 * 1024
 	// maxImagePixels は画像の幅・高さそれぞれの最大ピクセル数。Web 側の上限と揃える。
 	maxImagePixels = 8000
+	// maxImageDecodedBytes は画像の展開後サイズの推定値の上限（256MiB）。
+	// 8000×8000px の RGBA 展開（256,000,000 bytes）は上限内で受け付ける。
+	maxImageDecodedBytes int64 = 256 << 20
+	// maxConcurrentImageDecodes は画像の展開・再エンコードを同時に実行する数の上限。
+	// 上限の根拠は ADR-0047。
+	maxConcurrentImageDecodes = 1
 	// maxPDFBytes は PDF ファイルの最大サイズ（20MB）。
 	maxPDFBytes int64 = 20 * 1024 * 1024
 )
@@ -238,9 +246,10 @@ func stripEXIFAndReencode(data []byte, contentType string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// validateImagePixelSize は画像全体を復元せず、ヘッダから幅・高さを検証する。
+// validateImagePixelSize は画像全体を復元せず、ヘッダから幅・高さと
+// 展開後サイズの推定値を検証する。
 func validateImagePixelSize(data []byte) error {
-	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("画像の寸法取得に失敗しました: %w", err)
 	}
@@ -253,7 +262,185 @@ func validateImagePixelSize(data []byte) error {
 			maxImagePixels,
 		)
 	}
+	return validateImageDecodedBytes(config, format, pngHasTRNS(data), jpegIsProgressive(data), pngIsInterlaced(data))
+}
+
+// pngIsInterlaced は data の PNG が Adam7 インターレースかどうか返す。
+// PNG でない場合は false を返す。
+func pngIsInterlaced(data []byte) bool {
+	// IHDR: signature(8) + length(4) + type(4) + width(4) + height(4) +
+	// depth(1) + color(1) + compression(1) + filter(1) + interlace(1)。
+	if !bytes.HasPrefix(data, pngSignature) || len(data) < 29 {
+		return false
+	}
+	return data[28] == 1
+}
+
+// jpegSignature は JPEG の SOI。
+var jpegSignature = []byte{0xFF, 0xD8}
+
+// jpegIsProgressive は data が SOF2（プログレッシブ）セグメントを含む JPEG かどうか返す。
+// JPEG でない場合、SOF が見つからない場合は false を返す。
+//
+// セグメント内容の検証はしない。壊れた JPEG は後続の Decode で拒否される。
+func jpegIsProgressive(data []byte) bool {
+	if !bytes.HasPrefix(data, jpegSignature) {
+		return false
+	}
+	// マーカーは 0xFF + 種別。長さを持つセグメントは length(2) + payload(length-2)。
+	for off := int64(2); off+2 <= int64(len(data)); {
+		if data[off] != 0xFF {
+			return false
+		}
+		marker := data[off+1]
+		if marker == 0xFF {
+			// 0xFF の詰め物を飛ばす。
+			off++
+			continue
+		}
+		off += 2
+		if marker == 0xDA || marker == 0xD9 {
+			// SOS 以降 / EOI に SOF は現れない。
+			return false
+		}
+		if marker == 0x01 || marker == 0xD8 || (0xD0 <= marker && marker <= 0xD7) {
+			// 長さを持たないマーカー。
+			continue
+		}
+		if 0xC0 <= marker && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC {
+			// SOF。プログレッシブ（SOF2）かどうかを返す。
+			return marker == 0xC2
+		}
+		if off+2 > int64(len(data)) {
+			return false
+		}
+		length := int64(binary.BigEndian.Uint16(data[off : off+2]))
+		if length < 2 {
+			return false
+		}
+		off += length
+	}
+	return false
+}
+
+// validateImageDecodedBytes は幅×高さ×1ピクセルあたりのバイト数から
+// 展開後サイズを推定し、上限を超える場合はエラーを返す。
+//
+// format は image.DecodeConfig の第 2 戻り値。hasTRNS は PNG が tRNS チャンクを
+// 含むかどうか、isProgressive は JPEG が SOF2 を含むかどうか、
+// isInterlaced は PNG が Adam7 インターレースかどうか。
+func validateImageDecodedBytes(config image.Config, format string, hasTRNS, isProgressive, isInterlaced bool) error {
+	bpp := decodeBytesPerPixel(config, format, isProgressive)
+	// tRNS 付きグレースケールは NRGBA/NRGBA64 として展開され、
+	// DecodeConfig の ColorModel より多くのメモリを使う。
+	if hasTRNS {
+		switch config.ColorModel {
+		case color.GrayModel:
+			bpp = 4
+		case color.Gray16Model:
+			bpp = 8
+		}
+	}
+	estimated := int64(config.Width) * int64(config.Height) * int64(bpp)
+	// Adam7 インターレースは全体の画像に加えて最大パス（面積 1/2）の画像を
+	// 同時に確保するため、ピークは推定値の約 1.5 倍になる。
+	if isInterlaced {
+		estimated += estimated / 2
+	}
+	if estimated > maxImageDecodedBytes {
+		return fmt.Errorf(
+			"画像の展開後サイズの見積もり(%d x %d x %d bytes = %d bytes)が上限(%d bytes)を超えています",
+			config.Width,
+			config.Height,
+			bpp,
+			estimated,
+			maxImageDecodedBytes,
+		)
+	}
 	return nil
+}
+
+// pngSignature は PNG のシグネチャ。
+var pngSignature = []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a}
+
+// pngHasTRNS は data が tRNS チャンクを含む PNG かどうか返す。PNG でない場合は false を返す。
+//
+// チャンク構造のなぞりだけを行い、内容の検証はしない。壊れた PNG は後続の Decode で拒否される。
+func pngHasTRNS(data []byte) bool {
+	if !bytes.HasPrefix(data, pngSignature) {
+		return false
+	}
+	// チャンクは length(4) + type(4) + data(length) + CRC(4)。
+	for off := int64(8); off+8 <= int64(len(data)); {
+		length := int64(binary.BigEndian.Uint32(data[off : off+4]))
+		if bytes.Equal(data[off+4:off+8], []byte("tRNS")) {
+			return true
+		}
+		off += 12 + length
+	}
+	return false
+}
+
+// estimatedBytesPerPixel は DecodeConfig の ColorModel から、標準パッケージでの
+// 展開後の 1 ピクセルあたりのバイト数の上限を返す。
+//
+// 16 ビット形式（RGBA64/NRGBA64/Gray16）はそれぞれ 8/8/2 バイトで展開される。
+// YCbCr はサブサンプリングにより最大 3 バイトだが、保守的に 4 を返す。
+// 未知の形式は保守的に 8 を返す。
+// JPEG 固有の上書き（CMYK・RGB・プログレッシブ）は decodeBytesPerPixel が行う。
+func estimatedBytesPerPixel(m color.Model) int {
+	switch m {
+	case color.GrayModel:
+		return 1
+	case color.Gray16Model:
+		return 2
+	case color.RGBAModel, color.NRGBAModel, color.YCbCrModel, color.NYCbCrAModel, color.CMYKModel:
+		return 4
+	case color.RGBA64Model, color.NRGBA64Model:
+		return 8
+	default:
+		if _, ok := m.(color.Palette); ok {
+			return 1
+		}
+		return 8
+	}
+}
+
+// decodeBytesPerPixel は DecodeConfig の結果と形式から、標準パッケージでの
+// 展開後の 1 ピクセルあたりのバイト数の上限を返す。
+//
+// format は image.DecodeConfig の第 2 戻り値（"jpeg" / "png" など）。
+func decodeBytesPerPixel(config image.Config, format string, isProgressive bool) int {
+	bpp := estimatedBytesPerPixel(config.ColorModel)
+	if format != "jpeg" {
+		return bpp
+	}
+	switch config.ColorModel {
+	case color.CMYKModel:
+		// Adobe CMYK は YCbCr 3 面 + K 面 + image.NewCMYK として展開される。
+		bpp = 8
+	case color.RGBAModel:
+		// Adobe RGB は YCbCr 3 面 + image.NewRGBA として展開される。
+		bpp = 7
+	}
+	if isProgressive {
+		bpp += jpegProgressiveCoeffBytesPerPixel(config.ColorModel)
+	}
+	return bpp
+}
+
+// jpegProgressiveCoeffBytesPerPixel はプログレッシブ JPEG が成分ごとに確保する
+// 係数バッファ（[64]int32 × 8×8 ピクセル = 成分数 × 4 バイト/ピクセル）の合計を返す。
+// 成分数は DecodeConfig の ColorModel から推定する。
+func jpegProgressiveCoeffBytesPerPixel(m color.Model) int {
+	switch m {
+	case color.GrayModel:
+		return 4
+	case color.CMYKModel:
+		return 16
+	default:
+		return 12
+	}
 }
 
 // buildFinalKey は最終キーを生成する。
