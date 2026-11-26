@@ -43,7 +43,7 @@ func NewEventHandler(
 //
 //	@Summary		イベント一覧取得
 //	@Description	公開イベントを指定ソート順で返す。認証不要。
-//	@Description	取りやめ済みのイベントは返さず、totalCount にも数えない。取りやめ済みは GET /api/v1/events/{id} でのみ取得できる。
+//	@Description	取りやめ済みのイベントは返さず、totalCount にも数えない。取りやめ済みのイベントの詳細（GET /api/v1/events/{id}）とレポートは 410 Gone（event_cancelled）を返す。
 //	@Description	sort は "created_at"(デフォルト) / "event_date" のみ許可。不正値はデフォルトに戻す。
 //	@Description	order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
 //	@Description	prifileはProfileSummaryを返す。
