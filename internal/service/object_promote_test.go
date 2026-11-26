@@ -391,6 +391,209 @@ func TestPromoteOneObject_ImageDecodeConfigError(t *testing.T) {
 	}
 }
 
+// jpegHeaderData は SOI、必要なら Adobe APP14、SOF（baseline または progressive）、
+// SOS からなる JPEG データを返す。画像本体（スキャンデータ）を持たないため、
+// DecodeConfig は読めるが全体の Decode は失敗する。
+// comps は (成分識別子, サンプリング係数, 量子化テーブル番号) の 3 バイトずつの並び。
+// adobeTransform は Adobe APP14 の transform の値（nil なら APP14 を付けない）。
+func jpegHeaderData(t *testing.T, width, height uint16, progressive bool, nComp byte, comps []byte, adobeTransform *byte) []byte {
+	t.Helper()
+
+	data := []byte{0xFF, 0xD8} // SOI
+	if adobeTransform != nil {
+		payload := append([]byte("Adobe"), 0, 0, 0, 0, 0, 0, *adobeTransform) // version 2 + flags 4 + transform 1
+		var app14 [2]byte
+		binary.BigEndian.PutUint16(app14[:], uint16(2+len(payload)))
+		data = append(data, 0xFF, 0xEE)
+		data = append(data, app14[:]...)
+		data = append(data, payload...)
+	}
+
+	sof := byte(0xC0) // baseline
+	if progressive {
+		sof = 0xC2 // progressive
+	}
+	sofPayload := make([]byte, 6+len(comps))
+	sofPayload[0] = 8 // precision
+	binary.BigEndian.PutUint16(sofPayload[1:3], height)
+	binary.BigEndian.PutUint16(sofPayload[3:5], width)
+	sofPayload[5] = nComp
+	copy(sofPayload[6:], comps)
+	var sofHead [2]byte
+	binary.BigEndian.PutUint16(sofHead[:], uint16(2+6+3*nComp))
+	data = append(data, 0xFF, sof)
+	data = append(data, sofHead[:]...)
+	data = append(data, sofPayload...)
+
+	// SOS で DecodeConfig は打ち切る。
+	data = append(data, 0xFF, 0xDA, 0x00, 0x02)
+	return data
+}
+
+func TestJpegIsProgressive(t *testing.T) {
+	progComps := []byte{1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0}
+	baseComps := []byte{1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0}
+	tests := []struct {
+		name string
+		data []byte
+		want bool
+	}{
+		{name: "ベースライン JPEG", data: encodePromotionTestImage(t, "image/jpeg", 4, 4)},
+		{name: "SOF2 を含む JPEG", data: jpegHeaderData(t, 4, 4, true, 3, progComps, nil), want: true},
+		{name: "SOF0 を含む JPEG", data: jpegHeaderData(t, 4, 4, false, 3, baseComps, nil)},
+		{name: "PNG", data: pngConfigData(t, 1, 1)},
+		{name: "空のバイト列", data: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := jpegIsProgressive(tt.data); got != tt.want {
+				t.Errorf("jpegIsProgressive: got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDecodeBytesPerPixel(t *testing.T) {
+	tests := []struct {
+		name          string
+		model         color.Model
+		format        string
+		isProgressive bool
+		want          int
+	}{
+		{name: "PNG の RGBA は 4 bytes", model: color.RGBAModel, format: "png", want: 4},
+		{name: "PNG のプログレッシブ指定は無視される", model: color.RGBAModel, format: "png", isProgressive: true, want: 4},
+		{name: "JPEG の YCbCr は 4 bytes", model: color.YCbCrModel, format: "jpeg", want: 4},
+		{name: "JPEG の Gray は 1 byte", model: color.GrayModel, format: "jpeg", want: 1},
+		{name: "JPEG の CMYK は 8 bytes", model: color.CMYKModel, format: "jpeg", want: 8},
+		{name: "JPEG の Adobe RGB は 7 bytes", model: color.RGBAModel, format: "jpeg", want: 7},
+		{name: "プログレッシブ YCbCr は係数 12 bytes を加算", model: color.YCbCrModel, format: "jpeg", isProgressive: true, want: 16},
+		{name: "プログレッシブ Gray は係数 4 bytes を加算", model: color.GrayModel, format: "jpeg", isProgressive: true, want: 5},
+		{name: "プログレッシブ CMYK は係数 16 bytes を加算", model: color.CMYKModel, format: "jpeg", isProgressive: true, want: 24},
+		{name: "プログレッシブ Adobe RGB は係数 12 bytes を加算", model: color.RGBAModel, format: "jpeg", isProgressive: true, want: 19},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := image.Config{ColorModel: tt.model, Width: 1, Height: 1}
+			if got := decodeBytesPerPixel(config, tt.format, tt.isProgressive); got != tt.want {
+				t.Errorf("decodeBytesPerPixel: got %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateImagePixelSize_JPEGDecodedBytes(t *testing.T) {
+	progComps := []byte{1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0}
+	transformUnknown := byte(0)
+	tests := []struct {
+		name    string
+		data    []byte
+		wantErr bool
+	}{
+		{
+			name: "正常: ベースライン YCbCr の 8000x8000 は展開後 256MB で上限内",
+			data: encodePromotionTestImage(t, "image/jpeg", maxImagePixels, maxImagePixels),
+		},
+		{
+			name:    "異常: プログレッシブ YCbCr の 8000x8000 は係数バッファ込み 915MB で上限超過",
+			data:    jpegHeaderData(t, maxImagePixels, maxImagePixels, true, 3, progComps, nil),
+			wantErr: true,
+		},
+		{
+			name: "正常: プログレッシブ YCbCr の 4000x4000 は係数バッファ込み 256MB で上限内",
+			data: jpegHeaderData(t, 4000, 4000, true, 3, progComps, nil),
+		},
+		{
+			name:    "異常: Adobe CMYK の 8000x8000 は展開後 512MB で上限超過",
+			data:    jpegHeaderData(t, maxImagePixels, maxImagePixels, false, 4, []byte{1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0, 4, 0x11, 0}, &transformUnknown),
+			wantErr: true,
+		},
+		{
+			name: "正常: Adobe CMYK の 4000x4000 は展開後 128MB で上限内",
+			data: jpegHeaderData(t, 4000, 4000, false, 4, []byte{1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0, 4, 0x11, 0}, &transformUnknown),
+		},
+		{
+			name:    "異常: Adobe RGB の 8000x8000 は展開後 448MB で上限超過",
+			data:    jpegHeaderData(t, maxImagePixels, maxImagePixels, false, 3, progComps, &transformUnknown),
+			wantErr: true,
+		},
+		{
+			name: "正常: Adobe RGB の 4000x4000 は展開後 112MB で上限内",
+			data: jpegHeaderData(t, 4000, 4000, false, 3, progComps, &transformUnknown),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// フィクスチャが意図した形式として解釈されることの確認。
+			config, _, err := image.DecodeConfig(bytes.NewReader(tt.data))
+			if err != nil {
+				t.Fatalf("テストデータの DecodeConfig に失敗: %v", err)
+			}
+			switch {
+			case strings.Contains(tt.name, "CMYK"):
+				if config.ColorModel != color.CMYKModel {
+					t.Fatalf("テストデータが CMYK として解釈されていません: %v", config.ColorModel)
+				}
+			case strings.Contains(tt.name, "Adobe RGB"):
+				if config.ColorModel != color.RGBAModel {
+					t.Fatalf("テストデータが RGB として解釈されていません: %v", config.ColorModel)
+				}
+			case strings.Contains(tt.name, "プログレッシブ"):
+				if config.ColorModel != color.YCbCrModel {
+					t.Fatalf("テストデータが YCbCr として解釈されていません: %v", config.ColorModel)
+				}
+			}
+
+			err = validateImagePixelSize(tt.data)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("エラーを期待したが nil だった")
+				}
+				if !strings.Contains(err.Error(), "展開後サイズ") {
+					t.Errorf("エラーメッセージに展開後サイズ超過が含まれていません: %q", err.Error())
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("予期しないエラー: %v", err)
+			}
+		})
+	}
+}
+
+func TestPromoteOneObject_ProgressiveJPEGLimitCheckedBeforeFullDecode(t *testing.T) {
+	// プログレッシブ JPEG は ColorModel の見積もりより多くの係数バッファを確保するため、
+	// 全体デコードより前に展開後サイズ超過を検出できることを確認する。
+	progComps := []byte{1, 0x11, 0, 2, 0x11, 0, 3, 0x11, 0}
+	data := jpegHeaderData(t, maxImagePixels, maxImagePixels, true, 3, progComps, nil)
+	store := &fakeObjectStore{
+		headSize:        int64(len(data)),
+		headContentType: "image/jpeg",
+		getData:         data,
+	}
+
+	_, err := promoteOneObject(
+		context.Background(),
+		store,
+		"profile-001",
+		"natueve/tmp/profile-001/image.jpg",
+		true,
+		"image.jpg",
+		func(string) string { return "natueve/events/images/final.jpg" },
+	)
+
+	validationErr := assertValidationError(t, err)
+	if !strings.Contains(validationErr.Message, "展開後サイズ") {
+		t.Errorf("全体デコードより前に展開後サイズ超過を検出できていません: %q", validationErr.Message)
+	}
+	if store.putCalls != 0 {
+		t.Errorf("上限超過時に Put が呼ばれました: %d", store.putCalls)
+	}
+}
+
 func TestEstimatedBytesPerPixel(t *testing.T) {
 	tests := []struct {
 		name  string
