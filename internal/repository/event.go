@@ -58,9 +58,9 @@ func filenameAt(names []string, i int) string {
 type EventRepository interface {
 	// ListSummaries は指定されたソート順でイベントサマリーを取得する。
 	// sort は "created_at" または "event_date"、order は "asc" または "desc"。
-	// 同一ソートキーのレコードは id 昇順で安定ソートする。
+	// 同一ソートキーのレコードは id 昇順で安定ソートする。取りやめ済みのイベントは含まない（ADR-0054）。
 	ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error)
-	// CountSummaries は events テーブルの全件数を返す。
+	// CountSummaries は取りやめ済みを除くイベントの件数を返す（ADR-0054）。
 	CountSummaries(ctx context.Context) (int, error)
 	// SearchSummaries は filter に一致するイベントサマリーを指定ソート順で取得する。
 	// 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item)
@@ -68,16 +68,18 @@ type EventRepository interface {
 	// タグは複数指定時 OR（いずれかを持てば該当）、開催状況(status)も複数指定時 OR（ADR-0027）、
 	// 地域(location)は e.location への部分一致で複数指定時 OR（ADR-0028）で、
 	// キーワード条件・タグ条件・開催状況条件・地域条件は互いに AND で結合する。
+	// 取りやめ済みのイベントは含まない（ADR-0054）。
 	// filter は条件を 1 つ以上含むことを前提とする（IsEmpty() が false）。
 	SearchSummaries(ctx context.Context, filter model.EventSearchFilter, sort, order string, limit, offset int) ([]model.EventSummary, error)
-	// CountSearchSummaries は filter に一致するイベントの件数を返す。
+	// CountSearchSummaries は filter に一致するイベントの件数を返す。取りやめ済みのイベントは数えない（ADR-0054）。
 	// filter は条件を 1 つ以上含むことを前提とする（IsEmpty() が false）。
 	CountSearchSummaries(ctx context.Context, filter model.EventSearchFilter) (int, error)
 	// ListMySummaries は filter（プロフィール＋種別）に一致するイベントサマリーを指定ソート順で取得する。
 	// 種別ごとの絞り込み条件は myEventClauses を参照（種別の定義は ADR-0024）。
+	// 取りやめ済みのイベントは含まない（ADR-0054）。
 	// filter.Kind は呼び出し元（service 層）で検証済みであることを前提とする。
 	ListMySummaries(ctx context.Context, filter model.MyEventFilter, sort, order string, limit, offset int) ([]model.EventSummary, error)
-	// CountMyEventKinds は指定プロフィールの種別ごとの件数を1クエリで返す。
+	// CountMyEventKinds は指定プロフィールの種別ごとの件数を1クエリで返す。取りやめ済みのイベントは数えない（ADR-0054）。
 	// profileID はパース済みの uuid.UUID を受け取り、正規化文字列でクエリする。
 	CountMyEventKinds(ctx context.Context, profileID uuid.UUID) (model.MyEventCounts, error)
 	// GetByID は指定されたイベント ID の詳細情報を取得する。
@@ -107,8 +109,8 @@ type EventRepository interface {
 	// （profile_id NULL または profiles 行なし）・メールアドレスが空の場合は
 	// ErrOrganizerEmailNotFound を %w でラップして返す。
 	GetOrganizerEmail(ctx context.Context, eventID uuid.UUID) (string, error)
-	// ListSitemapEvents は全イベントの ID と更新日時を updated_at の降順、
-	// 同時刻は id の昇順で最大 limit 件取得する（ADR-0042, ADR-0043）。
+	// ListSitemapEvents は取りやめ済みを除くイベントの ID と更新日時を updated_at の降順、
+	// 同時刻は id の昇順で最大 limit 件取得する（ADR-0042, ADR-0043, ADR-0054）。
 	ListSitemapEvents(ctx context.Context, limit int) ([]model.SitemapEvent, error)
 }
 
@@ -130,6 +132,10 @@ const eventSummarySelect = `
 	       p.id, p.display_name, p.avatar_url
 	FROM events e
 	LEFT JOIN profiles p ON p.id = e.profile_id`
+
+// notCancelledCond は取りやめ済みのイベントを除く条件。一覧系と sitemap のクエリが
+// events を別名 e で参照する前提で共通に使う（ADR-0054）。
+const notCancelledCond = "e.cancelled_at IS NULL"
 
 // scanEventSummaries は eventSummarySelect の列順で rows を読み出す。
 // レコードが 0 件でも nil ではなく空スライスを返す。
@@ -187,14 +193,15 @@ func scanEventSummaries(rows *sql.Rows) ([]model.EventSummary, error) {
 	return summaries, nil
 }
 
-// ListSummaries は全イベントのサマリーを指定ソート順で取得する。
+// ListSummaries は取りやめ済みを除くイベントのサマリーを指定ソート順で取得する（ADR-0054）。
 // sort・order は呼び出し元（service 層）でホワイトリスト検証済みであることを前提とする。
 func (r *eventPostgres) ListSummaries(ctx context.Context, sort, order string, limit, offset int) ([]model.EventSummary, error) {
 	// G201: 埋め込むのはホワイトリスト由来の ORDER BY のみ。limit / offset は args 経由で渡す。
 	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
 	query := fmt.Sprintf(`%s
+		WHERE %s
 		ORDER BY %s
-		LIMIT $1 OFFSET $2`, eventSummarySelect, orderByClause(sort, order))
+		LIMIT $1 OFFSET $2`, eventSummarySelect, notCancelledCond, orderByClause(sort, order))
 
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
 	if err != nil {
@@ -263,9 +270,9 @@ func (r *eventPostgres) attachTagsToSummaries(ctx context.Context, summaries []m
 	return nil
 }
 
-// CountSummaries は events テーブルの全件数を返す。
+// CountSummaries は取りやめ済みを除くイベントの件数を返す（ADR-0054）。
 func (r *eventPostgres) CountSummaries(ctx context.Context) (int, error) {
-	const query = `SELECT COUNT(*) FROM events`
+	const query = `SELECT COUNT(*) FROM events e WHERE ` + notCancelledCond
 
 	var count int
 	if err := r.db.QueryRowContext(ctx, query).Scan(&count); err != nil {
@@ -404,6 +411,7 @@ func buildSearchWhere(filter model.EventSearchFilter, startIdx int) (string, []a
 // 各キーワードは title/description/location/主催者名(display_name)/持ち物(event_item) を横断（OR）し、
 // キーワード間は AND で結合する。タグ・開催状況(status)・地域(location)は複数指定時 OR で、
 // キーワード条件・タグ条件・開催状況条件・地域条件は互いに AND で結合する（ADR-0027, ADR-0028）。
+// 取りやめ済みのイベントは含まない（ADR-0054）。
 // sort・order は呼び出し元（service 層）でホワイトリスト検証済みであることを前提とする。
 func (r *eventPostgres) SearchSummaries(ctx context.Context, filter model.EventSearchFilter, sort, order string, limit, offset int) ([]model.EventSummary, error) {
 	where, args, err := buildSearchWhere(filter, 1)
@@ -420,9 +428,9 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, filter model.EventS
 	// SQL インジェクションは発生しない。
 	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
 	query := fmt.Sprintf(`%s
-		WHERE %s
+		WHERE %s AND %s
 		ORDER BY %s
-		LIMIT $%d OFFSET $%d`, eventSummarySelect, where, orderByClause(sort, order), limitIdx, offsetIdx)
+		LIMIT $%d OFFSET $%d`, eventSummarySelect, notCancelledCond, where, orderByClause(sort, order), limitIdx, offsetIdx)
 	args = append(args, limit, offset)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -441,7 +449,7 @@ func (r *eventPostgres) SearchSummaries(ctx context.Context, filter model.EventS
 	return summaries, nil
 }
 
-// CountSearchSummaries は filter に一致するイベントの件数を返す。
+// CountSearchSummaries は filter に一致するイベントの件数を返す。取りやめ済みのイベントは数えない（ADR-0054）。
 // LEFT JOIN profiles は 1 対 1、持ち物とタグは EXISTS のため行の重複は起きず COUNT(*) で正しい。
 func (r *eventPostgres) CountSearchSummaries(ctx context.Context, filter model.EventSearchFilter) (int, error) {
 	where, args, err := buildSearchWhere(filter, 1)
@@ -457,7 +465,7 @@ func (r *eventPostgres) CountSearchSummaries(ctx context.Context, filter model.E
 		SELECT COUNT(*)
 		FROM events e
 		LEFT JOIN profiles p ON p.id = e.profile_id
-		WHERE %s`, where)
+		WHERE %s AND %s`, notCancelledCond, where)
 
 	var count int
 	if err := r.db.QueryRowContext(ctx, query, args...).Scan(&count); err != nil {
@@ -478,6 +486,7 @@ type myEventClause struct {
 // applied / attended は event_members に自分の行がある（＝現在申込中の）イベントだけを対象とする。
 // 参加キャンセル（leave）で行が削除されたイベントはどちらにも現れない。
 // 未確定（pending）の申込は含めない（ADR-0049）。種別の定義と設計判断は ADR-0024 を参照。
+// 取りやめ済みのイベントは、どの種別でも一覧と件数の両方で notCancelledCond により除く（ADR-0054）。
 var myEventClauses = map[model.MyEventKind]myEventClause{
 	model.MyEventKindHosted: {
 		where: "e.profile_id = $1",
@@ -505,9 +514,9 @@ func (r *eventPostgres) ListMySummaries(ctx context.Context, filter model.MyEven
 	//nolint:gosec // 上記の理由により安全（ユーザー入力は文字列連結しない）
 	query := fmt.Sprintf(`%s
 		%s
-		WHERE %s
+		WHERE %s AND %s
 		ORDER BY %s
-		LIMIT $2 OFFSET $3`, eventSummarySelect, clause.join, clause.where, orderByClause(sort, order))
+		LIMIT $2 OFFSET $3`, eventSummarySelect, clause.join, notCancelledCond, clause.where, orderByClause(sort, order))
 
 	rows, err := r.db.QueryContext(ctx, query, filter.ProfileID.String(), limit, offset)
 	if err != nil {
@@ -529,7 +538,7 @@ func (r *eventPostgres) ListMySummaries(ctx context.Context, filter model.MyEven
 func (r *eventPostgres) CountMyEventKinds(ctx context.Context, profileID uuid.UUID) (model.MyEventCounts, error) {
 	countSubquery := func(kind model.MyEventKind) string {
 		clause := myEventClauses[kind]
-		return fmt.Sprintf("(SELECT COUNT(*) FROM events e %s WHERE %s)", clause.join, clause.where)
+		return fmt.Sprintf("(SELECT COUNT(*) FROM events e %s WHERE %s AND %s)", clause.join, notCancelledCond, clause.where)
 	}
 
 	// G201: 埋め込むのは myEventClauses 由来の固定文字列のみ。
@@ -1009,13 +1018,14 @@ func (r *eventPostgres) GetByID(ctx context.Context, id string) (*model.EventRes
 	return &e, nil
 }
 
-// ListSitemapEvents は全イベントの ID と更新日時を updated_at の降順、
-// 同時刻は id の昇順で最大 limit 件取得する。取りやめ済みも含む（ADR-0042, ADR-0043）。
+// ListSitemapEvents は取りやめ済みを除くイベントの ID と更新日時を updated_at の降順、
+// 同時刻は id の昇順で最大 limit 件取得する（ADR-0042, ADR-0043, ADR-0054）。
 func (r *eventPostgres) ListSitemapEvents(ctx context.Context, limit int) ([]model.SitemapEvent, error) {
 	const query = `
-		SELECT id, updated_at
-		FROM events
-		ORDER BY updated_at DESC, id ASC
+		SELECT e.id, e.updated_at
+		FROM events e
+		WHERE ` + notCancelledCond + `
+		ORDER BY e.updated_at DESC, e.id ASC
 		LIMIT $1
 	`
 

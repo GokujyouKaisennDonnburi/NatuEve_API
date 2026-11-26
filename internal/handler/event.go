@@ -43,6 +43,7 @@ func NewEventHandler(
 //
 //	@Summary		イベント一覧取得
 //	@Description	公開イベントを指定ソート順で返す。認証不要。
+//	@Description	取りやめ済みのイベントは返さず、totalCount にも数えない。取りやめ済みは GET /api/v1/events/{id} でのみ取得できる。
 //	@Description	sort は "created_at"(デフォルト) / "event_date" のみ許可。不正値はデフォルトに戻す。
 //	@Description	order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
 //	@Description	prifileはProfileSummaryを返す。
@@ -56,9 +57,7 @@ func NewEventHandler(
 //	@Description	値は upcoming(開催前: event_date > now())・ongoing(開催中: event_date <= now() かつ
 //	@Description	end_date >= now())・ended(開催後: end_date < now()) の3値で、排他かつ網羅（どのイベントも必ず1つに該当）。
 //	@Description	q・tagId と同時に指定した場合は AND で絞り込む。許可値以外（大文字表記等）は 400 を返す
-//	@Description	（値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表し、
-//	@Description	キャンセル済みイベントの判別は含まない（各 status の結果にキャンセル済みイベントも混在するため、
-//	@Description	クライアントは cancelledAt で判別する）。
+//	@Description	（値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表す。
 //	@Description	location は地域での絞り込み。反復指定は OR 検索になる（例: ?location=東京都&location=神奈川県）。
 //	@Description	q が5項目（タイトル/詳細/主催者名/地域名/持ち物）を横断するのに対し、location は地域名のみを
 //	@Description	対象に部分一致で判定する。q・tagId・status と同時に指定した場合は AND で絞り込む。
@@ -298,7 +297,8 @@ func (h *EventHandler) GetByID(c *gin.Context) {
 //	@Description	認証済みユーザー自身のイベントを種別ごとに返す。
 //	@Description	type は必須。"hosted"(主催したイベント) / "applied"(申し込み中イベント) /
 //	@Description	"attended"(参加済みイベント) のいずれかで、未指定・不正値は 400 を返す。
-//	@Description	hosted は自分が投稿したイベント全件（過去・キャンセル済みを含む）。
+//	@Description	hosted は自分が投稿したイベント全件（過去を含む）。
+//	@Description	取りやめ済みのイベントはどの種別にも含めず、counts と totalCount にも数えない。
 //	@Description	applied は申込済みでイベント終了日時(endDate)が未到来のもの、attended は終了日時を過ぎたもの。
 //	@Description	参加をキャンセル(leave)したイベントと、ログインせずに申し込んだイベントは applied / attended に含まれない。
 //	@Description	counts には3種別すべての件数を常に含める（タブのバッジ表示用）。totalCount は type に対応する件数。
@@ -363,7 +363,8 @@ func (h *EventHandler) ListMine(c *gin.Context) {
 //	@Description	type は必須。"hosted"(主催したイベント) / "attended"(参加済みイベント) のいずれかで、
 //	@Description	未指定・不正値は 400 を返す。"applied"(申し込み中) は本人限定のため公開せず、
 //	@Description	本人が取得する場合は GET /api/v1/me/events を使う。
-//	@Description	hosted はそのユーザーが投稿したイベント全件（過去・キャンセル済みを含む）。
+//	@Description	hosted はそのユーザーが投稿したイベント全件（過去を含む）。
+//	@Description	取りやめ済みのイベントはどの種別にも含めず、counts と totalCount にも数えない。
 //	@Description	attended は申込済みでイベント終了日時(endDate)を過ぎたもの。
 //	@Description	参加をキャンセル(leave)したイベントと、ログインせずに申し込んだイベントは attended に含まれない。
 //	@Description	counts には公開する2種別の件数を常に含める（タブのバッジ表示用）。totalCount は type に対応する件数。
@@ -433,8 +434,8 @@ func (h *EventHandler) ListByProfile(c *gin.Context) {
 //
 //	@Summary		sitemap用イベント一覧取得
 //	@Description	sitemap用に、イベントIDと最終更新日時を返す。認証不要。
-//	@Description	キャンセル済みイベントも含む。上限は50,000件で、超過時は最終更新日時の新しいものを返す。
-//	@Description	最終更新日時はキャンセルとレポート投稿でも更新される。
+//	@Description	取りやめ済みのイベントは含まない。上限は50,000件で、超過時は最終更新日時の新しいものを返す。
+//	@Description	最終更新日時はレポート投稿でも更新される。
 //	@Description	同一 IP から平均 1回/分・バースト5回を超えると 429 を返す。
 //	@Tags			event
 //	@Produce		json
