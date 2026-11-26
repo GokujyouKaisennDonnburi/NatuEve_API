@@ -1,6 +1,6 @@
 # ADR-0043: sitemap 用イベント一覧は上限超過時に古い更新から切り捨て、匿名アクセスを IP で制限する
 
-- ステータス: Accepted
+- ステータス: Accepted（取りやめ済みを sitemap に含める前提は [ADR-0054](./0054-exclude-cancelled-events-from-lists.md) により Superseded）
 - 日付: 2026-11-06
 - 関連: #259, #264, NatuEve_Web_Frontend#373, ADR-0012, ADR-0034, ADR-0037, ADR-0042
 

@@ -27,7 +27,7 @@
 | [0009](./0009-participation-log-event-not-found-status.md) | 参加状態ログ追加のイベント不存在は 404 で返す | Accepted |
 | [0010](./0010-uuid-parse-in-handler-layer.md) | UUID パースは handler 層に集約し、service 層は uuid.UUID を受け取る | Accepted |
 | [0011](./0011-event-leave-authenticated-only.md) | イベント参加キャンセルはログイン参加者に限定する | Accepted |
-| [0012](./0012-event-cancellation.md) | イベントキャンセル（開催取りやめ）の状態管理と API 設計 | Accepted（一部 ADR-0016 で置換） |
+| [0012](./0012-event-cancellation.md) | イベントキャンセル（開催取りやめ）の状態管理と API 設計 | Accepted（一部 ADR-0016・ADR-0054 で置換） |
 | [0013](./0013-event-tag-association-on-create.md) | イベント投稿時のタグ紐づけ設計 | Accepted |
 | [0014](./0014-event-tag-exposure-on-detail.md) | イベント詳細レスポンスでのタグ公開設計 | Accepted（本番構成の前提を ADR-0032 で更新） |
 | [0015](./0015-event-tag-exposure-on-list.md) | イベント一覧レスポンスでのタグ公開設計 | Accepted（本番構成の前提を ADR-0032 で更新） |
@@ -40,7 +40,7 @@
 | [0022](./0022-event-member-profile-summary.md) | イベント参加者一覧にプロフィールサマリーを公開し、匿名参加は null で表す | Accepted |
 | [0023](./0023-participant-category-breakdown.md) | 参加者カテゴリ別人数の内訳は event_costs を参照して保持する | Accepted |
 | [0024](./0024-event-detail-participant-count.md) | イベント詳細で参加人数を公開し、残り人数はクライアントで算出する | Accepted |
-| [0024](./0024-my-page-event-lists.md) | マイページのイベント一覧は種別つきの単一エンドポイントで返し、参加済みは終了日時で判定する | Accepted |
+| [0024](./0024-my-page-event-lists.md) | マイページのイベント一覧は種別つきの単一エンドポイントで返し、参加済みは終了日時で判定する | Accepted（一部 ADR-0054 で置換） |
 | [0025](./0025-profile-event-lists-public-scope.md) | プロフィールのイベント一覧は主催・参加済みのみ公開し、申し込み中は本人限定にする | Accepted |
 | [0026](./0026-my-event-application-lookup.md) | 自分の申込内容は本人スコープの単一リソースで返し、参加費は含めない | Accepted |
 | [0027](./0027-event-list-status-filter.md) | イベント一覧の開催状況絞り込みは排他な 3 値の status で表す | Accepted |
@@ -59,7 +59,7 @@
 | [0040](./0040-github-actions-deploy-separate-gcp-projects.md) | デプロイを GitHub Actions で自動化し、検証環境と本番を別の GCP プロジェクトに置く | Accepted（検証環境の Resend を ADR-0041 で変更） |
 | [0041](./0041-staging-shares-auth-mail-with-dev.md) | 検証環境は Supabase の Auth とメールの送信元を開発と共有し、Supabase は本番と同じく Auth と DB を分ける | Accepted |
 | [0042](./0042-no-search-engine-exclusion-setting.md) | 検索エンジンに載せない設定は作らず、全イベントを sitemap に載せる | Accepted |
-| [0043](./0043-sitemap-events-limit-and-lastmod.md) | sitemap 用イベント一覧は上限超過時に古い更新から切り捨て、匿名アクセスを IP で制限する | Accepted |
+| [0043](./0043-sitemap-events-limit-and-lastmod.md) | sitemap 用イベント一覧は上限超過時に古い更新から切り捨て、匿名アクセスを IP で制限する | Accepted（一部 ADR-0054 で置換） |
 | [0044](./0044-party-size-limit.md) | 1回の参加申込の人数上限を10人とし、超過は400で拒否する | Accepted |
 | [0045](./0045-delete-tmp-objects-after-promotion.md) | メディア昇格後に一時領域の元オブジェクトを削除する | Accepted |
 | [0046](./0046-strip-pdf-metadata-on-promotion.md) | PDF 昇格時に文書情報と XMP メタデータを除去して保存する | Accepted |
@@ -70,3 +70,4 @@
 | [0051](./0051-notification-send-limit.md) | 一斉送信の回数上限をイベントごと・24時間あたり5回とし、DB で数える | Accepted |
 | [0052](./0052-contact-outbox.md) | 公開お問い合わせAPIを管理者宛メールのoutbox受付として提供する | Accepted |
 | [0053](./0053-r2-presigned-put-content-length-enforcement.md) | R2 の署名付き PUT で Content-Length を強制する | Accepted |
+| [0054](./0054-exclude-cancelled-events-from-lists.md) | 一覧系 API と sitemap で取りやめ済みのイベントを返さない | Accepted |
