@@ -1,6 +1,6 @@
 # ADR-0054: 一覧系 API と sitemap で取りやめ済みのイベントを返さない
 
-- ステータス: Accepted
+- ステータス: Accepted（決定事項 4・6 と代替案「詳細 API でも取りやめ済みを返さない」の判断は [ADR-0055](./0055-cancelled-event-detail-gone.md) により Superseded）
 - 日付: 2026-11-26
 - 関連: #311, #259, NatuEve_Web_Frontend#375, NatuEve_Web_Frontend#471, ADR-0012, ADR-0024, ADR-0027, ADR-0042, ADR-0043
 - 変更: ADR-0012 の決定事項 7（一覧でも取りやめ済みを非表示にしない）の一覧に関する部分、ADR-0024 のトレードオフにある「中止されたイベントも時間で振り分けられる」、ADR-0027 の決定事項 7（キャンセル済みを一覧に含める）とトレードオフの「キャンセル済みイベントが各 status に混ざる」、ADR-0043 のコンテキストにある「取りやめ済みも sitemap に含める」を置き換える（Supersedes, 部分的）
