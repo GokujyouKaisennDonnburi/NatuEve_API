@@ -2,8 +2,12 @@ package repository
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
 )
@@ -104,4 +108,68 @@ func TestReportPostgres_Create(t *testing.T) {
 			t.Errorf("report count = %d, want 0", reportCount)
 		}
 	})
+}
+
+// TestReportPostgres_GetByEventID はイベントとレポートの有無、取りやめの状態ごとに
+// GetByEventID の戻り値を検証する（ADR-0055）。
+func TestReportPostgres_GetByEventID(t *testing.T) {
+	db := requireTestDB(t)
+	repo := NewReportRepository(db)
+
+	profileID := insertTestProfile(t, db)
+
+	tests := []struct {
+		name       string
+		noEvent    bool // true ならイベントを作らず、存在しない ID で取得する
+		withReport bool
+		cancelled  bool
+		wantErr    error // errors.Is で照合する（nil なら正常系）
+	}{
+		{name: "正常: レポートがあれば返す", withReport: true},
+		{name: "異常: レポートが無ければ sql.ErrNoRows", wantErr: sql.ErrNoRows},
+		{name: "異常: イベントが無ければ sql.ErrNoRows", noEvent: true, wantErr: sql.ErrNoRows},
+		{name: "異常: 取りやめ済みならレポートがあっても ErrEventCancelled", withReport: true, cancelled: true, wantErr: ErrEventCancelled},
+		{name: "異常: 取りやめ済みならレポートが無くても ErrEventCancelled", cancelled: true, wantErr: ErrEventCancelled},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventID := uuid.New()
+			if !tt.noEvent {
+				eventID = insertTestEvent(t, db, profileID)
+			}
+			var reportID string
+			if tt.withReport {
+				resp, err := repo.Create(context.Background(), &model.NewReport{
+					EventID: eventID.String(),
+					Content: "テストレポート",
+				})
+				if err != nil {
+					t.Fatalf("Create() returned error: %v", err)
+				}
+				reportID = resp.ReportID
+			}
+			if tt.cancelled {
+				cancelTestEvent(t, db, eventID)
+			}
+
+			got, err := repo.GetByEventID(context.Background(), eventID.String())
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("GetByEventID() error = %v, want errors.Is(_, %v)", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetByEventID() returned error: %v", err)
+			}
+			if got.ID != reportID || got.EventID != eventID.String() || got.Content != "テストレポート" {
+				t.Errorf("got id=%q eventId=%q content=%q, want id=%q eventId=%q content=%q",
+					got.ID, got.EventID, got.Content, reportID, eventID.String(), "テストレポート")
+			}
+			if got.CreatedAt.IsZero() || got.UpdatedAt.IsZero() {
+				t.Errorf("CreatedAt / UpdatedAt がゼロ値: %v / %v", got.CreatedAt, got.UpdatedAt)
+			}
+		})
+	}
 }
