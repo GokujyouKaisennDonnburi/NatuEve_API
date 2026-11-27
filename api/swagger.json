@@ -10,7 +10,7 @@
     "paths": {
         "/api/v1/events": {
             "get": {
-                "description": "公開イベントを指定ソート順で返す。認証不要。\n取りやめ済みのイベントは返さず、totalCount にも数えない。取りやめ済みは GET /api/v1/events/{id} でのみ取得できる。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。\nprifileはProfileSummaryを返す。\nq は検索キーワード。反復指定で AND 検索になる（例: ?q=桜\u0026q=東京）。各語はタイトル/イベント詳細/\n主催者名/地域名/持ち物を横断して部分一致で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。\n照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。全角数字↔半角数字・全角英字↔半角英字・半角カナ↔全角カナ）。\ntagId はタグでの絞り込み。反復指定は OR 検索になる（例: ?tagId=A\u0026tagId=B なら A または B が付いたイベント）。\nq と同時に指定した場合は AND（キーワード条件かつタグ条件）で絞り込む。\nUUID 形式でない値・21件以上の指定は 400 を返す（値が空の tagId は未指定として無視する）。\nstatus は開催状況での絞り込み。反復指定は OR 検索になる（例: ?status=upcoming\u0026status=ongoing）。\n値は upcoming(開催前: event_date \u003e now())・ongoing(開催中: event_date \u003c= now() かつ\nend_date \u003e= now())・ended(開催後: end_date \u003c now()) の3値で、排他かつ網羅（どのイベントも必ず1つに該当）。\nq・tagId と同時に指定した場合は AND で絞り込む。許可値以外（大文字表記等）は 400 を返す\n（値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表す。\nlocation は地域での絞り込み。反復指定は OR 検索になる（例: ?location=東京都\u0026location=神奈川県）。\nq が5項目（タイトル/詳細/主催者名/地域名/持ち物）を横断するのに対し、location は地域名のみを\n対象に部分一致で判定する。q・tagId・status と同時に指定した場合は AND で絞り込む。\n照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。q と同じ規則）。\n重複指定は1件として扱い、重複除去後の件数が201件以上、または1件あたり256文字以上の指定は\n400 を返す（値が空の location は未指定として無視する）。\nlocation に送る値は正式名称で指定する。都道府県は\"京都府\"/\"東京都\"のように正式名称、\n市区町村は\"兵庫県神戸市\"のように都道府県名を前置した形で送る。部分一致のため\"京都\"のような\n略称を送ると\"東京都\"に部分一致してしまう（\"東京都\"が\"京都\"を含むため）。\"府中市\"のように\n複数県に同名の市区町村が存在するため、都道府県名の前置が必要になる。サーバー側では\n値の形式を検証しない。\n推奨: 階層UIで親（都道府県）を全選択した場合は親のみを送るとよい。部分一致のため\n\"兵庫県\"1件で配下の市区町村をすべてカバーできる。全選択の場合は location 自体を\n省略する方が速い。これは推奨であり必須ではない。\n同一 IP から平均 2回/秒・バースト30回を超えると 429 を返す。",
+                "description": "公開イベントを指定ソート順で返す。認証不要。\n取りやめ済みのイベントは返さず、totalCount にも数えない。取りやめ済みのイベントの詳細（GET /api/v1/events/{id}）とレポートは 410 Gone（event_cancelled）を返す。\nsort は \"created_at\"(デフォルト) / \"event_date\" のみ許可。不正値はデフォルトに戻す。\norder は \"desc\"(デフォルト) / \"asc\" のみ許可。不正値はデフォルトに戻す。\nprifileはProfileSummaryを返す。\nq は検索キーワード。反復指定で AND 検索になる（例: ?q=桜\u0026q=東京）。各語はタイトル/イベント詳細/\n主催者名/地域名/持ち物を横断して部分一致で判定し、全語に一致するイベントを返す。未指定なら全件（最大10語）。\n照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。全角数字↔半角数字・全角英字↔半角英字・半角カナ↔全角カナ）。\ntagId はタグでの絞り込み。反復指定は OR 検索になる（例: ?tagId=A\u0026tagId=B なら A または B が付いたイベント）。\nq と同時に指定した場合は AND（キーワード条件かつタグ条件）で絞り込む。\nUUID 形式でない値・21件以上の指定は 400 を返す（値が空の tagId は未指定として無視する）。\nstatus は開催状況での絞り込み。反復指定は OR 検索になる（例: ?status=upcoming\u0026status=ongoing）。\n値は upcoming(開催前: event_date \u003e now())・ongoing(開催中: event_date \u003c= now() かつ\nend_date \u003e= now())・ended(開催後: end_date \u003c now()) の3値で、排他かつ網羅（どのイベントも必ず1つに該当）。\nq・tagId と同時に指定した場合は AND で絞り込む。許可値以外（大文字表記等）は 400 を返す\n（値が空の status は未指定として無視する）。status は開催状況（時間軸）のみを表す。\nlocation は地域での絞り込み。反復指定は OR 検索になる（例: ?location=東京都\u0026location=神奈川県）。\nq が5項目（タイトル/詳細/主催者名/地域名/持ち物）を横断するのに対し、location は地域名のみを\n対象に部分一致で判定する。q・tagId・status と同時に指定した場合は AND で絞り込む。\n照合は大文字小文字を無視し、半角/全角も同一視する（NFKC正規化。q と同じ規則）。\n重複指定は1件として扱い、重複除去後の件数が201件以上、または1件あたり256文字以上の指定は\n400 を返す（値が空の location は未指定として無視する）。\nlocation に送る値は正式名称で指定する。都道府県は\"京都府\"/\"東京都\"のように正式名称、\n市区町村は\"兵庫県神戸市\"のように都道府県名を前置した形で送る。部分一致のため\"京都\"のような\n略称を送ると\"東京都\"に部分一致してしまう（\"東京都\"が\"京都\"を含むため）。\"府中市\"のように\n複数県に同名の市区町村が存在するため、都道府県名の前置が必要になる。サーバー側では\n値の形式を検証しない。\n推奨: 階層UIで親（都道府県）を全選択した場合は親のみを送るとよい。部分一致のため\n\"兵庫県\"1件で配下の市区町村をすべてカバーできる。全選択の場合は location 自体を\n省略する方が速い。これは推奨であり必須ではない。\n同一 IP から平均 2回/秒・バースト30回を超えると 429 を返す。",
                 "produces": [
                     "application/json"
                 ],
@@ -175,7 +175,7 @@
         },
         "/api/v1/events/{id}": {
             "get": {
-                "description": "指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。\nparticipantCount は現在申込中の参加人数の合計で、定員未設定（capacity=0）でも返す。\n未確定（pending）の申込は含まない。\n定員がある場合の残り人数は capacity - participantCount で算出する。",
+                "description": "指定されたイベントIDの詳細情報を取得する。\n取りやめ済みのイベントは 410 Gone（event_cancelled）を返す。主催者本人のリクエストでも同じ。\n410 の本文にはイベントのタイトルや取りやめ日時を含めない。\n200 の cancelledAt は常に省略される。\nparticipantCount は現在申込中の参加人数の合計で、定員未設定（capacity=0）でも返す。\n未確定（pending）の申込は含まない。\n定員がある場合の残り人数は capacity - participantCount で算出する。",
                 "produces": [
                     "application/json"
                 ],
@@ -203,6 +203,12 @@
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCancelledErrorResponse"
                         }
                     },
                     "500": {
@@ -373,7 +379,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → ゲスト参加。申込は未確定（pending）として保存され、\n申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで\n参加者一覧・参加人数・定員判定には含まれない。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → ログイン参加として即時確定する。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nparticipants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。\n定員判定は確定済みの申込だけを数える。\n未ログインで申込済みのメールアドレスから再申込した場合は、新規申込と同じ 201 と\n本文の形で応答し（既存申込の内容は返さない）、そのアドレスに\n「すでに申込まれています」の案内メールを送信する。\nログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある場合\n（自分以外の申込を含む）は 409 already_joined を返す（案内メールは送らない）。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。\n申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。\n確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。",
+                "description": "認証は任意。ログイン時のみ profileId が記録される。\nAuthorization ヘッダなし → ゲスト参加。申込は未確定（pending）として保存され、\n申込者のメールアドレスに確認メールが送信される。確認トークンで確定するまで\n参加者一覧・参加人数・定員判定には含まれない。\nヘッダありでトークンが無効 → 401 で中断。\nヘッダありで有効 → ログイン参加として即時確定する。\n参加人数はカテゴリ別の内訳（participants）で送る。カテゴリにはイベントの費用カテゴリ名\n（イベント詳細の costs[].category）を指定する。大文字小文字は区別しない。\n合計人数（partySize）はサーバーが内訳から算出するため、リクエストでは送らない。\n0人のカテゴリは送らない。存在しないカテゴリ・重複カテゴリ・0以下の人数は400を返す。\nparticipants の headCount の合計が10人を超える場合は400（party_size_exceeded）を返す。\nイベント定員を超える場合は409 Conflict（capacity_full）を返す（合計10人以下の申込に限る）。\n定員判定は確定済みの申込だけを数える。\n未ログインで申込済みのメールアドレスから再申込した場合は、新規申込と同じ 201 と\n本文の形で応答し（既存申込の内容は返さない）、そのアドレスに\n「すでに申込まれています」の案内メールを送信する。\nログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある場合\n（自分以外の申込を含む）は 409 already_joined を返す（案内メールは送らない）。\n申込期限ありイベントで期限経過後に呼ぶと 409 Conflict（deadline_passed）を返す。\n申込期限なしイベントは終了日時（endDate）経過後の呼び出しで 409 Conflict（event_ended）を返す。\n取りやめ済みのイベントへの申込は 409 Conflict（event_cancelled）を返す。\n確認・案内メールは outbox に予約され、非同期で送信される（レスポンスには含まれない）。",
                 "consumes": [
                     "application/json"
                 ],
@@ -428,7 +434,7 @@
                         }
                     },
                     "409": {
-                        "description": "already_joined: ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後",
+                        "description": "already_joined: ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full: 定員に達しています / deadline_passed: 申込期限経過後 / event_ended: イベント終了後 / event_cancelled: イベント取消済み",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.JoinConflictErrorResponse"
                         }
@@ -963,7 +969,7 @@
         },
         "/api/v1/events/{id}/report": {
             "get": {
-                "description": "指定したイベントIDに紐づくレポートを取得する。1イベント1レポート。認証不要。",
+                "description": "指定したイベントIDに紐づくレポートを取得する。1イベント1レポート。認証不要。\nイベントが取りやめ済みなら、レポートの有無にかかわらず 410 Gone（event_cancelled）を返す。",
                 "produces": [
                     "application/json"
                 ],
@@ -991,6 +997,12 @@
                         "description": "Not Found",
                         "schema": {
                             "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.NotFoundErrorResponse"
+                        }
+                    },
+                    "410": {
+                        "description": "Gone",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCancelledErrorResponse"
                         }
                     },
                     "500": {
@@ -2185,6 +2197,32 @@
                 }
             }
         },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCancelledErrorBody": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "description": "Code は機械可読なエラーコード。常に event_cancelled。",
+                    "type": "string",
+                    "enum": [
+                        "event_cancelled"
+                    ],
+                    "example": "event_cancelled"
+                },
+                "message": {
+                    "description": "Message は人間向けのエラーメッセージ。",
+                    "type": "string",
+                    "example": "このイベントは削除されました"
+                }
+            }
+        },
+        "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCancelledErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "$ref": "#/definitions/github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCancelledErrorBody"
+                }
+            }
+        },
         "github_com_GokujyouKaisennDonnburi_NatuEve_API_internal_model.EventCostInput": {
             "type": "object",
             "required": [
@@ -2341,7 +2379,7 @@
                     "type": "string"
                 },
                 "cancelledAt": {
-                    "description": "CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。",
+                    "description": "CancelledAt はイベントが取りやめになった日時(RFC3339)。nil の場合は開催予定。\n詳細 API は取りやめ済みのイベントに 410 を返すため、現在は常に省略される（ADR-0055）。",
                     "type": "string"
                 },
                 "capacity": {
@@ -2591,18 +2629,19 @@
             "type": "object",
             "properties": {
                 "code": {
-                    "description": "Code は競合の原因を表す機械可読なエラーコード。\nalready_joined = ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full = 定員到達 /\ndeadline_passed = 申込期限経過後 / event_ended = イベント終了後。\n申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0049）。",
+                    "description": "Code は競合の原因を表す機械可読なエラーコード。\nalready_joined = ログイン中で同一プロフィールまたは同一メールアドレスの申込が既にある / capacity_full = 定員到達 /\ndeadline_passed = 申込期限経過後 / event_ended = イベント終了後 / event_cancelled = イベント取消済み。\n申込済みメールアドレスでの再申込は、既存申込の有無を返さないため already_joined にしない（ADR-0049）。",
                     "type": "string",
                     "enum": [
                         "already_joined",
                         "capacity_full",
                         "deadline_passed",
-                        "event_ended"
+                        "event_ended",
+                        "event_cancelled"
                     ],
                     "example": "already_joined"
                 },
                 "message": {
-                    "description": "Message は人間向けのエラーメッセージ。\nalready_joined なら「既に参加しています」、capacity_full なら「定員に達しています」、\ndeadline_passed なら「申込期限を過ぎているため申し込めません」、\nevent_ended なら「イベントは終了しているため申し込めません」。",
+                    "description": "Message は人間向けのエラーメッセージ。\nalready_joined なら「既に参加しています」、capacity_full なら「定員に達しています」、\ndeadline_passed なら「申込期限を過ぎているため申し込めません」、\nevent_ended なら「イベントは終了しているため申し込めません」、\nevent_cancelled なら「このイベントはキャンセルされているため参加できません」。",
                     "type": "string",
                     "example": "既に参加しています"
                 }

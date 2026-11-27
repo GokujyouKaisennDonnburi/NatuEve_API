@@ -27,7 +27,7 @@
 | [0009](./0009-participation-log-event-not-found-status.md) | 参加状態ログ追加のイベント不存在は 404 で返す | Accepted |
 | [0010](./0010-uuid-parse-in-handler-layer.md) | UUID パースは handler 層に集約し、service 層は uuid.UUID を受け取る | Accepted |
 | [0011](./0011-event-leave-authenticated-only.md) | イベント参加キャンセルはログイン参加者に限定する | Accepted |
-| [0012](./0012-event-cancellation.md) | イベントキャンセル（開催取りやめ）の状態管理と API 設計 | Accepted（一部 ADR-0016・ADR-0054 で置換） |
+| [0012](./0012-event-cancellation.md) | イベントキャンセル（開催取りやめ）の状態管理と API 設計 | Accepted（一部 ADR-0016・ADR-0054・ADR-0055 で置換） |
 | [0013](./0013-event-tag-association-on-create.md) | イベント投稿時のタグ紐づけ設計 | Accepted |
 | [0014](./0014-event-tag-exposure-on-detail.md) | イベント詳細レスポンスでのタグ公開設計 | Accepted（本番構成の前提を ADR-0032 で更新） |
 | [0015](./0015-event-tag-exposure-on-list.md) | イベント一覧レスポンスでのタグ公開設計 | Accepted（本番構成の前提を ADR-0032 で更新） |
@@ -70,4 +70,5 @@
 | [0051](./0051-notification-send-limit.md) | 一斉送信の回数上限をイベントごと・24時間あたり5回とし、DB で数える | Accepted |
 | [0052](./0052-contact-outbox.md) | 公開お問い合わせAPIを管理者宛メールのoutbox受付として提供する | Accepted |
 | [0053](./0053-r2-presigned-put-content-length-enforcement.md) | R2 の署名付き PUT で Content-Length を強制する | Accepted |
-| [0054](./0054-exclude-cancelled-events-from-lists.md) | 一覧系 API と sitemap で取りやめ済みのイベントを返さない | Accepted |
+| [0054](./0054-exclude-cancelled-events-from-lists.md) | 一覧系 API と sitemap で取りやめ済みのイベントを返さない | Accepted（一部 ADR-0055 で置換） |
+| [0055](./0055-cancelled-event-detail-gone.md) | 取りやめ済みのイベントの詳細とレポートは 410 を返す | Accepted |

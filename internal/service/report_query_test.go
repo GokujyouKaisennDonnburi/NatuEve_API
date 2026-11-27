@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/model"
+	"github.com/GokujyouKaisennDonnburi/NatuEve_API/internal/repository"
 )
 
 func TestReportQueryServiceGetByEventID(t *testing.T) {
@@ -81,6 +82,12 @@ func TestReportQueryServiceGetByEventID(t *testing.T) {
 			wantErr:       ErrReportNotFound,
 		},
 		{
+			name:          "異常: イベント取りやめ済みは ErrEventCancelled に変換する",
+			publicBaseURL: baseURL,
+			repoErr:       fmt.Errorf("get report by event id %s: %w", eventID, repository.ErrEventCancelled),
+			wantErr:       ErrEventCancelled,
+		},
+		{
 			name:          "異常: その他のエラーはそのまま伝播する",
 			publicBaseURL: baseURL,
 			repoErr:       errors.New("db error"),
@@ -107,7 +114,7 @@ func TestReportQueryServiceGetByEventID(t *testing.T) {
 					t.Errorf("エラー種別: got %v, want errors.Is(_, %v)", err, tt.wantErr)
 				}
 				// sql.ErrNoRows 以外のエラーが ErrReportNotFound に誤変換されないこと。
-				if tt.wantErr == nil && errors.Is(err, ErrReportNotFound) {
+				if !errors.Is(tt.wantErr, ErrReportNotFound) && errors.Is(err, ErrReportNotFound) {
 					t.Errorf("ErrReportNotFound に誤変換された: %v", err)
 				}
 				return

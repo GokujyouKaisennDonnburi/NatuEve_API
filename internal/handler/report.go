@@ -82,11 +82,13 @@ func (h *ReportHandler) Create(c *gin.Context) {
 //
 //	@Summary		レポート取得
 //	@Description	指定したイベントIDに紐づくレポートを取得する。1イベント1レポート。認証不要。
+//	@Description	イベントが取りやめ済みなら、レポートの有無にかかわらず 410 Gone（event_cancelled）を返す。
 //	@Tags			report
 //	@Produce		json
 //	@Param			id	path		string	true	"イベントID"
 //	@Success		200	{object}	model.ReportResponse
 //	@Failure		404	{object}	model.NotFoundErrorResponse
+//	@Failure		410	{object}	model.EventCancelledErrorResponse
 //	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id}/report [get]
 func (h *ReportHandler) GetByEventID(c *gin.Context) {
@@ -100,6 +102,10 @@ func (h *ReportHandler) GetByEventID(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, service.ErrReportNotFound) {
 			c.JSON(http.StatusNotFound, model.NewErrorResponse("not_found", "レポートが見つかりません"))
+			return
+		}
+		if errors.Is(err, service.ErrEventCancelled) {
+			c.JSON(http.StatusGone, model.NewErrorResponse("event_cancelled", "このイベントは削除されました"))
 			return
 		}
 		c.JSON(http.StatusInternalServerError, model.NewErrorResponse("internal_error", "レポートの取得に失敗しました"))

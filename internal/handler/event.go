@@ -43,7 +43,7 @@ func NewEventHandler(
 //
 //	@Summary		イベント一覧取得
 //	@Description	公開イベントを指定ソート順で返す。認証不要。
-//	@Description	取りやめ済みのイベントは返さず、totalCount にも数えない。取りやめ済みは GET /api/v1/events/{id} でのみ取得できる。
+//	@Description	取りやめ済みのイベントは返さず、totalCount にも数えない。取りやめ済みのイベントの詳細（GET /api/v1/events/{id}）とレポートは 410 Gone（event_cancelled）を返す。
 //	@Description	sort は "created_at"(デフォルト) / "event_date" のみ許可。不正値はデフォルトに戻す。
 //	@Description	order は "desc"(デフォルト) / "asc" のみ許可。不正値はデフォルトに戻す。
 //	@Description	prifileはProfileSummaryを返す。
@@ -254,7 +254,10 @@ func queryInt(c *gin.Context, key string, defaultVal int) int {
 // GetByID godoc
 //
 //	@Summary		イベント詳細取得
-//	@Description	指定されたイベントIDの詳細情報を取得する。cancelledAt が null 以外の場合は開催取りやめ。
+//	@Description	指定されたイベントIDの詳細情報を取得する。
+//	@Description	取りやめ済みのイベントは 410 Gone（event_cancelled）を返す。主催者本人のリクエストでも同じ。
+//	@Description	410 の本文にはイベントのタイトルや取りやめ日時を含めない。
+//	@Description	200 の cancelledAt は常に省略される。
 //	@Description	participantCount は現在申込中の参加人数の合計で、定員未設定（capacity=0）でも返す。
 //	@Description	未確定（pending）の申込は含まない。
 //	@Description	定員がある場合の残り人数は capacity - participantCount で算出する。
@@ -263,6 +266,7 @@ func queryInt(c *gin.Context, key string, defaultVal int) int {
 //	@Param			id	path	string	true	"イベントID"
 //	@Success		200	{object}	model.EventResponse
 //	@Failure		404	{object}	model.NotFoundErrorResponse
+//	@Failure		410	{object}	model.EventCancelledErrorResponse
 //	@Failure		500	{object}	model.InternalErrorResponse
 //	@Router			/api/v1/events/{id} [get]
 func (h *EventHandler) GetByID(c *gin.Context) {
@@ -279,6 +283,10 @@ func (h *EventHandler) GetByID(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, service.ErrEventNotFound) {
 			c.JSON(http.StatusNotFound, model.NewErrorResponse("not_found", "イベントが見つかりません"))
+			return
+		}
+		if errors.Is(err, service.ErrEventCancelled) {
+			c.JSON(http.StatusGone, model.NewErrorResponse("event_cancelled", "このイベントは削除されました"))
 			return
 		}
 		c.JSON(http.StatusInternalServerError, model.NewErrorResponse(

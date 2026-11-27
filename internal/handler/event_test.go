@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -93,5 +94,89 @@ func TestEventHandler_ListSitemapEvents(t *testing.T) {
 				t.Errorf("body = %s, want %s", w.Body.String(), tt.wantBody)
 			}
 		})
+	}
+}
+
+// stubGetByIDEventRepo は GetByID だけを実装するスタブ。
+// 他のメソッドは埋め込んだ nil インターフェースを経由するため、呼ばれると panic する。
+type stubGetByIDEventRepo struct {
+	repository.EventRepository
+	event *model.EventResponse
+	err   error
+}
+
+func (s *stubGetByIDEventRepo) GetByID(context.Context, string) (*model.EventResponse, error) {
+	return s.event, s.err
+}
+
+func TestEventHandler_GetByID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const eventID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+	cancelledAt := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name       string
+		repo       *stubGetByIDEventRepo
+		wantStatus int
+		wantBody   string // 空なら本文を比較しない
+	}{
+		{
+			name:       "正常: 取りやめていないイベントは 200",
+			repo:       &stubGetByIDEventRepo{event: &model.EventResponse{ID: eventID, Title: "観察会"}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "異常: 取りやめ済みは 410 でイベントの内容を返さない",
+			repo:       &stubGetByIDEventRepo{event: &model.EventResponse{ID: eventID, Title: "観察会", CancelledAt: &cancelledAt}},
+			wantStatus: http.StatusGone,
+			wantBody:   `{"error":{"code":"event_cancelled","message":"このイベントは削除されました"}}`,
+		},
+		{
+			name:       "異常: 存在しないイベントは 404",
+			repo:       &stubGetByIDEventRepo{err: sql.ErrNoRows},
+			wantStatus: http.StatusNotFound,
+			wantBody:   `{"error":{"code":"not_found","message":"イベントが見つかりません"}}`,
+		},
+		{
+			name:       "異常: 取得失敗は 500",
+			repo:       &stubGetByIDEventRepo{err: errors.New("db error")},
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   `{"error":{"code":"internal_error","message":"イベントの取得に失敗しました"}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewEventHandler(service.NewEventQueryService(tt.repo, ""), nil, nil, nil)
+			r := gin.New()
+			r.GET("/api/v1/events/:id", h.GetByID)
+
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/events/"+eventID, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body: %s)", w.Code, tt.wantStatus, w.Body.String())
+			}
+			if tt.wantBody != "" {
+				assertJSONEqual(t, w.Body.Bytes(), tt.wantBody)
+			}
+		})
+	}
+}
+
+// assertJSONEqual はレスポンス本文が want と JSON として一致することを確かめる。
+func assertJSONEqual(t *testing.T, body []byte, want string) {
+	t.Helper()
+	var got, wantValue any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("failed to parse response body %q: %v", body, err)
+	}
+	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
+		t.Fatalf("failed to parse want %q: %v", want, err)
+	}
+	if !reflect.DeepEqual(got, wantValue) {
+		t.Errorf("body = %s, want %s", body, want)
 	}
 }
